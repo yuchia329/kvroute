@@ -120,9 +120,13 @@ type Characterization struct {
 	Model    string    `json:"model"`
 	Workload string    `json:"workload"`
 
-	Capacity    Capacity     `json:"capacity"`
-	WorkingSets []WorkingSet `json:"working_sets"`
-	Topology    gpu.Topology `json:"topology"`
+	Capacity Capacity `json:"capacity"`
+	// SessionTokens is the divisor that turns fleet capacity into a resident
+	// session count. Recorded because the WS points below mean nothing without
+	// it, and a re-derivation has to use the one the run used.
+	SessionTokens int          `json:"session_tokens"`
+	WorkingSets   []WorkingSet `json:"working_sets"`
+	Topology      gpu.Topology `json:"topology"`
 
 	Floor         Floor        `json:"floor"`
 	SLO           DerivedSLO   `json:"slo"`
@@ -176,10 +180,6 @@ func Run(ctx context.Context, cfg Config) (Characterization, error) {
 		return Characterization{}, err
 	}
 	c.Capacity = capacity
-	c.WorkingSets = capacity.WorkingSets(cfg.SessionTokens, WorkingSetPoints)
-	if !capacity.Uniform {
-		c.flag("the replicas do not report the same KV capacity, so the fleet aggregate hides a difference between cards")
-	}
 	cfg.Log.Info("fleet KV capacity",
 		"tokens", capacity.Tokens, "per_replica", capacity.Replicas[0].Tokens,
 		"estimated", capacity.EstimatedTokens, "gap", fmt.Sprintf("%+.1f%%", capacity.Gap*100))
@@ -197,8 +197,6 @@ func Run(ctx context.Context, cfg Config) (Characterization, error) {
 			cfg.Log.Info("NUMA placement", "node", group.Node, "gpus", group.GPUs,
 				"threads_per_gpu", group.ThreadsPerGPU)
 		}
-	} else {
-		c.flag("no GPU prober, so the host topology was not recorded and no symmetry result can be read against it")
 	}
 
 	if err := bench.WarmReplicas(ctx, bench.WarmConfig{
@@ -217,38 +215,13 @@ func Run(ctx context.Context, cfg Config) (Characterization, error) {
 		return c, err
 	}
 
-	// One pass, three answers. The concurrency-1 rows pooled across replicas are
-	// the hardware floor; the same rows split by replica are half the symmetry
-	// comparison; the SLO follows from the floor. Measuring them separately
-	// would derive an SLO from a fleet in one state and judge symmetry on a
-	// fleet in another.
-	c.Floor = NewFloor(rowsAt(rows, 1), len(cfg.Replicas),
-		PoolPrefixCache(probes, func(p Probe) bool { return p.Concurrency == 1 }), cfg.MaxPrefixHitRate)
-	if usable, why := c.Floor.Usable(); !usable {
-		c.flag("the latency floor is not usable, so the SLO derived from it is not either: " + why)
-	}
-	c.SLO = c.Floor.Derive(cfg.SLOMultiple)
-	c.SLOCandidates = c.Floor.Candidates(SLOCandidateMultiples)
+	// Everything from here is derived from the rows, so it is one function that
+	// a re-derivation calls too. Splitting the analysis from the measurement is
+	// what lets a definition be corrected without spending another hour of GPU
+	// time re-measuring a fleet that has not changed.
+	c = Analyse(c, rows, cfg.analysisOptions())
 	cfg.Log.Info("latency floor measured", "ttft_p50", c.Floor.TTFT(), "itl_p50", c.Floor.ITL(),
 		"requests", c.Floor.Successes, "slo", c.SLO.String())
-
-	c.Symmetry = CompareReplicas(rows, placements, c.Topology, cfg.Tolerance)
-	switch {
-	case c.Symmetry.Escalation != EscalationNone:
-		c.flag(fmt.Sprintf("the replicas are not interchangeable, so §10's escalation is due (%s): %v",
-			c.Symmetry.Escalation, c.Symmetry.Findings))
-	case !c.Symmetry.Resolved:
-		// Not the same thing as a difference. The fleet may be even or it may
-		// not; this run could not tell, and a phase gate that reads "no
-		// escalation needed" off it would be reading nothing.
-		c.flag(fmt.Sprintf("replica symmetry is unresolved at one or more levels: %v", c.Symmetry.Findings))
-	}
-	// One line per distinct reason, not per probe. GPU sampling being off
-	// flags all twenty-four identically, and twenty-four copies of the same
-	// sentence is how a flag stops being read.
-	for _, reason := range flaggedProbes(probes) {
-		c.flag(reason)
-	}
 
 	if err := writeJSON(filepath.Join(cfg.Dir, "characterization.json"), c); err != nil {
 		return c, err
@@ -390,30 +363,37 @@ func runProbe(ctx context.Context, cfg Config, p Placement, concurrency, repetit
 	return probe, results, nil
 }
 
-// flaggedProbes collapses the probes' flag reasons into one line per distinct
+// flaggedProbes collapses the probes' flag reasons into one line per kind of
 // reason, naming how many probes carried it and a few of them.
+//
+// Grouped by kind rather than by the sentence, because the sentences carry the
+// numbers that made them fire: four probes that were all still warming up say
+// so with four different percentages in them, and grouping on the whole string
+// would print "1 of 36 probes flagged" four times over.
 func flaggedProbes(probes []Probe) []string {
 	var order []string
 	carriers := map[string][]string{}
+	examples := map[string]string{}
 	for _, probe := range probes {
 		for _, reason := range probe.FlagReasons {
-			if _, seen := carriers[reason]; !seen {
-				order = append(order, reason)
+			kind, _, _ := strings.Cut(reason, ":")
+			if _, seen := carriers[kind]; !seen {
+				order = append(order, kind)
+				examples[kind] = reason
 			}
-			carriers[reason] = append(carriers[reason], probe.ID)
+			carriers[kind] = append(carriers[kind], probe.ID)
 		}
 	}
 
 	out := make([]string, 0, len(order))
-	for _, reason := range order {
-		ids := carriers[reason]
-		named := ids
-		suffix := ""
+	for _, kind := range order {
+		ids := carriers[kind]
+		named, suffix := ids, ""
 		if len(named) > 3 {
 			named, suffix = named[:3], fmt.Sprintf(" and %d more", len(ids)-3)
 		}
 		out = append(out, fmt.Sprintf("%d of %d probes flagged: %s (%s%s)",
-			len(ids), len(probes), reason, strings.Join(named, ", "), suffix))
+			len(ids), len(probes), examples[kind], strings.Join(named, ", "), suffix))
 	}
 	return out
 }
@@ -427,6 +407,101 @@ func rowsAt(rows []bench.Result, concurrency int) []bench.Result {
 		}
 	}
 	return out
+}
+
+// AnalysisOptions are the judgements the analysis applies to the rows: the
+// thresholds and the multiple. They are recorded so a re-derivation applies the
+// same ones the run did unless it is deliberately changing them.
+type AnalysisOptions struct {
+	SessionTokens    int
+	SLOMultiple      float64
+	Tolerance        float64
+	MaxPrefixHitRate float64
+}
+
+func (cfg Config) analysisOptions() AnalysisOptions {
+	return AnalysisOptions{
+		SessionTokens:    cfg.SessionTokens,
+		SLOMultiple:      cfg.SLOMultiple,
+		Tolerance:        cfg.Tolerance,
+		MaxPrefixHitRate: cfg.MaxPrefixHitRate,
+	}
+}
+
+// Options reads the analysis back off a record, so re-deriving it applies what
+// the run applied rather than whatever the defaults happen to be now.
+func (c Characterization) Options() AnalysisOptions {
+	return AnalysisOptions{
+		SessionTokens:    c.SessionTokens,
+		SLOMultiple:      c.SLO.Multiple,
+		Tolerance:        c.Symmetry.Tolerance,
+		MaxPrefixHitRate: c.Floor.MaxPrefixHitRate,
+	}
+}
+
+// Analyse computes everything the record says beyond what was measured
+// directly: the working set rescaling, the latency floor, the SLO derived from
+// it, the symmetry verdict, and every flag.
+//
+// One pass, three answers. The concurrency-1 rows pooled across replicas are
+// the hardware floor; the same rows split by replica are half the symmetry
+// comparison; the SLO follows from the floor. Measuring them separately would
+// derive an SLO from a fleet in one state and judge symmetry on a fleet in
+// another.
+//
+// It rebuilds the flags from scratch rather than adding to them, so running it
+// twice on the same record says the same thing twice.
+func Analyse(c Characterization, rows []bench.Result, opts AnalysisOptions) Characterization {
+	if opts.SessionTokens <= 0 {
+		opts.SessionTokens = DefaultSessionTokens
+	}
+	if opts.SLOMultiple <= 0 {
+		opts.SLOMultiple = DefaultSLOMultiple
+	}
+	if opts.Tolerance <= 0 {
+		opts.Tolerance = DefaultSymmetryTolerance
+	}
+	if opts.MaxPrefixHitRate <= 0 {
+		opts.MaxPrefixHitRate = MaxFloorPrefixHitRate
+	}
+	c.Flagged, c.FlagReasons = false, nil
+	c.SessionTokens = opts.SessionTokens
+	c.WorkingSets = c.Capacity.WorkingSets(opts.SessionTokens, WorkingSetPoints)
+
+	if len(c.Capacity.Replicas) > 0 && !c.Capacity.Uniform {
+		c.flag("the replicas do not report the same KV capacity, so the fleet aggregate hides a difference between cards")
+	}
+	if len(c.Topology.GPUs) == 0 {
+		c.flag("the host topology was not recorded, so no symmetry result can be read against it")
+	}
+
+	c.Floor = NewFloor(rowsAt(rows, 1), len(c.Capacity.Replicas),
+		PoolPrefixCache(c.Probes, func(p Probe) bool { return p.Concurrency == 1 }), opts.MaxPrefixHitRate)
+	if usable, why := c.Floor.Usable(); !usable {
+		c.flag("the latency floor is not usable, so the SLO derived from it is not either: " + why)
+	}
+	c.SLO = c.Floor.Derive(opts.SLOMultiple)
+	c.SLOCandidates = c.Floor.Candidates(SLOCandidateMultiples)
+
+	replicaIDs := make([]string, 0, len(c.Capacity.Replicas))
+	for _, r := range c.Capacity.Replicas {
+		replicaIDs = append(replicaIDs, r.ReplicaID)
+	}
+	c.Symmetry = CompareReplicas(rows, Placements(replicaIDs, c.Topology), c.Topology, opts.Tolerance)
+	switch {
+	case c.Symmetry.Escalation != EscalationNone:
+		c.flag(fmt.Sprintf("the replicas are not interchangeable, so §10's escalation is due (%s): %s",
+			c.Symmetry.Escalation, strings.Join(c.Symmetry.Findings, "; ")))
+	case !c.Symmetry.Resolved:
+		// Not the same thing as a difference. The fleet may be even or it may
+		// not; this run could not tell, and a phase gate that reads "no
+		// escalation needed" off it would be reading nothing.
+		c.flag("replica symmetry is unresolved at one or more levels: " + strings.Join(c.Symmetry.Findings, "; "))
+	}
+	for _, reason := range flaggedProbes(c.Probes) {
+		c.flag(reason)
+	}
+	return c
 }
 
 func (c *Characterization) flag(reason string) {

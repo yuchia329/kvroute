@@ -64,11 +64,24 @@ The venv resolved to `vllm 0.28.0` on `torch 2.13.0+cu130`, matching `idea.md` �
 capacity on one replica was **119,408 tokens**, against `idea.md` §2's hand estimate of ~114,700 —
 within 4%.
 
-> **Superseded, 2026-09-06.** A six-replica bring-up under `ops/fleet.sh` reported **125,952
-> tokens on every replica** with these same settings — 5.5% above the figure recorded here. Six
-> agreeing replicas is the stronger measurement, but the gap is unexplained. It does not affect
-> this ADR's decision, which is about which kernel runs; it does affect every working set ratio,
-> and reconciling it against `num_gpu_blocks` is an acceptance criterion of #10.
+> **Superseded, 2026-09-06, and explained, 2026-09-07.** A six-replica bring-up under
+> `ops/fleet.sh` reported **125,952 tokens on every replica** with these same settings — 5.5% above
+> the figure recorded here. The gap is the `torch.compile` cache, and it reproduces exactly:
+>
+> | | KV cache | engine init | compilation |
+> |---|---:|---:|---:|
+> | Warm compile cache | 125,952 tokens | 12.76 s | 0.26 s |
+> | Cold compile cache (`VLLM_CACHE_ROOT` moved aside) | **119,408 tokens** | 38.55 s | **19.24 s** |
+> | This ADR's first contact | **119,408 tokens** | 37.5 s | **18.2 s** |
+>
+> vLLM sizes the KV cache from the memory left free after its profiling pass, and on a cold cache
+> `torch.compile` is still holding about 0.8 GiB when that pass runs. The figure recorded here was
+> not wrong; it was measured on a fleet that had never compiled this model before.
+>
+> **The consequence is that KV capacity is not a property of the engine settings alone.** It is why
+> `cmd/characterize` reads `num_gpu_blocks` off every replica at runtime, per run, rather than
+> trusting a constant or a startup log from some earlier bring-up — see
+> [the characterization](../measurements/2026-09-07-characterization/) and §2's capacity math.
 
 Two corrections the live replica forced on `idea.md` §4.6, both caught by the contract test rather
 than in a later sweep:

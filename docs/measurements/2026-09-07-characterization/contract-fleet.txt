@@ -1,0 +1,87 @@
+=== RUN   TestLiveReplicaHonoursTheContract
+=== RUN   TestLiveReplicaHonoursTheContract/replica-0
+=== RUN   TestLiveReplicaHonoursTheContract/replica-0/health_endpoint_answers
+=== RUN   TestLiveReplicaHonoursTheContract/replica-0/non-streaming_completion
+=== RUN   TestLiveReplicaHonoursTheContract/replica-0/streaming_completion
+=== RUN   TestLiveReplicaHonoursTheContract/replica-0/malformed_request_errors_with_a_JSON_body
+=== RUN   TestLiveReplicaHonoursTheContract/replica-0/metrics_expose_every_family_the_router_depends_on
+=== RUN   TestLiveReplicaHonoursTheContract/replica-0/cache_config_carries_a_KV_capacity_that_can_be_read
+=== RUN   TestLiveReplicaHonoursTheContract/replica-1
+=== RUN   TestLiveReplicaHonoursTheContract/replica-1/health_endpoint_answers
+=== RUN   TestLiveReplicaHonoursTheContract/replica-1/non-streaming_completion
+=== RUN   TestLiveReplicaHonoursTheContract/replica-1/streaming_completion
+=== RUN   TestLiveReplicaHonoursTheContract/replica-1/malformed_request_errors_with_a_JSON_body
+=== RUN   TestLiveReplicaHonoursTheContract/replica-1/metrics_expose_every_family_the_router_depends_on
+=== RUN   TestLiveReplicaHonoursTheContract/replica-1/cache_config_carries_a_KV_capacity_that_can_be_read
+=== RUN   TestLiveReplicaHonoursTheContract/replica-2
+=== RUN   TestLiveReplicaHonoursTheContract/replica-2/health_endpoint_answers
+=== RUN   TestLiveReplicaHonoursTheContract/replica-2/non-streaming_completion
+=== RUN   TestLiveReplicaHonoursTheContract/replica-2/streaming_completion
+=== RUN   TestLiveReplicaHonoursTheContract/replica-2/malformed_request_errors_with_a_JSON_body
+=== RUN   TestLiveReplicaHonoursTheContract/replica-2/metrics_expose_every_family_the_router_depends_on
+=== RUN   TestLiveReplicaHonoursTheContract/replica-2/cache_config_carries_a_KV_capacity_that_can_be_read
+=== RUN   TestLiveReplicaHonoursTheContract/replica-3
+=== RUN   TestLiveReplicaHonoursTheContract/replica-3/health_endpoint_answers
+=== RUN   TestLiveReplicaHonoursTheContract/replica-3/non-streaming_completion
+=== RUN   TestLiveReplicaHonoursTheContract/replica-3/streaming_completion
+=== RUN   TestLiveReplicaHonoursTheContract/replica-3/malformed_request_errors_with_a_JSON_body
+=== RUN   TestLiveReplicaHonoursTheContract/replica-3/metrics_expose_every_family_the_router_depends_on
+=== RUN   TestLiveReplicaHonoursTheContract/replica-3/cache_config_carries_a_KV_capacity_that_can_be_read
+=== RUN   TestLiveReplicaHonoursTheContract/replica-4
+=== RUN   TestLiveReplicaHonoursTheContract/replica-4/health_endpoint_answers
+=== RUN   TestLiveReplicaHonoursTheContract/replica-4/non-streaming_completion
+=== RUN   TestLiveReplicaHonoursTheContract/replica-4/streaming_completion
+=== RUN   TestLiveReplicaHonoursTheContract/replica-4/malformed_request_errors_with_a_JSON_body
+=== RUN   TestLiveReplicaHonoursTheContract/replica-4/metrics_expose_every_family_the_router_depends_on
+=== RUN   TestLiveReplicaHonoursTheContract/replica-4/cache_config_carries_a_KV_capacity_that_can_be_read
+=== RUN   TestLiveReplicaHonoursTheContract/replica-5
+=== RUN   TestLiveReplicaHonoursTheContract/replica-5/health_endpoint_answers
+=== RUN   TestLiveReplicaHonoursTheContract/replica-5/non-streaming_completion
+=== RUN   TestLiveReplicaHonoursTheContract/replica-5/streaming_completion
+=== RUN   TestLiveReplicaHonoursTheContract/replica-5/malformed_request_errors_with_a_JSON_body
+=== RUN   TestLiveReplicaHonoursTheContract/replica-5/metrics_expose_every_family_the_router_depends_on
+=== RUN   TestLiveReplicaHonoursTheContract/replica-5/cache_config_carries_a_KV_capacity_that_can_be_read
+--- PASS: TestLiveReplicaHonoursTheContract (1.28s)
+    --- PASS: TestLiveReplicaHonoursTheContract/replica-0 (0.23s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-0/health_endpoint_answers (0.00s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-0/non-streaming_completion (0.11s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-0/streaming_completion (0.09s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-0/malformed_request_errors_with_a_JSON_body (0.01s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-0/metrics_expose_every_family_the_router_depends_on (0.01s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-0/cache_config_carries_a_KV_capacity_that_can_be_read (0.01s)
+    --- PASS: TestLiveReplicaHonoursTheContract/replica-1 (0.20s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-1/health_endpoint_answers (0.01s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-1/non-streaming_completion (0.09s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-1/streaming_completion (0.07s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-1/malformed_request_errors_with_a_JSON_body (0.01s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-1/metrics_expose_every_family_the_router_depends_on (0.01s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-1/cache_config_carries_a_KV_capacity_that_can_be_read (0.01s)
+    --- PASS: TestLiveReplicaHonoursTheContract/replica-2 (0.19s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-2/health_endpoint_answers (0.00s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-2/non-streaming_completion (0.11s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-2/streaming_completion (0.05s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-2/malformed_request_errors_with_a_JSON_body (0.01s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-2/metrics_expose_every_family_the_router_depends_on (0.01s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-2/cache_config_carries_a_KV_capacity_that_can_be_read (0.01s)
+    --- PASS: TestLiveReplicaHonoursTheContract/replica-3 (0.22s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-3/health_endpoint_answers (0.00s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-3/non-streaming_completion (0.11s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-3/streaming_completion (0.08s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-3/malformed_request_errors_with_a_JSON_body (0.01s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-3/metrics_expose_every_family_the_router_depends_on (0.01s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-3/cache_config_carries_a_KV_capacity_that_can_be_read (0.01s)
+    --- PASS: TestLiveReplicaHonoursTheContract/replica-4 (0.24s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-4/health_endpoint_answers (0.00s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-4/non-streaming_completion (0.13s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-4/streaming_completion (0.08s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-4/malformed_request_errors_with_a_JSON_body (0.01s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-4/metrics_expose_every_family_the_router_depends_on (0.01s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-4/cache_config_carries_a_KV_capacity_that_can_be_read (0.01s)
+    --- PASS: TestLiveReplicaHonoursTheContract/replica-5 (0.20s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-5/health_endpoint_answers (0.00s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-5/non-streaming_completion (0.10s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-5/streaming_completion (0.07s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-5/malformed_request_errors_with_a_JSON_body (0.01s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-5/metrics_expose_every_family_the_router_depends_on (0.01s)
+        --- PASS: TestLiveReplicaHonoursTheContract/replica-5/cache_config_carries_a_KV_capacity_that_can_be_read (0.01s)
+PASS

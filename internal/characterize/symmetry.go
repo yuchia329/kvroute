@@ -126,11 +126,18 @@ type LevelComparison struct {
 	// between replicas. Negative when there was only one repetition and there
 	// is therefore nothing to estimate it from.
 	RepeatSpread float64 `json:"repeat_spread"`
-	// Resolved is false when the comparison could not tell a real difference
-	// from noise — because the spread is inside the noise floor, because there
-	// was only one repetition to estimate that floor from, or because a replica
-	// produced nothing to compare. An unresolved level says nothing either way:
-	// it has not found the replicas equal, and it has not found them different.
+	// Resolved is whether this level settled the question it was asked, which is
+	// not "are the replicas identical" but "do they differ by more than the
+	// tolerance". Two different things settle it: a spread that clears the
+	// noise floor, which is a real difference; and a noise floor that is itself
+	// inside the tolerance, which means the measurement is precise enough to
+	// rule an over-tolerance difference out even though it cannot resolve the
+	// small one it sees.
+	//
+	// It is false when neither holds — when the noise is wider than the
+	// tolerance and the spread is inside the noise — and then the level says
+	// nothing either way: it has not found the replicas equal, and it has not
+	// found them different.
 	Resolved bool `json:"resolved"`
 	// Silent names the replicas that produced no successful response at this
 	// level. They are the reason a comparison can be missing rather than even.
@@ -279,15 +286,26 @@ func compareLevel(concurrency int, rowsByReplica map[string][]bench.Result, plac
 	level.NUMASpread = spread(level.NUMA, func(n NUMALatency) int64 { return n.MeanTTFTNs })
 
 	level.Symmetric = level.TTFTSpread <= tolerance && level.ITLSpread <= tolerance
+
 	// A difference smaller than a replica's own variation between repetitions is
-	// not a difference between replicas. Measured at concurrency 16 on this
-	// fleet: 30% between replicas, and up to 44% for one replica against itself.
+	// not a difference between replicas. Measured at concurrency 32 on this
+	// fleet: 22% between replicas, and 36% for one replica against itself.
 	//
-	// One repetition gives no estimate of that noise at all, so it resolves
-	// nothing — not even a spread that looks large. Treating "no estimate" as
-	// "the estimate is zero" would make a single-repetition run the most
-	// confident one there is, which is backwards.
-	level.Resolved = level.RepeatSpread >= 0 && max(level.TTFTSpread, level.ITLSpread) > level.RepeatSpread
+	// But a spread inside the noise is only inconclusive when the noise is wide
+	// enough to hide an over-tolerance difference. At concurrency 1 the fleet
+	// came back with a 2.3% spread against a 2.8% noise floor: the measurement
+	// cannot say which replica is faster, and it does not need to — both are far
+	// enough inside the 8% tolerance that an 8% difference is ruled out. Calling
+	// that unresolved would report the cleanest result the fleet produced as
+	// though nothing had been learned.
+	//
+	// One repetition gives no estimate of the noise at all, so it settles
+	// nothing either way. Treating "no estimate" as "the estimate is zero" would
+	// make a single-repetition run the most confident one there is, which is
+	// backwards.
+	widest := max(level.TTFTSpread, level.ITLSpread)
+	level.Resolved = level.RepeatSpread >= 0 &&
+		(widest > level.RepeatSpread || level.RepeatSpread <= tolerance)
 	return level
 }
 
@@ -341,7 +359,8 @@ func (l LevelComparison) findings(tolerance float64) []string {
 	if l.TTFTSpread > tolerance {
 		out = append(out, fmt.Sprintf("at concurrency %d, TTFT p50 spread %.1f%% over the %.1f%% tolerance: %s at %v against %s at %v",
 			l.Concurrency, l.TTFTSpread*100, tolerance*100,
-			l.Slowest, l.durationOf(l.Slowest), l.Fastest, l.durationOf(l.Fastest)))
+			l.Slowest, l.durationOf(l.Slowest).Round(time.Millisecond),
+			l.Fastest, l.durationOf(l.Fastest).Round(time.Millisecond)))
 	}
 	if l.ITLSpread > tolerance {
 		out = append(out, fmt.Sprintf("at concurrency %d, inter-token latency spread %.1f%% over the %.1f%% tolerance",
@@ -359,8 +378,8 @@ func (l LevelComparison) findings(tolerance float64) []string {
 		out = append(out, fmt.Sprintf("at concurrency %d there was one repetition, so nothing estimates the measurement's own noise and the spread cannot be told from it. Add repetitions before acting on it",
 			l.Concurrency))
 	case !l.Resolved:
-		out = append(out, fmt.Sprintf("at concurrency %d that spread is not resolvable: one replica varies %.1f%% against itself between repetitions, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it",
-			l.Concurrency, l.RepeatSpread*100))
+		out = append(out, fmt.Sprintf("at concurrency %d that spread is not resolvable: one replica varies %.1f%% against itself between repetitions, wider than the %.1f%% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it",
+			l.Concurrency, l.RepeatSpread*100, tolerance*100))
 	}
 	return out
 }

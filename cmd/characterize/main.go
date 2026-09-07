@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
@@ -85,17 +86,17 @@ func run() error {
 		interval   = flag.Duration("sample-interval", bench.DefaultSampleInterval, "how often to sample the GPUs")
 		pidGlob    = flag.String("replica-pids", "run/replica-*.pid", "glob of the fleet's pid files, used to tell our own processes from foreign ones")
 
-		render = flag.String("render", "", "re-render report.md from an existing run's characterization.json in this directory, without measuring anything")
+		render = flag.String("render", "", "re-derive an existing run's analysis and report from its own rows in this directory, without measuring anything")
 
 		logLevel = flag.String("log-level", "info", "log level: debug, info, warn or error")
 	)
 	flag.Parse()
 
-	// The report is a reading of the record, not the record itself, so it can
-	// be rebuilt at any time — the same relationship ADR-0002 gives Parquet and
-	// the JSONL rows. Without this, correcting a sentence in the report would
-	// mean forty minutes of GPU time or a report that no longer matches the
-	// code that claims to produce it.
+	// Everything past the measurement is derived from the rows, so it can be
+	// rebuilt at any time — the same relationship ADR-0002 gives Parquet and the
+	// JSONL rows. Without this, correcting how a verdict is computed would mean
+	// an hour of GPU time re-measuring a fleet that has not changed, or a
+	// record no committed code can produce.
 	if *render != "" {
 		return rerender(*render)
 	}
@@ -201,7 +202,13 @@ func run() error {
 	return nil
 }
 
-// rerender rewrites a run's report from the record it already wrote.
+// rerender re-derives a run's analysis from its own rows and rewrites both the
+// record and the report.
+//
+// The rows are the system of record; the floor, the SLO and the symmetry
+// verdict are arithmetic over them. Re-deriving applies the thresholds the run
+// applied, read back off the record, so this corrects how a figure is computed
+// and never what it was computed from.
 func rerender(dir string) error {
 	path := filepath.Join(dir, "characterization.json")
 	contents, err := os.ReadFile(path)
@@ -212,12 +219,61 @@ func rerender(dir string) error {
 	if err := json.Unmarshal(contents, &c); err != nil {
 		return fmt.Errorf("characterize: %s is not a characterization record: %w", path, err)
 	}
+
+	rowPath := filepath.Join(dir, "probes.jsonl")
+	rows, err := readRows(rowPath)
+	if err != nil {
+		return err
+	}
+	c = characterize.Analyse(c, rows, c.Options())
+
+	if err := writeJSON(path, c); err != nil {
+		return err
+	}
 	report := filepath.Join(dir, "report.md")
 	if err := os.WriteFile(report, []byte(characterize.Report(c)), 0o644); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "characterize: re-rendered %s from %s\n", report, path)
+	fmt.Fprintf(os.Stderr, "characterize: re-derived %s and %s from %d rows in %s\n",
+		path, report, len(rows), rowPath)
 	return nil
+}
+
+// readRows reads the per-request rows a run wrote.
+func readRows(path string) ([]bench.Result, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("characterize: %w", err)
+	}
+	defer f.Close()
+
+	var rows []bench.Result
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var row bench.Result
+		if err := json.Unmarshal(line, &row); err != nil {
+			return nil, fmt.Errorf("characterize: %s: %w", path, err)
+		}
+		rows = append(rows, row)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("characterize: %s: %w", path, err)
+	}
+	return rows, nil
+}
+
+// writeJSON rewrites the record, indented the way the run wrote it.
+func writeJSON(path string, v any) error {
+	contents, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Errorf("characterize: marshal %s: %w", path, err)
+	}
+	return os.WriteFile(path, append(contents, '\n'), 0o644)
 }
 
 // replicaPIDs reads the fleet's supervisor pids off its pid files. The process

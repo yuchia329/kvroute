@@ -212,11 +212,18 @@ and ~1.5–2 GB of activations and CUDA graphs ≈ **14 GiB KV**:
 one, and identical on all six. That is **9.8% above** the ~114,700 estimated above, and the gap is
 entirely in the one soft input: the estimate assumed ~14 GiB was left for KV after weights,
 activations and CUDA graphs, and the engine actually left 15.375 GiB. The per-token arithmetic is
-exact. See [the characterization](docs/measurements/2026-09-06-characterization/).
+exact. See [the characterization](docs/measurements/2026-09-07-characterization/).
 
 A single replica reported **119,408 tokens** at first contact (ADR-0001) and every replica has
-reported 125,952 on every bring-up since. Both are `num_gpu_blocks × block_size`; they differ by 409
-blocks, which is 0.8 GiB of memory that was not free when the first replica ran its profiling pass.
+reported 125,952 on every bring-up since. That gap is the `torch.compile` cache, and it reproduces
+to the token: starting one replica with `VLLM_CACHE_ROOT` pointed at an empty directory — same card,
+same settings — gives **119,408 tokens with 19.2 s of compilation**, against 125,952 with 0.26 s on
+the warm cache. vLLM sizes the KV cache from what is free after its profiling pass, and on a cold
+cache `torch.compile` is still holding ~0.8 GiB while that pass runs.
+
+⚠️ **So KV capacity is not a property of the engine settings alone**, and a constant for it would be
+wrong on the first bring-up after any change that invalidates the compile cache. Read it off every
+replica at runtime, every run.
 
 ⚠️ **The estimate is the estimate; `num_gpu_blocks` is the truth**, and it is read at runtime rather
 than off the startup log: the log says it once and then it is gone, while the engine publishes it

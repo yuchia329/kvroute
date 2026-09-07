@@ -1,6 +1,6 @@
 # ADR-0003: The SLO is three times the measured latency floor
 
-**Status:** Accepted · **Date:** 2026-09-06
+**Status:** Accepted · **Date:** 2026-09-07
 
 ## Context
 

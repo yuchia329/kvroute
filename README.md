@@ -7,48 +7,56 @@ the consistent-hash session-affinity baseline any load balancer already gives yo
 measured comparison of routing policies, not a service. See [`idea.md`](idea.md) for the spec and
 [`CONTEXT.md`](CONTEXT.md) for the vocabulary.
 
-> **Status: the fleet and the harness are in place** — six replicas come up behind a preflight,
-> a closed-loop driver sweeps concurrency across them under round-robin, and every cell lands as
-> a row in the results table with its own contamination evidence. What is missing is the
-> comparison: three of the four policies, both pressure axes, and the multi-turn workload that
-> makes cache locality exist at all. This README gets replaced by a results-first one once there
-> are results.
+> **Status: the fleet, the harness and the facts every later number scales off are in place** —
+> six replicas come up behind a preflight, the fleet's KV capacity, its latency floor, its SLO and
+> its symmetry are measured rather than assumed, and every cell lands as a row in the results table
+> with its own contamination evidence. What is missing is the comparison: three of the four
+> policies, both pressure axes, and the multi-turn workload that makes cache locality exist at all.
+> This README gets replaced by a results-first one once there are results.
 >
-> **Verified on the box, 2026-09-06.** All six replicas came up under `ops/fleet.sh` behind the
-> preflight, a sweep ran across them through the router, and every cell came back `clean`. The
-> numbers below are from that run. See
-> [ADR-0001](docs/adr/0001-engine-pin-and-forced-kernel-selection.md) for what first contact
-> corrected.
+> **Verified on the box, 2026-09-06/07.** All six replicas came up under `ops/fleet.sh` behind the
+> preflight, the metric contract passed against every one of them, and a characterization pass drove
+> each replica on its own for 36 probes and 6,701 requests, all clean. The numbers below are from
+> those runs. See [ADR-0001](docs/adr/0001-engine-pin-and-forced-kernel-selection.md) for what first
+> contact corrected and [ADR-0004](docs/adr/0004-every-measurement-sends-unseen-bytes.md) for the
+> measurement that nearly went in seven times too low.
 
-## First measurements
+## Measured facts
 
-Six replicas, `Meta-Llama-3.1-8B-Instruct-AWQ-INT4`, one per RTX 3090, brought up under
-`ops/fleet.sh` on 2026-09-06. Not a benchmark — two 20-second cells at concurrency 1 and 8, on a
-workload with no shared prefixes, recorded so later figures have a reference point.
+Six replicas, `Meta-Llama-3.1-8B-Instruct-AWQ-INT4`, one per RTX 3090. Everything here is measured
+on the box, and every figure is recomputable from rows kept in the repo.
 
 | Quantity | Measured | Note |
 |---|---|---|
+| **Fleet KV capacity** | **755,712 tokens** | 7,872 `num_gpu_blocks` × 16 per replica, identical on all six, read off each replica's own `/metrics`. 9.8% above the hand estimate — the whole gap is the KV-budget assumption, not the per-token arithmetic |
+| **Hardware latency floor** | **TTFT p50 329 ms, inter-token p50 7.8 ms** | 1,487 requests at concurrency 1, straight at each replica, pooled. Measured at a 1.3% prefix-cache hit rate, which is what makes it a prefill cost rather than a cache lookup |
+| **SLO** | **TTFT < 990 ms, inter-token p50 < 24 ms** | 3× the floor, rounded up, published with the alternatives — [ADR-0003](docs/adr/0003-slo-is-three-times-the-measured-floor.md) |
+| **Working set ratios** | **92 / 369 / 1,107 / 2,952** sessions of 2k | WS 0.25 / 1 / 3 / 8, rescaled off the measured capacity |
+| **Replica symmetry** | **2.3% spread at concurrency 1**, 0.0% between NUMA nodes | inside the 8% tolerance, and precise to 2.8%, so an 8% difference is ruled out. Unresolved at concurrency 32 — see below |
+| Host topology | GPUs 0–3 on NUMA 0 at 12 threads each, GPUs 4–5 on NUMA 1 at 24 | pairs `PIX`, within-socket `NODE`, across-socket `SYS` |
 | Router overhead p50 / p99 | **135 µs / 318 µs** | 280 requests. Against the < 1 ms p99 Phase 1 gate — passes, though the max of 1.34 ms includes first-connection setup |
-| TTFT p50 / p99 at concurrency 1 | **320 ms / 330 ms** | the hardware floor the SLO gets derived from in #10 |
-| Inter-token latency p50 | **7.6 ms** | |
-| KV cache capacity | **125,952 tokens per replica**, identical on all six | **755,712 fleet-wide.** See the discrepancy below |
-| Model load | 4.7–5.2 s per replica | sequential bring-up, no NFS thundering herd |
-| Contamination | 11 samples per cell, 0 foreign processes, `clean: true` | the ownership check works: the process holding each card is *not* the pid in the pid file |
+| Contamination | zero foreign processes across 36 probes and two sweep cells, `clean: true` | the ownership check works: the process holding each card is *not* the pid in the pid file |
 
-⚠️ **The capacity figure moved and has not been explained.** [ADR-0001](docs/adr/0001-engine-pin-and-forced-kernel-selection.md)
-recorded **119,408 tokens** from a single replica during the first bring-up; all six now report
-**125,952**, a 5.5% increase, with identical engine settings. Six agreeing replicas is the stronger
-measurement, but the gap is unexplained and every working set ratio scales off this number.
-Reconciling it against `num_gpu_blocks` is an acceptance criterion of #10 and is not done here.
+⚠️ **Symmetry at concurrency 32 is not settled.** The replicas differ by 22.1% there, but one
+replica differs from *itself* by 36.3% between repetitions — the comparison is inside its own noise,
+so it is neither a difference between replicas nor evidence that there is none, and no escalation
+follows from it. Concurrency 1 settled cleanly and is what the SLO rests on. The mechanism §10
+worries about lives at the higher load, so it wants a longer pass before the pressure grid runs.
 
-The rows behind every figure above are kept in
-[`docs/measurements/2026-09-06-fleet-bringup/`](docs/measurements/2026-09-06-fleet-bringup/) —
-per-request JSONL, the compacted Parquet, and each replica's own startup log. Sweep output is
-gitignored because a full pass is hundreds of megabytes; a reference run the README cites is not,
-because a figure whose rows have been deleted is an assertion rather than a measurement.
+✅ **The capacity discrepancy is explained.** [ADR-0001](docs/adr/0001-engine-pin-and-forced-kernel-selection.md)
+recorded 119,408 tokens at first contact against 125,952 since. It is the `torch.compile` cache, and
+it reproduces to the token: a replica started with `VLLM_CACHE_ROOT` moved aside gives **119,408
+tokens with 19.2 s of compilation**, against 125,952 with 0.26 s warm. vLLM sizes its KV cache from
+what is free after profiling, and a cold compile is still holding ~0.8 GiB while that runs. So KV
+capacity is not a property of the engine settings alone, and it is read off every replica at runtime
+on every run.
 
-Concurrency 8 barely moved TTFT (328 ms p50) — six replicas are nowhere near saturation at that
-load, which is the whole reason the sweep runs to 256.
+The rows behind every figure are kept in
+[`docs/measurements/`](docs/measurements/) — the [characterization](docs/measurements/2026-09-07-characterization/)
+and the [fleet bring-up](docs/measurements/2026-09-06-fleet-bringup/), each with per-request JSONL,
+the record, and each replica's own startup log. Sweep output is gitignored because a full pass is
+hundreds of megabytes; a reference run the README cites is not, because a figure whose rows have
+been deleted is an assertion rather than a measurement.
 
 ## What runs today
 
@@ -114,7 +122,7 @@ make fleet-up                                              # preflight, then six
 make contract CONTRACT_REPLICA="$(ops/fleet.sh replicas)"  # hold the fake to every replica
 make characterize                                          # capacity, topology, floor, SLO, symmetry
 make run-router REPLICAS="$(ops/fleet.sh replicas)"
-make bench BENCH_ARGS="-cell-duration 60s -repetitions 3 -slo-ttft 960ms -slo-itl 24ms"
+make bench BENCH_ARGS="-cell-duration 60s -repetitions 3 -slo-ttft 990ms -slo-itl 24ms"
 ```
 
 `make characterize` comes before `make bench` and not after it, because the SLO the sweep is judged
@@ -135,10 +143,11 @@ to `discarded/` and re-run, and deriving the SLO later resummarises the cached c
 rows instead of costing another hour of GPU time. See
 [ADR-0002](docs/adr/0002-jsonl-during-parquet-after.md).
 
-**The SLO is deliberately unset until it has been measured.** `-slo-ttft` and `-slo-itl` default to
-zero, and a cell run without them records that no SLO was applied rather than reporting a goodput
-that was never checked against anything — the concurrency-1 cell is what the threshold gets derived
-from, so it necessarily runs before one exists.
+**The SLO was unset until it had been measured, and now it is measured.** `-slo-ttft` and `-slo-itl`
+still default to zero, and a cell run without them records that no SLO was applied rather than
+reporting a goodput that was never checked against anything. The thresholds to pass are **990 ms and
+24 ms**, three times the measured floor; `make characterize` prints them, and a cell that ran before
+they existed is resummarised from its own rows rather than re-run.
 
 ## Design notes worth knowing before reading the code
 

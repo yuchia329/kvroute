@@ -157,18 +157,7 @@ func symmetrySection(b *strings.Builder, c Characterization) {
 	s := c.Symmetry
 	fmt.Fprintln(b, "## Replica symmetry")
 	fmt.Fprintln(b)
-	verdict := fmt.Sprintf("**The six replicas are interchangeable** within the %.0f%% tolerance.", s.Tolerance*100)
-	switch {
-	case !s.Symmetric && s.Escalation != EscalationNone:
-		verdict = fmt.Sprintf("**The replicas are not interchangeable** at the %.0f%% tolerance, by a difference every repetition agreed on. Escalation: `%s`.",
-			s.Tolerance*100, s.Escalation)
-	case !s.Symmetric:
-		verdict = fmt.Sprintf("**Unresolved.** Some level's spread is over the %.0f%% tolerance, but not by more than the measurement's own noise, so it is neither a difference between replicas nor evidence that there is none. No escalation follows from it.",
-			s.Tolerance*100)
-	case !s.Resolved:
-		verdict = fmt.Sprintf("**The replicas are interchangeable within the %.0f%% tolerance at every level that could resolve one** — see the unresolved levels below.", s.Tolerance*100)
-	}
-	fmt.Fprintln(b, verdict)
+	fmt.Fprintln(b, verdict(s))
 	fmt.Fprintln(b)
 	for _, finding := range s.Findings {
 		fmt.Fprintf(b, "- %s\n", finding)
@@ -207,12 +196,15 @@ func symmetrySection(b *strings.Builder, c Characterization) {
 		switch {
 		case level.RepeatSpread < 0:
 			fmt.Fprintln(b, "One repetition, so there is no estimate of this level's own noise to read the spread against.")
+		case level.Resolved && level.RepeatSpread <= s.Tolerance:
+			fmt.Fprintf(b, "A replica varies %.1f%% against itself between repetitions — inside the %.0f%% tolerance — so this rules an over-tolerance difference out even where it cannot resolve the %.1f%% it sees.\n",
+				level.RepeatSpread*100, s.Tolerance*100, level.TTFTSpread*100)
 		case level.Resolved:
 			fmt.Fprintf(b, "A replica varies %.1f%% against itself between repetitions, so a %.1f%% spread between replicas is larger than the measurement's own noise.\n",
 				level.RepeatSpread*100, level.TTFTSpread*100)
 		default:
-			fmt.Fprintf(b, "**Not resolvable at this sample size**: one replica varies %.1f%% against *itself* between repetitions, more than the %.1f%% between replicas. Lengthen the probe or add repetitions rather than acting on it.\n",
-				level.RepeatSpread*100, level.TTFTSpread*100)
+			fmt.Fprintf(b, "**Not resolvable at this sample size**: one replica varies %.1f%% against *itself* between repetitions, wider than the %.0f%% tolerance and more than the %.1f%% between replicas. Lengthen the probe or add repetitions rather than acting on it.\n",
+				level.RepeatSpread*100, s.Tolerance*100, level.TTFTSpread*100)
 		}
 		fmt.Fprintln(b)
 	}
@@ -237,6 +229,34 @@ func count(n int, singular, plural string) string {
 		return fmt.Sprintf("%d %s", n, singular)
 	}
 	return fmt.Sprintf("%d %s", n, plural)
+}
+
+// verdict states the result level by level, because on this fleet the levels
+// disagree: one settles the question and the other cannot, and a single
+// sentence covering both would have to lie about one of them.
+func verdict(s Symmetry) string {
+	var settled, open []string
+	for _, level := range s.Levels {
+		name := fmt.Sprintf("concurrency %d", level.Concurrency)
+		if level.Resolved {
+			settled = append(settled, name)
+			continue
+		}
+		open = append(open, name)
+	}
+
+	switch {
+	case s.Escalation != EscalationNone:
+		return fmt.Sprintf("**The replicas are not interchangeable** at the %.0f%% tolerance, by a difference every repetition agreed on (%s). Escalation: `%s`.",
+			s.Tolerance*100, strings.Join(settled, ", "), s.Escalation)
+	case len(settled) == 0:
+		return fmt.Sprintf("**Nothing was settled.** No level could tell a difference from its own noise at the %.0f%% tolerance, so this is neither evidence that the replicas differ nor evidence that they do not.",
+			s.Tolerance*100)
+	case len(open) == 0:
+		return fmt.Sprintf("**The six replicas are interchangeable** within the %.0f%% tolerance, at every level measured.", s.Tolerance*100)
+	}
+	return fmt.Sprintf("**Interchangeable within the %.0f%% tolerance at %s**, which settled it. **Unresolved at %s**, where the measurement's own noise is wider than the tolerance — neither a difference between replicas nor evidence that there is none, and no escalation follows from it.",
+		s.Tolerance*100, strings.Join(settled, " and "), strings.Join(open, " and "))
 }
 
 func passFail(ok bool, tolerance float64) string {

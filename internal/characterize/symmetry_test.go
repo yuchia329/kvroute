@@ -323,3 +323,41 @@ func TestAReplicaThatAnsweredNothingIsNotAPerfectlyEvenFleet(t *testing.T) {
 		t.Errorf("silent replicas = %v, want [replica-2]", got)
 	}
 }
+
+// The cleanest result the fleet produced, and the one the first version of this
+// logic threw away: a 2.3% spread against a 2.8% noise floor, both far inside
+// the 8% tolerance. The measurement cannot say which replica is faster and does
+// not need to — an 8% difference is ruled out either way, and reporting that as
+// "unresolved" would file the best evidence in the project under "nothing was
+// learned".
+func TestASpreadAndItsNoiseBothInsideToleranceSettleTheQuestion(t *testing.T) {
+	var rows []bench.Result
+	ttft := map[string]map[int]time.Duration{
+		"replica-0": {1: 332 * time.Millisecond, 2: 330 * time.Millisecond, 3: 334 * time.Millisecond},
+		"replica-1": {1: 329 * time.Millisecond, 2: 331 * time.Millisecond, 3: 327 * time.Millisecond},
+		"replica-2": {1: 324 * time.Millisecond, 2: 326 * time.Millisecond, 3: 325 * time.Millisecond},
+		"replica-3": {1: 330 * time.Millisecond, 2: 328 * time.Millisecond, 3: 332 * time.Millisecond},
+		"replica-4": {1: 331 * time.Millisecond, 2: 333 * time.Millisecond, 3: 329 * time.Millisecond},
+		"replica-5": {1: 327 * time.Millisecond, 2: 325 * time.Millisecond, 3: 329 * time.Millisecond},
+	}
+	for _, id := range sixReplicaIDs() {
+		for repetition, t := range ttft[id] {
+			rows = append(rows, repeated(replicaRows(id, 1, 40, t, 8*time.Millisecond), repetition)...)
+		}
+	}
+
+	s := characterize.CompareReplicas(rows, characterize.Placements(sixReplicaIDs(), hostTopology(t)),
+		hostTopology(t), characterize.DefaultSymmetryTolerance)
+
+	if !s.Symmetric {
+		t.Fatalf("a fleet even to 2%% read as asymmetric: %v", s.Findings)
+	}
+	if !s.Resolved {
+		t.Errorf("a measurement precise to %.1f%%, against an %.0f%% tolerance, reported that it had settled nothing",
+			s.Levels[0].RepeatSpread*100, s.Tolerance*100)
+	}
+	if s.Levels[0].RepeatSpread > characterize.DefaultSymmetryTolerance {
+		t.Fatalf("this fixture's noise floor %.3f is not inside the tolerance, so it does not test what it claims",
+			s.Levels[0].RepeatSpread)
+	}
+}

@@ -1,6 +1,6 @@
 # ADR-0004: Every measurement sends bytes the fleet has not seen
 
-**Status:** Accepted · **Date:** 2026-09-06
+**Status:** Accepted · **Date:** 2026-09-07
 
 ## Context
 
