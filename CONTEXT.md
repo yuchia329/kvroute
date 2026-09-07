@@ -18,6 +18,14 @@ The Go process that is the sole ingress to the fleet. Because it is the only ing
 exactly what it has dispatched.
 _Avoid_: proxy, gateway, load balancer
 
+**Fleet KV capacity**:
+The total number of tokens the fleet can hold in KV cache at once, read as `num_gpu_blocks ×
+block_size` from every replica's own reported cache configuration and summed. It is a measurement,
+never an extrapolation from one replica, because a figure taken from one card and multiplied has
+already moved between two bring-ups of identical configuration. Working set ratio is defined
+against it, so every point of the pressure grid moves when it does.
+_Avoid_: KV size, cache size, memory (those are bytes; this is tokens)
+
 **Replica symmetry**:
 The property that all replicas deliver equal latency under equal load. It is a claim about the
 host, not the GPUs: identical cards can still differ through NUMA placement and cores available
@@ -118,10 +126,31 @@ the fleet contributes, and reported separately so the router's own cost is never
 TTFT.
 _Avoid_: routing latency, proxy overhead
 
+**Latency floor**:
+What a request costs with nothing in the way: one at a time, straight at a replica, no router and
+no competing load. Measured across every replica and pooled, because an SLO derived from the
+fastest card would be unmeetable on the slowest. It is the one latency figure in the project that
+is not about the fleet under load, and it exists so the SLO is derived rather than chosen.
+_Avoid_: baseline, best case, idle latency
+
 **SLO**:
-The per-request pass/fail threshold on TTFT and inter-token latency, derived from the measured
-concurrency-1 floor rather than chosen a priori.
+The per-request pass/fail threshold on TTFT and inter-token latency, derived as a stated multiple
+of the measured latency floor rather than chosen a priori. The multiple is a judgement and the
+floor is not, so the two are always published together.
 _Avoid_: target, budget, threshold (unqualified)
+
+**Characterization**:
+The pass that establishes the measured facts every later number depends on — fleet KV capacity, the
+latency floor and the SLO derived from it, and whether the replicas are interchangeable — before
+any policy is compared. One pass rather than four, because an SLO derived from a fleet in one state
+and a symmetry verdict about a fleet in another do not describe the same fleet.
+_Avoid_: baselining, calibration, warm-up
+
+**Probe**:
+One replica driven on its own at one load level, with no router in front of it. Deliberately not a
+cell: a cell is a point of the policy comparison and carries a policy, and a probe has none, which
+is exactly what lets it say something about a replica rather than about a routing decision.
+_Avoid_: cell, baseline run, trial
 
 **Cell**:
 One benchmark data point: a fixed (policy, concurrency or arrival rate, working set ratio, skew,

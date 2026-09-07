@@ -34,7 +34,8 @@ type ContaminationConfig struct {
 	Log     *slog.Logger
 }
 
-// Contamination is a cell's cleanliness evidence.
+// Contamination is one measurement's cleanliness evidence — a cell's, or a
+// characterization probe's.
 //
 // The box is shared, so this is not diagnostics: it is the field that decides
 // whether a finished cell is allowed to appear in the results at all.
@@ -159,14 +160,14 @@ func (c Contamination) Contaminated() bool {
 	return len(c.ForeignProcs) > 0 || c.ProbeErrors > 0
 }
 
-// reasons is why this evidence disqualifies a cell from being averaged in with
-// the others, or nothing if it does not.
-func (c Contamination) reasons() []string {
+// Reasons is why this evidence disqualifies a measurement from being averaged
+// in with the others, or nothing if it does not.
+func (c Contamination) Reasons() []string {
 	switch {
 	case c.Clean:
 		return nil
 	case c.GPUSamples == 0:
-		return []string{"the GPUs were never sampled, so this cell carries no cleanliness evidence"}
+		return []string{"the GPUs were never sampled, so there is no cleanliness evidence"}
 	case c.ProbeErrors > 0:
 		return []string{fmt.Sprintf("%d GPU probes failed, so cleanliness is unproven", c.ProbeErrors)}
 	default:

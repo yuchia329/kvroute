@@ -358,3 +358,68 @@ func (s *countingSink) lines() int {
 	defer s.mu.Unlock()
 	return s.n
 }
+
+// The characterization pass drives each replica on its own, so that the
+// hardware floor and the symmetry check are about a replica rather than about
+// the router's policy. With no router in the path nothing sets the replica
+// header, and a driver that read only that header would book every one of those
+// requests as a request the router could not place.
+func TestDrivingAReplicaDirectlyAttributesItsRowsToThatReplica(t *testing.T) {
+	replica := fakereplica.New(fakereplica.Config{TTFT: time.Millisecond, InterToken: time.Millisecond, OutputTokens: 2})
+	srv := httptest.NewServer(replica.Handler())
+	t.Cleanup(srv.Close)
+
+	results, err := bench.RunClosedLoop(context.Background(), bench.DriverConfig{
+		Target:        srv.URL,
+		DirectReplica: "replica-3",
+		Concurrency:   1,
+		Duration:      50 * time.Millisecond,
+		Workload:      bench.NewFixedWorkload(bench.FixedWorkload{Model: testModel, PromptBytes: 64, OutputTokens: 2}),
+		Log:           slog.New(slog.DiscardHandler),
+	})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("no rows")
+	}
+	for _, r := range results {
+		if r.Outcome != record.OutcomeSuccess {
+			t.Fatalf("row is %s (%s), want success", r.Outcome, r.Error)
+		}
+		if r.Replica != "replica-3" {
+			t.Errorf("row names replica %q, want replica-3", r.Replica)
+		}
+		if r.TTFTNs <= 0 {
+			t.Error("row carries no TTFT, so it cannot contribute to the latency floor")
+		}
+	}
+}
+
+// A replica that errors is still a replica that accepted the request. Driving
+// it directly must not turn that into a dropped request, which is the column
+// that means nothing served it at all.
+func TestDrivingAReplicaDirectlyStillSeparatesFailedFromDropped(t *testing.T) {
+	replica := fakereplica.New(fakereplica.Config{TTFT: time.Millisecond, OutputTokens: 1})
+	replica.SetFailure(&fakereplica.Failure{Status: http.StatusInternalServerError, Message: "boom", Type: "server_error"})
+	srv := httptest.NewServer(replica.Handler())
+	t.Cleanup(srv.Close)
+
+	results, err := bench.RunClosedLoop(context.Background(), bench.DriverConfig{
+		Target:        srv.URL,
+		DirectReplica: "replica-3",
+		Concurrency:   1,
+		Duration:      20 * time.Millisecond,
+		Workload:      bench.NewFixedWorkload(bench.FixedWorkload{Model: testModel, PromptBytes: 64, OutputTokens: 1}),
+		Log:           slog.New(slog.DiscardHandler),
+	})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("no rows")
+	}
+	if got := results[0].Outcome; got != record.OutcomeFailed {
+		t.Errorf("outcome is %s, want failed: the replica answered, it just answered with an error", got)
+	}
+}

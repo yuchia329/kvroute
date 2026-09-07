@@ -173,6 +173,12 @@ func TestACleanCellSaysSo(t *testing.T) {
 	// Our own fleet, holding both cards, and nothing else.
 	cells, _ := sweepUnderTest(t, dir, bench.SweepConfig{
 		Concurrencies: []int{1},
+		// This cell is about the contamination evidence, and the warm-up drift
+		// check is about a fleet's latency settling. Against a fake replica of
+		// fixed latency, the only thing it can measure is how busy the machine
+		// running the tests was during the first half of a sub-second cell, so
+		// leaving it on makes this test fail on a loaded laptop.
+		WarmupDriftThreshold: -1,
 		Contamination: bench.ContaminationConfig{
 			Prober:   gputest.Fleet(),
 			Interval: time.Millisecond,

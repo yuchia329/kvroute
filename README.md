@@ -59,6 +59,10 @@ cmd/bench ──► router (:8080) ──► replica-0..5 (:8000..:8005, one GPU
     │             └─ round-robin policy, per-request JSONL rows, own-overhead percentiles
     └─ closed-loop driver, per-cell caching, nvidia-smi contamination sampling,
        JSONL during the run → Parquet after
+
+cmd/characterize ─────────────► replica-0..5, one at a time, no router in the path
+    └─ fleet KV capacity off every replica, host topology, the latency floor,
+       the SLO derived from it, and the replica symmetry verdict
 ```
 
 - **`cmd/router`** — OpenAI-compatible `POST /v1/chat/completions` with SSE passed through
@@ -68,6 +72,12 @@ cmd/bench ──► router (:8080) ──► replica-0..5 (:8000..:8005, one GPU
   replica answers `/health`, warms each one directly, then holds a fixed number of virtual users at
   each of eight levels, counting dropped, failed and SLO-violating requests in three separate
   columns. Samples the GPUs throughout and resumes from cached cells.
+- **`cmd/characterize`** — establishes the measured facts every other number scales off, in one
+  pass: aggregate KV capacity read off all six replicas' own `num_gpu_blocks`, the host's GPU
+  topology and NUMA placement, the hardware latency floor, the SLO derived from that floor as a
+  stated multiple, and whether the six replicas are interchangeable. It drives each replica
+  directly, because every question it answers is about a replica and the router's policy would
+  otherwise be in the answer.
 - **`cmd/preflight`** — refuses to bring the fleet up while any GPU already holds memory. The
   same probe backs the per-cell contamination check: one preflight, two jobs.
 - **`cmd/fakereplica`** — a programmable stand-in for a replica with configurable TTFT and
@@ -99,10 +109,15 @@ curl -s http://127.0.0.1:8080/router/stats   # router overhead p50/p99
 ```sh
 make linux                                                 # static binaries for the box; it has no Go
 make fleet-up                                              # preflight, then six replicas, staggered
-make contract CONTRACT_REPLICA=http://127.0.0.1:8000       # hold the fake to the engine
+make contract CONTRACT_REPLICA="$(ops/fleet.sh replicas)"  # hold the fake to every replica
+make characterize                                          # capacity, topology, floor, SLO, symmetry
 make run-router REPLICAS="$(ops/fleet.sh replicas)"
-make bench BENCH_ARGS="-cell-duration 60s -repetitions 3"
+make bench BENCH_ARGS="-cell-duration 60s -repetitions 3 -slo-ttft 960ms -slo-itl 24ms"
 ```
+
+`make characterize` comes before `make bench` and not after it, because the SLO the sweep is judged
+against is derived from what `characterize` measures. It prints the two flags to pass on, so the
+threshold the sweep applies is the one that was derived rather than one retyped off a table.
 
 `ops/versions.env` is the single source of truth for everything held constant between cells: the
 engine version, the model, the forced quantization backend, the prefix-caching and chunked-prefill

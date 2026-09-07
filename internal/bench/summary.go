@@ -239,24 +239,27 @@ func warmupDrift(results []Result, first, last time.Time) float64 {
 // the others.
 func (s *Summary) flag(driftThreshold float64) {
 	if s.Requests == 0 {
-		s.add("cell produced no measured requests")
+		s.Flag("cell produced no measured requests")
 	}
 	if s.FailureThreshold > 0 && s.FailureRate > s.FailureThreshold {
-		s.add(fmt.Sprintf("failure rate %.2f%% exceeds the %.2f%% threshold (%d dropped, %d failed of %d)",
+		s.Flag(fmt.Sprintf("failure rate %.2f%% exceeds the %.2f%% threshold (%d dropped, %d failed of %d)",
 			s.FailureRate*100, s.FailureThreshold*100, s.Dropped, s.Failed, s.Requests))
 	}
 	if driftThreshold > 0 && s.WarmupDrift > driftThreshold {
-		s.add(fmt.Sprintf("still warming up: the first half of the measured window was %.0f%% slower than the second by TTFT p50, over a %.0f%% threshold. Lengthen the warm-up and re-run",
+		s.Flag(fmt.Sprintf("still warming up: the first half of the measured window was %.0f%% slower than the second by TTFT p50, over a %.0f%% threshold. Lengthen the warm-up and re-run",
 			s.WarmupDrift*100, driftThreshold*100))
 	}
 	if s.Cancelled > 0 {
 		// The driver lets in-flight requests finish, so a cancellation means
 		// the cell was interrupted rather than run to its end.
-		s.add(fmt.Sprintf("%d requests were cancelled: the cell did not run to completion", s.Cancelled))
+		s.Flag(fmt.Sprintf("%d requests were cancelled: the cell did not run to completion", s.Cancelled))
 	}
 }
 
-func (s *Summary) add(reason string) {
+// Flag records a reason this summary must not be silently averaged in with the
+// others. It is exported because the reasons do not all come from the rows: the
+// GPUs supply some, and the characterization pass supplies others.
+func (s *Summary) Flag(reason string) {
 	s.Flagged = true
 	s.FlagReasons = append(s.FlagReasons, reason)
 }

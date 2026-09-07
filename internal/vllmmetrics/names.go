@@ -7,6 +7,11 @@
 // instead of silently scraping zeros.
 package vllmmetrics
 
+import (
+	"strconv"
+	"strings"
+)
+
 // Kind is how a family is exposed in the Prometheus text format, which
 // determines the series names a scrape must find.
 type Kind int
@@ -75,4 +80,102 @@ var Required = []Family{
 	{"vllm:kv_block_lifetime_seconds", Histogram, "How long a KV block lives, used to calibrate prefix-index TTL."},
 	{"vllm:kv_block_idle_before_evict_seconds", Histogram, "How long a KV block sits idle before eviction."},
 	{"vllm:kv_block_reuse_gap_seconds", Histogram, "Gap between reuses of a KV block."},
+	{CacheConfigInfo, Gauge, "The engine's cache configuration. Everything it says is in its labels; see Labels."},
+}
+
+// CacheConfigInfo is the series carrying a replica's KV cache geometry.
+//
+// It is an info metric: its value is always 1 and everything it reports is in
+// its labels, so reading capacity off a replica means reading labels rather
+// than a value. It is the only place the engine publishes num_gpu_blocks at
+// runtime — the startup log says it once and then it is gone — and aggregate
+// fleet KV capacity, which every working set ratio scales off, is that number
+// summed across the fleet.
+const CacheConfigInfo = "vllm:cache_config_info"
+
+// The labels of CacheConfigInfo that capacity is read from. The engine reports
+// the token count itself as well as the block count it was derived from, and
+// reading both is what lets the derivation be checked rather than assumed.
+const (
+	LabelNumGPUBlocks        = "num_gpu_blocks"
+	LabelBlockSize           = "block_size"
+	LabelKVCacheSizeTokens   = "kv_cache_size_tokens"
+	LabelGPUMemUtilization   = "gpu_memory_utilization"
+	LabelEnablePrefixCaching = "enable_prefix_caching"
+)
+
+// Value returns the value of the first series named name, and whether the
+// series was there at all. Absent is distinguished from zero: a counter a
+// replica does not publish must not read as a counter that has not moved.
+func Value(body, name string) (float64, bool) {
+	for line := range strings.SplitSeq(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		series, raw, found := strings.Cut(line, " ")
+		if !found {
+			continue
+		}
+		if base, _, _ := strings.Cut(series, "{"); base != name {
+			continue
+		}
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return 0, false
+		}
+		return value, true
+	}
+	return 0, false
+}
+
+// Labels returns the label set of the first series named name in a Prometheus
+// text exposition, and whether the series was there at all.
+//
+// Absent is distinguished from empty on purpose: a replica that does not
+// publish the series must not read the same as one that publishes it with
+// nothing in it.
+func Labels(body, name string) (map[string]string, bool) {
+	for line := range strings.SplitSeq(body, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, name+"{") {
+			continue
+		}
+		_, rest, _ := strings.Cut(line, "{")
+		end := strings.LastIndex(rest, "}")
+		if end < 0 {
+			return nil, false
+		}
+		return parseLabelSet(rest[:end]), true
+	}
+	return nil, false
+}
+
+// parseLabelSet splits `a="1",b="2"` into its pairs.
+//
+// It splits on commas outside quotes rather than on every comma: the engine
+// publishes list-valued labels such as kv_cache_dtype_skip_layers, and a naive
+// split would tear one in half and lose every label after it.
+func parseLabelSet(set string) map[string]string {
+	labels := map[string]string{}
+	quoted := false
+	start := 0
+	flush := func(pair string) {
+		key, value, found := strings.Cut(pair, "=")
+		if !found {
+			return
+		}
+		labels[strings.TrimSpace(key)] = strings.Trim(strings.TrimSpace(value), `"`)
+	}
+	for i, r := range set {
+		switch {
+		case r == '"':
+			quoted = !quoted
+		case r == ',' && !quoted:
+			flush(set[start:i])
+			start = i + 1
+		}
+	}
+	flush(set[start:])
+	return labels
 }

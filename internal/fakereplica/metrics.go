@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/yuchia329/kvroute/internal/vllmmetrics"
@@ -72,6 +73,18 @@ func newHistograms() map[string]*histogram {
 	return out
 }
 
+// cacheConfigLabels renders the KV cache geometry the capacity reader reads.
+// The token count is rendered from the block count rather than stored beside
+// it, so the fake cannot publish a pair that disagrees with itself while the
+// engine's own pair agrees.
+func (r *Replica) cacheConfigLabels() string {
+	return fmt.Sprintf("%s=%q,%s=%q,%s=%q,%s=%q",
+		vllmmetrics.LabelBlockSize, strconv.Itoa(r.cfg.BlockSize),
+		vllmmetrics.LabelNumGPUBlocks, strconv.Itoa(r.cfg.NumGPUBlocks),
+		vllmmetrics.LabelKVCacheSizeTokens, strconv.Itoa(r.cfg.NumGPUBlocks*r.cfg.BlockSize),
+		vllmmetrics.LabelGPUMemUtilization, "0.9")
+}
+
 // handleMetrics exposes every family in vllmmetrics.Required in the Prometheus
 // text format, under the engine's own names. The contract test asserts this
 // surface against a live replica, so a divergence is caught rather than
@@ -100,11 +113,17 @@ func (r *Replica) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	for _, f := range vllmmetrics.Required {
 		fmt.Fprintf(&b, "# HELP %s %s\n", f.Name, f.Help)
 		fmt.Fprintf(&b, "# TYPE %s %s\n", f.Name, f.Kind)
-		if f.Kind == vllmmetrics.Histogram {
+		switch {
+		case f.Kind == vllmmetrics.Histogram:
 			r.histograms[f.Name].render(&b, f.Name, labels)
-			continue
+		case f.Name == vllmmetrics.CacheConfigInfo:
+			// An info metric: the value is always 1 and everything it reports
+			// is in the labels, so rendering it as a scalar like the others
+			// would publish the series and say nothing.
+			fmt.Fprintf(&b, "%s{%s} 1.0\n", f.Name, r.cacheConfigLabels())
+		default:
+			fmt.Fprintf(&b, "%s{%s} %g\n", f.Name, labels, scalars[f.Name])
 		}
-		fmt.Fprintf(&b, "%s{%s} %g\n", f.Name, labels, scalars[f.Name])
 	}
 	r.mu.Unlock()
 

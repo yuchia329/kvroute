@@ -44,6 +44,14 @@ type Config struct {
 	// KVUtilization is reported as vllm:kv_cache_usage_perc.
 	KVUtilization float64
 
+	// NumGPUBlocks and BlockSize are the KV cache geometry reported through
+	// vllm:cache_config_info, which is where aggregate fleet KV capacity is
+	// read from. They default to what a replica of the pinned engine on a 3090
+	// actually reports, so a fake fleet has a capacity the same arithmetic
+	// applies to rather than a zero the reader would have to special-case.
+	NumGPUBlocks int
+	BlockSize    int
+
 	// Now supplies the `created` timestamp. Defaults to time.Now.
 	//
 	// Tests pin it because `created` is in whole seconds: two requests that
@@ -92,6 +100,12 @@ func New(cfg Config) *Replica {
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
+	}
+	if cfg.NumGPUBlocks <= 0 {
+		cfg.NumGPUBlocks = 7872
+	}
+	if cfg.BlockSize <= 0 {
+		cfg.BlockSize = 16
 	}
 	return &Replica{cfg: cfg, histograms: newHistograms()}
 }

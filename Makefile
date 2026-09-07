@@ -23,9 +23,17 @@ BENCH_ARGS ?=
 # could not report router overhead per request or, later, belief divergence.
 RECORDS ?= $(RUN_DIR)/router.jsonl
 
-# The live replica the contract test runs against. Point it at a replica of the
-# pinned engine version during bring-up.
+# The live replica the contract test runs against, or the whole fleet's spec —
+# `ops/fleet.sh replicas` — to assert the contract against every replica. Point
+# it at replicas of the pinned engine version during bring-up.
 CONTRACT_REPLICA ?=
+
+# Where the characterization lands: aggregate KV capacity, host topology, the
+# hardware latency floor, the SLO derived from it, and the replica symmetry
+# verdict. Everything downstream scales off these, so they get their own
+# directory rather than sharing a sweep's.
+CHAR_DIR ?= runs/characterization
+CHAR_ARGS ?=
 
 .PHONY: help
 help: ## List targets
@@ -44,6 +52,7 @@ linux: ## Cross-compile every command for the GPU box, which has no Go toolchain
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/router-linux-amd64 ./cmd/router
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/bench-linux-amd64 ./cmd/bench
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/preflight-linux-amd64 ./cmd/preflight
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/characterize-linux-amd64 ./cmd/characterize
 
 .PHONY: test
 test: ## Run the full suite under the race detector
@@ -87,6 +96,14 @@ bench: build ## Sweep concurrency against the running fleet, resuming from RUN_D
 		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
 		$(BENCH_ARGS)
+
+.PHONY: characterize
+characterize: build ## Measure KV capacity, the latency floor, the SLO and replica symmetry
+	$(BIN)/characterize -dir $(CHAR_DIR) \
+		-model "$$(ops/fleet.sh env MODEL)" \
+		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
+		-replicas "$$(ops/fleet.sh replicas)" \
+		$(CHAR_ARGS)
 
 .PHONY: replica-up
 replica-up: ## Start one vLLM replica on GPU INDEX with the pinned engine and forced backend

@@ -21,8 +21,19 @@ const SessionHeader = "X-Session-Id"
 
 // DriverConfig configures one closed-loop cell.
 type DriverConfig struct {
-	// Target is the router's base URL.
+	// Target is the base URL to drive: the router, or one replica directly when
+	// DirectReplica names it.
 	Target string
+	// DirectReplica, when set, says Target is a replica rather than the router,
+	// and names it. Rows are then attributed to it directly, because there is
+	// no router in the path to name it in a response header.
+	//
+	// This exists for the characterization pass, which drives each replica on
+	// its own to establish the hardware latency floor and to check that the six
+	// are interchangeable. Both questions are about a replica, and putting the
+	// router in the path would fold its policy — and its overhead — into the
+	// answer.
+	DirectReplica string
 	// Concurrency is the number of virtual users held for the whole cell.
 	Concurrency int
 	// Duration is how long users keep starting new turns. A request already in
@@ -193,7 +204,11 @@ func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int, warmUntil t
 		if ctx.Err() != nil {
 			return finish(record.OutcomeCancelled, err)
 		}
-		// The router never answered, so it never placed the request.
+		// Nothing answered, so nothing was placed. Driving a replica directly
+		// this is the harness failing to reach it rather than a router failing
+		// to place it, but it is the same column either way: no response
+		// arrived, so there is no latency to contribute and nothing a replica
+		// can be blamed for erroring on.
 		return finish(record.OutcomeDropped, err)
 	}
 	defer resp.Body.Close()
@@ -202,6 +217,12 @@ func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int, warmUntil t
 	row.Replica = resp.Header.Get(router.ReplicaHeader)
 	row.Decision = resp.Header.Get(router.DecisionHeader)
 	row.RequestID = resp.Header.Get(router.RequestHeader)
+	if cfg.DirectReplica != "" {
+		// Driving a replica directly, so the harness knows where the request
+		// went without being told: it chose. Attributing it here rather than
+		// leaving the field empty keeps the check below meaning what it says.
+		row.Replica = cfg.DirectReplica
+	}
 
 	// The router names the replica only once it has dispatched, so the absence
 	// of that header is exactly the distinction CONTEXT.md draws: a request the

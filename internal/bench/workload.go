@@ -28,6 +28,41 @@ type Workload interface {
 	Next(user, turn int) Turn
 }
 
+// Shifted returns w with its user space moved by offset, so that two
+// measurements in the same run never send the same bytes.
+//
+// This matters more than it looks. A workload is deterministic in (user, turn)
+// on purpose — a cell that is re-run has to send the same bytes, or the cache
+// it is measuring is not the same cache — but that determinism makes the second
+// repetition of a measurement re-send the first repetition's prompts verbatim.
+// The replica still holds them, so the second repetition measures the prefix
+// cache rather than prefill. Measured on the box: TTFT drops from ~325 ms to
+// ~46 ms, a seven-fold difference that has nothing to do with what was being
+// varied.
+//
+// The offset is therefore derived from the axes rather than counted, so a
+// resumed measurement still re-sends its own bytes while a different one never
+// re-sends somebody else's.
+func Shifted(w Workload, offset int) Workload {
+	if offset == 0 {
+		return w
+	}
+	return shifted{inner: w, offset: offset}
+}
+
+type shifted struct {
+	inner  Workload
+	offset int
+}
+
+func (s shifted) Name() string             { return s.inner.Name() }
+func (s shifted) Next(user, turn int) Turn { return s.inner.Next(s.offset+user, turn) }
+
+// WorkloadStride separates one measurement's user space from the next. It is
+// far above any concurrency the sweep reaches, so two measurements' user ranges
+// cannot overlap.
+const WorkloadStride = 4096
+
 // FixedWorkload configures the fixed workload.
 type FixedWorkload struct {
 	// Model is what the replicas serve. There is deliberately no default: the

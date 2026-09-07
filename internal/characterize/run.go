@@ -1,0 +1,494 @@
+package characterize
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/yuchia329/kvroute/internal/bench"
+	"github.com/yuchia329/kvroute/internal/fleet"
+	"github.com/yuchia329/kvroute/internal/gpu"
+	"github.com/yuchia329/kvroute/internal/record"
+)
+
+// DefaultLevels are the two load levels each replica is driven at.
+//
+// One, because that is where the hardware floor lives and where the SLO comes
+// from. Sixteen, because an asymmetry in host-side CPU work does not show at
+// concurrency one — there is no queue, no batch and nothing to be starved of —
+// and this is enough load on a single replica to make the engine batch without
+// pushing it past its knee, where the measurement would be about saturation
+// rather than about the host.
+var DefaultLevels = []int{1, 16}
+
+// Config configures a characterization run.
+type Config struct {
+	// Dir is where the rows and the record land.
+	Dir      string
+	Replicas []fleet.Replica
+	Model    string
+
+	// Levels are the load levels each replica is driven at, on its own.
+	Levels []int
+	// Repetitions is how many times the whole pass is repeated. More than one
+	// is what makes the replica order alternate, which is what keeps a host
+	// that drifts over the run from looking like a fleet ordered by index.
+	Repetitions int
+	// ProbeDuration is how long each replica is driven for at each level, and
+	// Warmup is the slice at the start of that which is recorded but not
+	// summarised.
+	ProbeDuration time.Duration
+	Warmup        time.Duration
+	// ReplicaWarmup is how many requests each replica is sent, directly, before
+	// the first probe, so no replica serves its first real forward pass inside
+	// the measurement the SLO is derived from.
+	ReplicaWarmup int
+	// Settle is the pause between probes, so one probe's tail stays out of the
+	// next one's window.
+	Settle time.Duration
+
+	Workload bench.Workload
+
+	Estimate      Estimate
+	SessionTokens int
+	SLOMultiple   float64
+	Tolerance     float64
+	// MaxPrefixHitRate is how much of a probe's prompt work may come out of the
+	// replica's prefix cache before the probe is flagged as measuring the cache
+	// rather than the hardware. Zero uses MaxFloorPrefixHitRate.
+	MaxPrefixHitRate float64
+
+	// Prober reads the host's GPUs, for the topology record and for each
+	// probe's contamination evidence. Nil records that neither was checked
+	// rather than claiming both were clean.
+	Prober        *gpu.Prober
+	Contamination bench.ContaminationConfig
+
+	Log *slog.Logger
+}
+
+// Probe is one replica driven on its own at one load level.
+//
+// Deliberately not a cell. A cell is a point of the policy comparison and
+// carries a policy; a probe has no router in front of it and no policy to name,
+// which is exactly what makes it able to say something about a replica rather
+// than about a routing decision.
+type Probe struct {
+	ID        string `json:"id"`
+	Placement `json:"placement"`
+	BaseURL   string `json:"base_url"`
+
+	Concurrency int `json:"concurrency"`
+	Repetition  int `json:"repetition"`
+	// Order is this probe's position in the whole run. It is recorded because
+	// the alternating replica order is only useful if the order is visible: a
+	// figure that drifts with Order and not with the replica is the host
+	// warming up, not a slow card.
+	Order int `json:"order"`
+
+	StartedAtNs int64 `json:"started_at_ns"`
+	EndedAtNs   int64 `json:"ended_at_ns"`
+
+	// PrefixCache is how much of this probe's prompt work the replica answered
+	// out of its cache. A probe that read the cache measured the cache, not the
+	// hardware, and it looks exactly like a fast replica if nobody checks.
+	PrefixCache PrefixCacheDelta `json:"prefix_cache"`
+
+	bench.Summary       `json:"summary"`
+	bench.Contamination `json:"contamination"`
+}
+
+// ProbeID is a probe's identity: replica, level, repetition.
+func ProbeID(replicaID string, concurrency, repetition int) string {
+	return fmt.Sprintf("%s-c%d-r%d", replicaID, concurrency, repetition)
+}
+
+// Characterization is everything one run established. It is the record the
+// phase-1 gates are checked against.
+type Characterization struct {
+	At       time.Time `json:"at"`
+	Model    string    `json:"model"`
+	Workload string    `json:"workload"`
+
+	Capacity    Capacity     `json:"capacity"`
+	WorkingSets []WorkingSet `json:"working_sets"`
+	Topology    gpu.Topology `json:"topology"`
+
+	Floor         Floor        `json:"floor"`
+	SLO           DerivedSLO   `json:"slo"`
+	SLOCandidates []DerivedSLO `json:"slo_candidates"`
+
+	Symmetry Symmetry `json:"symmetry"`
+	Probes   []Probe  `json:"probes"`
+
+	// Flagged marks a characterization whose own numbers must not be used
+	// without reading why first. Every downstream figure scales off these, so a
+	// quietly unusable one is worse here than anywhere else.
+	Flagged     bool     `json:"flagged"`
+	FlagReasons []string `json:"flag_reasons,omitempty"`
+}
+
+// Run establishes the fleet's measured facts.
+//
+// It is not resumable, unlike the sweep. The whole pass is tens of minutes
+// rather than tens of hours, and the facts it establishes have to describe one
+// fleet in one state: half of a capacity reading from this morning and half of
+// a symmetry verdict from tonight is not a characterization of anything.
+func Run(ctx context.Context, cfg Config) (Characterization, error) {
+	cfg = cfg.withDefaults()
+	if len(cfg.Replicas) == 0 {
+		return Characterization{}, errors.New("characterize: at least one replica is required")
+	}
+	if cfg.Dir == "" {
+		return Characterization{}, errors.New("characterize: a directory to write the record to is required")
+	}
+	if err := os.MkdirAll(cfg.Dir, 0o755); err != nil {
+		return Characterization{}, fmt.Errorf("characterize: create %s: %w", cfg.Dir, err)
+	}
+
+	bases := make([]string, 0, len(cfg.Replicas))
+	ids := make([]string, 0, len(cfg.Replicas))
+	for _, r := range cfg.Replicas {
+		bases = append(bases, r.BaseURL)
+		ids = append(ids, r.ID)
+	}
+	if err := bench.CheckReplicas(ctx, bases); err != nil {
+		return Characterization{}, err
+	}
+
+	c := Characterization{At: time.Now().UTC(), Model: cfg.Model, Workload: cfg.Workload.Name()}
+
+	// Capacity and topology first, while the fleet is idle: both are static
+	// facts about how the fleet was built, and reading them before any load
+	// means the run's own traffic cannot be in them.
+	capacity, err := ReadCapacity(ctx, nil, cfg.Replicas, cfg.Estimate)
+	if err != nil {
+		return Characterization{}, err
+	}
+	c.Capacity = capacity
+	c.WorkingSets = capacity.WorkingSets(cfg.SessionTokens, WorkingSetPoints)
+	if !capacity.Uniform {
+		c.flag("the replicas do not report the same KV capacity, so the fleet aggregate hides a difference between cards")
+	}
+	cfg.Log.Info("fleet KV capacity",
+		"tokens", capacity.Tokens, "per_replica", capacity.Replicas[0].Tokens,
+		"estimated", capacity.EstimatedTokens, "gap", fmt.Sprintf("%+.1f%%", capacity.Gap*100))
+
+	if cfg.Prober != nil {
+		if c.Topology, err = cfg.Prober.Topology(ctx); err != nil {
+			return Characterization{}, err
+		}
+		for _, group := range c.Topology.NUMAGroups() {
+			cfg.Log.Info("NUMA placement", "node", group.Node, "gpus", group.GPUs,
+				"threads_per_gpu", group.ThreadsPerGPU)
+		}
+	} else {
+		c.flag("no GPU prober, so the host topology was not recorded and no symmetry result can be read against it")
+	}
+
+	if err := bench.WarmReplicas(ctx, bench.WarmConfig{
+		Replicas: bases,
+		Requests: cfg.ReplicaWarmup,
+		Workload: cfg.Workload,
+		Log:      cfg.Log,
+	}); err != nil {
+		return Characterization{}, err
+	}
+
+	placements := Placements(ids, c.Topology)
+	probes, rows, err := drive(ctx, cfg, placements)
+	c.Probes = probes
+	if err != nil {
+		return c, err
+	}
+
+	// One pass, three answers. The concurrency-1 rows pooled across replicas are
+	// the hardware floor; the same rows split by replica are half the symmetry
+	// comparison; the SLO follows from the floor. Measuring them separately
+	// would derive an SLO from a fleet in one state and judge symmetry on a
+	// fleet in another.
+	c.Floor = NewFloor(rowsAt(rows, 1), len(cfg.Replicas), floorPrefixCache(probes), cfg.MaxPrefixHitRate)
+	if usable, why := c.Floor.Usable(); !usable {
+		c.flag("the latency floor is not usable, so the SLO derived from it is not either: " + why)
+	}
+	c.SLO = c.Floor.Derive(cfg.SLOMultiple)
+	c.SLOCandidates = c.Floor.Candidates(SLOCandidateMultiples)
+	cfg.Log.Info("latency floor measured", "ttft_p50", c.Floor.TTFT(), "itl_p50", c.Floor.ITL(),
+		"requests", c.Floor.Successes, "slo", c.SLO.String())
+
+	c.Symmetry = CompareReplicas(rows, placements, c.Topology, cfg.Tolerance)
+	switch {
+	case c.Symmetry.Escalation != EscalationNone:
+		c.flag(fmt.Sprintf("the replicas are not interchangeable, so §10's escalation is due (%s): %v",
+			c.Symmetry.Escalation, c.Symmetry.Findings))
+	case !c.Symmetry.Resolved:
+		// Not the same thing as a difference. The fleet may be even or it may
+		// not; this run could not tell, and a phase gate that reads "no
+		// escalation needed" off it would be reading nothing.
+		c.flag(fmt.Sprintf("replica symmetry is unresolved at one or more levels: %v", c.Symmetry.Findings))
+	}
+	// One line per distinct reason, not per probe. GPU sampling being off
+	// flags all twenty-four identically, and twenty-four copies of the same
+	// sentence is how a flag stops being read.
+	for _, reason := range flaggedProbes(probes) {
+		c.flag(reason)
+	}
+
+	if err := writeJSON(filepath.Join(cfg.Dir, "characterization.json"), c); err != nil {
+		return c, err
+	}
+	return c, nil
+}
+
+// drive runs every probe and returns them with every row they produced.
+//
+// The replica order alternates between repetitions. Driving one replica at a
+// time is what idea.md §10 asks for — six replicas under load at once would
+// measure the host's total CPU rather than each card's share of it — but a
+// sequential pass puts replica 0 at the start of every repetition and replica 5
+// at the end, so a host that drifts over the run would produce a latency
+// gradient that reads exactly like the NUMA asymmetry being looked for.
+// Reversing on alternate repetitions puts each replica at both ends.
+func drive(ctx context.Context, cfg Config, placements []Placement) ([]Probe, []bench.Result, error) {
+	rowPath := filepath.Join(cfg.Dir, "probes.jsonl")
+	// Rows are appended, and this pass does not resume, so a second run in the
+	// same directory would silently interleave two fleets' rows under one
+	// record. Refused rather than truncated: the previous run's rows are the
+	// system of record for whatever was published off them.
+	if _, err := os.Stat(rowPath); err == nil {
+		return nil, nil, fmt.Errorf("characterize: %s already holds a run's rows, and this pass does not resume. Move it aside or point -dir somewhere else", rowPath)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, nil, err
+	}
+	writer, err := record.Open[bench.Result](rowPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer writer.Close()
+
+	var probes []Probe
+	var rows []bench.Result
+	order := 0
+
+	for _, concurrency := range cfg.Levels {
+		for repetition := 1; repetition <= cfg.Repetitions; repetition++ {
+			for _, p := range passOrder(placements, repetition) {
+				if err := ctx.Err(); err != nil {
+					return probes, rows, err
+				}
+				if order > 0 && cfg.Settle > 0 {
+					time.Sleep(cfg.Settle)
+				}
+				order++
+
+				probe, probeRows, err := runProbe(ctx, cfg, p, concurrency, repetition, order, writer)
+				if err != nil {
+					return probes, rows, err
+				}
+				probes = append(probes, probe)
+				rows = append(rows, probeRows...)
+			}
+		}
+	}
+	return probes, rows, writer.Close()
+}
+
+// passOrder reverses the replica order on even repetitions, so no replica is
+// always measured first.
+func passOrder(placements []Placement, repetition int) []Placement {
+	if repetition%2 == 1 {
+		return placements
+	}
+	reversed := make([]Placement, len(placements))
+	for i, p := range placements {
+		reversed[len(placements)-1-i] = p
+	}
+	return reversed
+}
+
+func runProbe(ctx context.Context, cfg Config, p Placement, concurrency, repetition, order int, rows *record.Writer[bench.Result]) (Probe, []bench.Result, error) {
+	var replica fleet.Replica
+	for _, r := range cfg.Replicas {
+		if r.ID == p.ReplicaID {
+			replica = r
+		}
+	}
+	base := replica.BaseURL
+	id := ProbeID(p.ReplicaID, concurrency, repetition)
+
+	cfg.Log.Info("probing replica", "probe", id, "gpu", p.GPUIndex, "numa", p.NUMANode,
+		"concurrency", concurrency, "duration", cfg.ProbeDuration)
+	started := time.Now()
+	before := readPrefixCounters(ctx, nil, replica)
+	watcher := bench.Watch(ctx, cfg.Contamination)
+
+	results, err := bench.RunClosedLoop(ctx, bench.DriverConfig{
+		Target:        base,
+		DirectReplica: p.ReplicaID,
+		Concurrency:   concurrency,
+		Duration:      cfg.ProbeDuration,
+		Warmup:        cfg.Warmup,
+		// Every probe sends from its own slice of the workload's user space, so
+		// no probe re-sends another's prompts. Without it the second repetition
+		// re-sends the first's, the replica answers them out of its prefix
+		// cache, and the floor drops sevenfold for a reason that has nothing to
+		// do with the hardware it claims to describe.
+		Workload: bench.Shifted(cfg.Workload, order*bench.WorkloadStride),
+		Rows:     rows,
+		// No policy: nothing routed these requests, which is the point. The
+		// cell id is the probe's, so a row can still be traced to what produced
+		// it after the files are concatenated.
+		Labels: bench.Labels{CellID: id, Repetition: repetition},
+		Log:    cfg.Log,
+	})
+	contamination := watcher.Stop()
+	ended := time.Now()
+	if err != nil {
+		return Probe{}, nil, fmt.Errorf("characterize: probe %s: %w", id, err)
+	}
+	prefixCache := readPrefixCounters(ctx, nil, replica).since(before)
+
+	probe := Probe{
+		ID:            id,
+		Placement:     p,
+		BaseURL:       base,
+		Concurrency:   concurrency,
+		Repetition:    repetition,
+		Order:         order,
+		StartedAtNs:   started.UnixNano(),
+		EndedAtNs:     ended.UnixNano(),
+		PrefixCache:   prefixCache,
+		Summary:       bench.Summarize(results, bench.SummaryOptions{}),
+		Contamination: contamination,
+	}
+	for _, reason := range probe.Contamination.Reasons() {
+		probe.Flag(reason)
+	}
+	if reason := prefixCache.reason(cfg.MaxPrefixHitRate); reason != "" {
+		probe.Flag(reason)
+	}
+	cfg.Log.Info("probe complete", "probe", id,
+		"ttft_p50", time.Duration(probe.TTFTP50Ns), "itl_p50", time.Duration(probe.ITLP50Ns),
+		"requests", probe.Requests, "prefix_hit_rate", fmt.Sprintf("%.1f%%", prefixCache.HitRate()*100),
+		"clean", probe.Clean, "flagged", probe.Flagged)
+	return probe, results, nil
+}
+
+// flaggedProbes collapses the probes' flag reasons into one line per distinct
+// reason, naming how many probes carried it and a few of them.
+func flaggedProbes(probes []Probe) []string {
+	var order []string
+	carriers := map[string][]string{}
+	for _, probe := range probes {
+		for _, reason := range probe.FlagReasons {
+			if _, seen := carriers[reason]; !seen {
+				order = append(order, reason)
+			}
+			carriers[reason] = append(carriers[reason], probe.ID)
+		}
+	}
+
+	out := make([]string, 0, len(order))
+	for _, reason := range order {
+		ids := carriers[reason]
+		named := ids
+		suffix := ""
+		if len(named) > 3 {
+			named, suffix = named[:3], fmt.Sprintf(" and %d more", len(ids)-3)
+		}
+		out = append(out, fmt.Sprintf("%d of %d probes flagged: %s (%s%s)",
+			len(ids), len(probes), reason, strings.Join(named, ", "), suffix))
+	}
+	return out
+}
+
+// floorPrefixCache pools the prefix-cache evidence of the probes the floor is
+// taken from, so the floor can refuse to be used if it was measured against a
+// cache rather than against the hardware.
+func floorPrefixCache(probes []Probe) PrefixCacheDelta {
+	pooled := PrefixCacheDelta{Read: true}
+	seen := 0
+	for _, probe := range probes {
+		if probe.Concurrency != 1 {
+			continue
+		}
+		seen++
+		if !probe.PrefixCache.Read {
+			return PrefixCacheDelta{}
+		}
+		pooled.Hits += probe.PrefixCache.Hits
+		pooled.Queries += probe.PrefixCache.Queries
+	}
+	if seen == 0 || pooled.Queries <= 0 {
+		return PrefixCacheDelta{}
+	}
+	return pooled
+}
+
+// rowsAt returns the rows taken at one load level.
+func rowsAt(rows []bench.Result, concurrency int) []bench.Result {
+	var out []bench.Result
+	for _, r := range rows {
+		if r.Concurrency == concurrency {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func (c *Characterization) flag(reason string) {
+	c.Flagged = true
+	c.FlagReasons = append(c.FlagReasons, reason)
+}
+
+func (cfg Config) withDefaults() Config {
+	if len(cfg.Levels) == 0 {
+		cfg.Levels = DefaultLevels
+	}
+	if cfg.Repetitions <= 0 {
+		cfg.Repetitions = 1
+	}
+	if cfg.ProbeDuration <= 0 {
+		cfg.ProbeDuration = 30 * time.Second
+	}
+	if cfg.Workload == nil {
+		cfg.Workload = bench.NewFixedWorkload(bench.FixedWorkload{Model: cfg.Model})
+	}
+	if cfg.Estimate == (Estimate{}) {
+		cfg.Estimate = HandComputed
+	}
+	if cfg.SessionTokens <= 0 {
+		cfg.SessionTokens = DefaultSessionTokens
+	}
+	if cfg.SLOMultiple <= 0 {
+		cfg.SLOMultiple = DefaultSLOMultiple
+	}
+	if cfg.Tolerance <= 0 {
+		cfg.Tolerance = DefaultSymmetryTolerance
+	}
+	if cfg.MaxPrefixHitRate <= 0 {
+		cfg.MaxPrefixHitRate = MaxFloorPrefixHitRate
+	}
+	if cfg.Log == nil {
+		cfg.Log = slog.Default()
+	}
+	cfg.Contamination.Log = cfg.Log
+	return cfg
+}
+
+func writeJSON(path string, v any) error {
+	contents, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Errorf("characterize: marshal %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, append(contents, '\n'), 0o644); err != nil {
+		return fmt.Errorf("characterize: write %s: %w", path, err)
+	}
+	return nil
+}

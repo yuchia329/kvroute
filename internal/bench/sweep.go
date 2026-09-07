@@ -46,6 +46,14 @@ type Cell struct {
 	Contamination `json:"contamination"`
 }
 
+// CellWorkloadOffset is the slice of the workload's user space a cell sends
+// from. It is derived from the axes alone — deliberately not from the policy —
+// so a re-run of a cell sends its own bytes again and no cell ever re-sends
+// another's.
+func CellWorkloadOffset(concurrency, repetition int) int {
+	return (repetition*1024 + concurrency) * WorkloadStride
+}
+
 // CellID is the cell's identity and its cache key. It is derived from the axes
 // alone, so re-running a sweep with the same axes finds the same cells.
 func CellID(policy string, concurrency, repetition int) string {
@@ -211,8 +219,37 @@ func (cfg SweepConfig) summaryOptions() SummaryOptions {
 // happens once per process. Per-cell transients are what SweepConfig.Warmup is
 // for.
 func warmFleet(ctx context.Context, cfg SweepConfig) error {
-	if cfg.FleetWarmup <= 0 || len(cfg.Replicas) == 0 {
+	return WarmReplicas(ctx, WarmConfig{
+		Replicas: cfg.Replicas,
+		Requests: cfg.FleetWarmup,
+		Workload: cfg.Workload,
+		Log:      cfg.Log,
+	})
+}
+
+// WarmConfig configures the direct warm-up.
+type WarmConfig struct {
+	// Replicas are the base URLs to warm. Empty skips the warm-up.
+	Replicas []string
+	// Requests is how many to send to each. Zero skips the warm-up.
+	Requests int
+	Workload Workload
+	Log      *slog.Logger
+}
+
+// WarmReplicas forces a real forward pass on every replica.
+//
+// Exported because the characterization pass needs it for the same reason the
+// sweep does, and more sharply: the concurrency-1 measurement it takes is the
+// latency floor every SLO is derived from, so a cold first forward pass landing
+// inside it would put a one-off compile in the threshold every later cell is
+// judged against.
+func WarmReplicas(ctx context.Context, cfg WarmConfig) error {
+	if cfg.Requests <= 0 || len(cfg.Replicas) == 0 {
 		return nil
+	}
+	if cfg.Log == nil {
+		cfg.Log = slog.Default()
 	}
 	client := &http.Client{Timeout: 5 * time.Minute}
 	errs := make([]error, len(cfg.Replicas))
@@ -222,7 +259,7 @@ func warmFleet(ctx context.Context, cfg SweepConfig) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for n := range cfg.FleetWarmup {
+			for n := range cfg.Requests {
 				// Turn index n keeps the bodies distinct, so the replica is not
 				// answering the same request from its own prefix cache every
 				// time and skipping the work being warmed.
@@ -238,7 +275,7 @@ func warmFleet(ctx context.Context, cfg SweepConfig) error {
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("bench: warming the fleet failed, so a replica cannot serve: %w", err)
 	}
-	cfg.Log.Info("fleet warmed", "replicas", len(cfg.Replicas), "requests_each", cfg.FleetWarmup)
+	cfg.Log.Info("fleet warmed", "replicas", len(cfg.Replicas), "requests_each", cfg.Requests)
 	return nil
 }
 
@@ -278,18 +315,30 @@ func checkFleet(ctx context.Context, cfg SweepConfig) error {
 		cfg.Log.Warn("no replica URLs given, so the fleet was not checked before the sweep")
 		return nil
 	}
+	if err := CheckReplicas(ctx, cfg.Replicas); err != nil {
+		return err
+	}
+	cfg.Log.Info("fleet is up", "replicas", len(cfg.Replicas))
+	return nil
+}
+
+// CheckReplicas refuses to proceed unless every replica answers /health.
+//
+// Exported for the same reason WarmReplicas is: the characterization pass has
+// to establish that it is measuring the whole fleet before it claims anything
+// about whether the fleet is interchangeable.
+func CheckReplicas(ctx context.Context, replicas []string) error {
 	client := &http.Client{Timeout: 5 * time.Second}
 	var down []string
-	for _, base := range cfg.Replicas {
+	for _, base := range replicas {
 		if err := ping(ctx, client, base); err != nil {
 			down = append(down, fmt.Sprintf("%s (%v)", base, err))
 		}
 	}
 	if len(down) > 0 {
-		return fmt.Errorf("bench: %d of %d replicas did not answer /health, so the sweep would measure an incomplete fleet: %s",
-			len(down), len(cfg.Replicas), strings.Join(down, "; "))
+		return fmt.Errorf("bench: %d of %d replicas did not answer /health, so this would measure an incomplete fleet: %s",
+			len(down), len(replicas), strings.Join(down, "; "))
 	}
-	cfg.Log.Info("fleet is up", "replicas", len(cfg.Replicas))
 	return nil
 }
 
@@ -332,10 +381,17 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, concurren
 		Concurrency: concurrency,
 		Duration:    cfg.CellDuration,
 		Warmup:      cfg.Warmup,
-		Workload:    cfg.Workload,
-		Rows:        rows,
-		Labels:      Labels{CellID: id, Policy: cfg.Policy, Repetition: repetition},
-		Log:         cfg.Log,
+		// Each cell gets its own slice of the workload's user space, keyed on
+		// the axes it varies and not on the policy. Two cells that differ only
+		// in repetition or concurrency therefore send different bytes — without
+		// it the second repetition re-sends the first one's prompts and reads
+		// them back out of the replica's prefix cache — while the same cell
+		// under two policies sends identical bytes, which is what makes the
+		// policies comparable at all.
+		Workload: Shifted(cfg.Workload, CellWorkloadOffset(concurrency, repetition)),
+		Rows:     rows,
+		Labels:   Labels{CellID: id, Policy: cfg.Policy, Repetition: repetition},
+		Log:      cfg.Log,
 	})
 	contamination := watcher.Stop()
 	ended := time.Now()
@@ -386,8 +442,8 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, concurren
 // in with the others. Summarize flags what the rows say; this flags what the
 // cards said.
 func flagContamination(cell *Cell) {
-	for _, reason := range cell.Contamination.reasons() {
-		cell.add(reason)
+	for _, reason := range cell.Contamination.Reasons() {
+		cell.Flag(reason)
 	}
 }
 

@@ -118,15 +118,20 @@ func (w *Writer[T]) Write(r T) error {
 	return w.buf.Flush()
 }
 
-// Close flushes and closes the underlying file.
+// Close flushes and closes the underlying file. It is idempotent, because the
+// callers that want the flush error also defer a Close for the paths that
+// return early, and a second close reporting "file already closed" would turn
+// a successful run into a failed one.
 func (w *Writer[T]) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if err := w.buf.Flush(); err != nil {
 		return err
 	}
-	if w.c != nil {
-		return w.c.Close()
+	c := w.c
+	w.c = nil
+	if c != nil {
+		return c.Close()
 	}
 	return nil
 }
