@@ -77,7 +77,10 @@ fleet-status: ## Show which replicas are running
 
 .PHONY: bench
 bench: build ## Sweep concurrency against the running fleet, resuming from RUN_DIR
-	$(BIN)/bench -router $(ROUTER) -dir $(RUN_DIR) -policy $(POLICY) $(BENCH_ARGS)
+	$(BIN)/bench -router $(ROUTER) -dir $(RUN_DIR) -policy $(POLICY) \
+		-model "$$(ops/fleet.sh env MODEL)" \
+		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
+		$(BENCH_ARGS)
 
 .PHONY: replica-up
 replica-up: ## Start one vLLM replica on GPU INDEX with the pinned engine and forced backend

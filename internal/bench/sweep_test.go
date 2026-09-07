@@ -37,7 +37,7 @@ func sweepUnderTest(t *testing.T, dir string, cfg bench.SweepConfig) ([]bench.Ce
 		cfg.CellDuration = 20 * time.Millisecond
 	}
 	if cfg.Workload == nil {
-		cfg.Workload = bench.NewFixedWorkload(bench.FixedWorkload{OutputTokens: 2})
+		cfg.Workload = bench.NewFixedWorkload(bench.FixedWorkload{Model: testModel, OutputTokens: 2})
 	}
 	cfg.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 
@@ -188,5 +188,139 @@ func TestACleanCellSaysSo(t *testing.T) {
 	}
 	if got.Flagged {
 		t.Errorf("a clean cell was flagged: %v", got.FlagReasons)
+	}
+}
+
+// sweepWith runs a sweep under a caller-supplied context, so a test can
+// interrupt one mid-cell.
+func sweepWith(t *testing.T, ctx context.Context, dir string, cfg bench.SweepConfig) ([]bench.Cell, error, *inflight) {
+	t.Helper()
+	target, _, counted := fleetUnderTest(t, fakereplica.Config{})
+	cfg.Dir = dir
+	cfg.Target = target
+	cfg.Policy = "round_robin"
+	cfg.Repetitions = 1
+	cfg.Workload = bench.NewFixedWorkload(bench.FixedWorkload{Model: testModel, OutputTokens: 2})
+	cfg.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
+	cells, err := bench.RunSweep(ctx, cfg)
+	return cells, err, counted
+}
+
+func TestAnInterruptedCellIsNotCachedAsThoughItHadFinished(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Interrupt while the first cell is still running. Persisting it would bake
+	// a truncated cell into the results permanently: the next pass would find a
+	// cache entry and never re-run it.
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		cancel()
+	}()
+	cells, err := func() ([]bench.Cell, error) {
+		got, err, _ := sweepWith(t, ctx, dir, bench.SweepConfig{
+			Concurrencies: []int{1},
+			CellDuration:  2 * time.Second,
+		})
+		return got, err
+	}()
+
+	if err == nil {
+		t.Error("an interrupted sweep reported success")
+	}
+	if len(cells) != 0 {
+		t.Errorf("an interrupted sweep returned %d cells", len(cells))
+	}
+	id := bench.CellID("round_robin", 1, 1)
+	if _, err := os.Stat(filepath.Join(dir, "cells", id+".json")); err == nil {
+		t.Error("the interrupted cell was written as a completed cell record")
+	}
+	// Its rows survive, under a name that says what they are.
+	if _, err := os.Stat(filepath.Join(dir, "cells", id+".jsonl.partial")); err != nil {
+		t.Errorf("the interrupted cell's rows were not kept: %v", err)
+	}
+
+	// And the next pass runs it for real.
+	_, replica := sweepUnderTest(t, dir, bench.SweepConfig{Concurrencies: []int{1}})
+	if replica.total.Load() == 0 {
+		t.Error("the interrupted cell was treated as cached on the next pass")
+	}
+}
+
+func TestAContaminatedCellIsDiscardedAndReRunRatherThanCached(t *testing.T) {
+	dir := t.TempDir()
+
+	contaminated := bench.SweepConfig{
+		Concurrencies: []int{1},
+		Contamination: bench.ContaminationConfig{
+			Prober: gputest.Contaminated(), Interval: time.Millisecond, GPUs: []int{0},
+		},
+	}
+	first, _ := sweepUnderTest(t, dir, contaminated)
+	if !first[0].Contaminated() {
+		t.Fatal("the first pass did not see the foreign process")
+	}
+
+	// idea.md §6: any cell with a foreign process on any of the six cards is
+	// discarded and re-run. Leaving it cached would make "re-run" mean "delete
+	// the file by hand first".
+	clean := bench.SweepConfig{
+		Concurrencies: []int{1},
+		Contamination: bench.ContaminationConfig{
+			Prober: gputest.Fleet(), Interval: time.Millisecond,
+			GPUs: []int{0, 1}, OwnPIDs: gputest.OwnFleetPIDs,
+		},
+	}
+	second, replica := sweepUnderTest(t, dir, clean)
+
+	if replica.total.Load() == 0 {
+		t.Error("the contaminated cell was loaded from cache instead of being re-run")
+	}
+	if !second[0].Clean {
+		t.Errorf("the re-run cell is still unclean: %v", second[0].FlagReasons)
+	}
+
+	// The evidence for why it was thrown away survives, outside cells/ so that
+	// compaction cannot pick it up as a result.
+	discarded, err := filepath.Glob(filepath.Join(dir, "discarded", "*.json"))
+	if err != nil || len(discarded) == 0 {
+		t.Errorf("the discarded cell was deleted rather than kept: %v %v", discarded, err)
+	}
+}
+
+func TestChangingTheSLORecomputesCachedCellsFromTheirRowsInsteadOfReRunningThem(t *testing.T) {
+	dir := t.TempDir()
+
+	// The concurrency-1 cell is what the SLO gets derived from, so it runs
+	// before one exists.
+	first, _ := sweepUnderTest(t, dir, bench.SweepConfig{Concurrencies: []int{1}})
+	if first[0].SLOApplied {
+		t.Fatal("the first pass applied an SLO it was not given")
+	}
+
+	// Applying the derived threshold must not cost another run: SLO violation
+	// is a property of the rows, and the rows are the system of record.
+	second, replica := sweepUnderTest(t, dir, bench.SweepConfig{
+		Concurrencies: []int{1},
+		SLO:           bench.SLO{TTFT: time.Nanosecond},
+	})
+
+	if got := replica.total.Load(); got != 0 {
+		t.Errorf("applying an SLO re-ran the cell, sending %d requests", got)
+	}
+	if !second[0].SLOApplied {
+		t.Error("the cached cell was not resummarised against the new SLO")
+	}
+	if second[0].SLOViolations != second[0].Successes {
+		t.Errorf("counted %d violations against a 1ns TTFT threshold over %d successes, want all of them",
+			second[0].SLOViolations, second[0].Successes)
+	}
+	// And the recomputation is persisted, so the next pass does not redo it.
+	reloaded, _ := sweepUnderTest(t, dir, bench.SweepConfig{
+		Concurrencies: []int{1},
+		SLO:           bench.SLO{TTFT: time.Nanosecond},
+	})
+	if !reloaded[0].SLOApplied || reloaded[0].SLOViolations != second[0].SLOViolations {
+		t.Errorf("the resummarised cell was not written back: %+v", reloaded[0].Summary)
 	}
 }

@@ -90,10 +90,17 @@ make bench BENCH_ARGS="-cell-duration 60s -repetitions 3"
 
 `ops/versions.env` is the single source of truth for everything held constant between cells: the
 engine version, the model, the forced quantization backend, the prefix-caching and chunked-prefill
-settings, the GPU-dirty threshold and the startup stagger.
+settings, the GPU-dirty threshold and the startup stagger. Nothing downstream keeps a second copy —
+`cmd/bench` and `cmd/preflight` have no default for the model, the GPU count or the dirty
+threshold, and refuse to run without them; `make bench` and `ops/fleet.sh` read each one out with
+`ops/fleet.sh env <NAME>`.
 
-The sweep resumes. Interrupting it leaves whole cells behind, and re-running the same command
-loads them rather than recomputing them.
+The sweep resumes. Interrupting it leaves the finished cells behind and re-running the same command
+loads them rather than recomputing them — but "cached" never means "stuck": the cell that was in
+flight when you interrupted is not cached and is re-run, a cell that saw a foreign process is moved
+to `discarded/` and re-run, and deriving the SLO later resummarises the cached cells from their own
+rows instead of costing another hour of GPU time. See
+[ADR-0002](docs/adr/0002-jsonl-during-parquet-after.md).
 
 **The SLO is deliberately unset until it has been measured.** `-slo-ttft` and `-slo-itl` default to
 zero, and a cell run without them records that no SLO was applied rather than reporting a goodput

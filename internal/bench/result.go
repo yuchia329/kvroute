@@ -30,14 +30,14 @@ import (
 // because the difference between the two is what separates transport cost from
 // inference cost.
 type Result struct {
-	CellID      string `json:"cell_id" parquet:"cell_id"`
-	Policy      string `json:"policy" parquet:"policy"`
-	Concurrency int    `json:"concurrency" parquet:"concurrency"`
-	Repetition  int    `json:"repetition" parquet:"repetition"`
+	// Labels are embedded rather than copied field by field, so a row's cell
+	// identity has exactly one definition and cannot disagree with the cell it
+	// was written under.
+	Labels
 
 	RequestID string `json:"request_id" parquet:"request_id"`
-	// Session is the conversation this request belongs to. Under the fixed
-	// workload one virtual user is one session; the multi-turn generator
+	// Session is the multi-turn exchange this request belongs to. Under the
+	// fixed workload one virtual user is one session; the multi-turn generator
 	// replaces that with sessions that outlive a single user.
 	Session     string `json:"session" parquet:"session"`
 	Turn        int    `json:"turn" parquet:"turn"`

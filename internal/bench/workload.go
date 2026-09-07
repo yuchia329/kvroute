@@ -7,9 +7,6 @@ import (
 	"strings"
 )
 
-// DefaultModel is the model every replica serves.
-const DefaultModel = "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4"
-
 // Turn is one request a workload wants sent: the session it belongs to and the
 // body to POST.
 type Turn struct {
@@ -33,6 +30,9 @@ type Workload interface {
 
 // FixedWorkload configures the fixed workload.
 type FixedWorkload struct {
+	// Model is what the replicas serve. There is deliberately no default: the
+	// model is pinned engine configuration and ops/versions.env is its single
+	// source of truth, so a constant here would be a second copy that drifts.
 	Model string
 	// PromptBytes is roughly how large each user message is. Bytes rather than
 	// tokens because the harness does not run a tokenizer.
@@ -60,9 +60,6 @@ type Fixed struct {
 
 // NewFixedWorkload builds the fixed workload, filling in defaults.
 func NewFixedWorkload(cfg FixedWorkload) *Fixed {
-	if cfg.Model == "" {
-		cfg.Model = DefaultModel
-	}
 	if cfg.PromptBytes <= 0 {
 		cfg.PromptBytes = 2048
 	}

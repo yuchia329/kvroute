@@ -53,12 +53,13 @@ func run() error {
 		sloITL    = flag.Duration("slo-itl", 0, "inter-token latency threshold, evaluated against each request's median gap")
 		failureAt = flag.Float64("failure-threshold", bench.DefaultFailureThreshold, "failure rate above which a cell is flagged")
 
+		model        = flag.String("model", "", "the model the replicas serve; no default, it is pinned in ops/versions.env")
 		promptBytes  = flag.Int("prompt-bytes", 2048, "approximate prompt size per request")
 		outputTokens = flag.Int("output-tokens", 64, "max_tokens per request")
 		seed         = flag.Uint64("seed", 1, "workload seed; the same seed sends the same bytes")
 
 		sampleGPUs = flag.Bool("sample-gpus", true, "sample nvidia-smi during each cell for contamination evidence")
-		gpus       = flag.Int("gpus", 6, "how many GPUs the fleet uses")
+		gpus       = flag.Int("gpus", 0, "how many GPUs the fleet uses; no default, it is REPLICA_COUNT in ops/versions.env")
 		interval   = flag.Duration("sample-interval", bench.DefaultSampleInterval, "how often to sample the GPUs")
 		pidGlob    = flag.String("replica-pids", "run/replica-*.pid", "glob of the fleet's pid files, used to tell our own processes from foreign ones")
 
@@ -76,11 +77,21 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// No default for the model: it is pinned engine configuration and
+	// ops/versions.env is its single source of truth. A default here would be a
+	// second copy, and drift between them turns every request into a 4xx that
+	// the driver books as a replica failure.
+	if *model == "" {
+		return fmt.Errorf("-model is required: pass \"$(ops/fleet.sh env MODEL)\", or run via make bench which does it for you")
+	}
 
 	contamination := bench.ContaminationConfig{Interval: *interval}
 	if *sampleGPUs {
+		if *gpus <= 0 {
+			return fmt.Errorf("-gpus is required when sampling: pass \"$(ops/fleet.sh env REPLICA_COUNT)\", or run via make bench which does it for you")
+		}
 		contamination.Prober = gpu.New()
-		contamination.GPUs = indexes(*gpus)
+		contamination.GPUs = gpu.Indexes(*gpus)
 		if contamination.OwnPIDs, err = replicaPIDs(*pidGlob); err != nil {
 			return err
 		}
@@ -95,8 +106,10 @@ func run() error {
 		log.Warn("GPU sampling is off: every cell will record that its cleanliness is unproven")
 	}
 
-	// SIGINT stops the sweep between cells rather than mid-cell, so an
-	// interrupted run leaves whole cells behind and resumes cleanly.
+	// SIGINT abandons the cell in flight rather than waiting out its duration.
+	// That cell is not cached — its rows stay under a .partial name and no cell
+	// record is written — so the next pass re-runs it and keeps every cell that
+	// did finish.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -112,6 +125,7 @@ func run() error {
 		SLO:              bench.SLO{TTFT: *sloTTFT, ITL: *sloITL},
 		FailureThreshold: *failureAt,
 		Workload: bench.NewFixedWorkload(bench.FixedWorkload{
+			Model:        *model,
 			PromptBytes:  *promptBytes,
 			OutputTokens: *outputTokens,
 			Seed:         *seed,
@@ -169,14 +183,6 @@ func parseLevels(spec string) ([]int, error) {
 		return nil, fmt.Errorf("no concurrency levels given")
 	}
 	return levels, nil
-}
-
-func indexes(n int) []int {
-	out := make([]int, 0, n)
-	for i := range n {
-		out = append(out, i)
-	}
-	return out
 }
 
 // replicaPIDs reads the fleet's supervisor pids off its pid files. The process

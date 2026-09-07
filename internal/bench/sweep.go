@@ -113,7 +113,32 @@ func RunSweep(ctx context.Context, cfg SweepConfig) ([]Cell, error) {
 		for repetition := 1; repetition <= cfg.Repetitions; repetition++ {
 			id := CellID(cfg.Policy, concurrency, repetition)
 
-			if cached, ok := loadCell(cellDir, id); ok {
+			cached, ok := loadCell(cellDir, id)
+			switch {
+			case ok && cached.Contaminated():
+				// §6: any cell with a foreign process on any of the six cards is
+				// discarded and re-run, never averaged in. Leaving it cached
+				// would make "re-run" mean "delete the file by hand first", so
+				// the evidence is moved out of the way and the cell recomputed.
+				if err := discard(cfg.Dir, cellDir, id); err != nil {
+					return cells, err
+				}
+				cfg.Log.Warn("cached cell was contaminated, discarding and re-running", "cell", id,
+					"foreign_procs", cached.ForeignProcs, "probe_errors", cached.ProbeErrors)
+			case ok && !cached.matchesSLO(cfg.SLO):
+				// The SLO is derived from the measured concurrency-1 floor, so
+				// it arrives after the cells it is applied to. SLO violation is
+				// a property of the rows, not of the run, so it is recomputed
+				// from them rather than costing another hour of GPU time.
+				recomputed, err := resummarize(cellDir, cached, cfg)
+				if err != nil {
+					return cells, err
+				}
+				cfg.Log.Info("cell is cached, resummarised against the current SLO", "cell", id,
+					"goodput_rps", recomputed.GoodputRPS, "slo_violations", recomputed.SLOViolations)
+				cells = append(cells, recomputed)
+				continue
+			case ok:
 				cfg.Log.Info("cell is cached, not re-running", "cell", id,
 					"goodput_rps", cached.GoodputRPS, "flagged", cached.Flagged)
 				cells = append(cells, cached)
@@ -160,13 +185,8 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, concurren
 		Warmup:      cfg.Warmup,
 		Workload:    cfg.Workload,
 		Rows:        rows,
-		Labels: Labels{
-			CellID:      id,
-			Policy:      cfg.Policy,
-			Concurrency: concurrency,
-			Repetition:  repetition,
-		},
-		Log: cfg.Log,
+		Labels:      Labels{CellID: id, Policy: cfg.Policy, Repetition: repetition},
+		Log:         cfg.Log,
 	})
 	contamination := watcher.Stop()
 	ended := time.Now()
@@ -176,6 +196,14 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, concurren
 	}
 	if runErr != nil {
 		return Cell{}, fmt.Errorf("bench: cell %s: %w", id, runErr)
+	}
+	// An interrupted cell is not a cell. Its rows stay on disk under the
+	// visibly incomplete .partial name, and neither they nor a cell record are
+	// renamed into place — otherwise the next pass would find a cache entry for
+	// a cell that was cut off partway and never re-run it.
+	if err := ctx.Err(); err != nil {
+		cfg.Log.Warn("cell was interrupted and will be re-run, not cached", "cell", id, "partial_rows", partialPath)
+		return Cell{}, fmt.Errorf("bench: cell %s was interrupted: %w", id, err)
 	}
 	if err := os.Rename(partialPath, rowPath); err != nil {
 		return Cell{}, fmt.Errorf("bench: cell %s: %w", id, err)
@@ -193,19 +221,7 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, concurren
 		Summary:       Summarize(results, cfg.SLO, cfg.FailureThreshold),
 		Contamination: contamination,
 	}
-	// Contamination flags the cell just as a failure rate does: an unclean cell
-	// is discarded and re-run, never averaged in.
-	if !cell.Clean {
-		switch {
-		case cell.GPUSamples == 0:
-			cell.add("the GPUs were never sampled, so this cell carries no cleanliness evidence")
-		case cell.ProbeErrors > 0:
-			cell.add(fmt.Sprintf("%d GPU probes failed, so cleanliness is unproven", cell.ProbeErrors))
-		default:
-			cell.add(fmt.Sprintf("%d foreign processes on the fleet's GPUs, peak %d MiB: %v",
-				len(cell.ForeignProcs), cell.MaxForeignGPUMemMiB, cell.ForeignProcs))
-		}
-	}
+	flagContamination(&cell)
 
 	if err := writeCell(cellDir, cell); err != nil {
 		return Cell{}, err
@@ -215,6 +231,15 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, concurren
 		"dropped", cell.Dropped, "failed", cell.Failed, "slo_violations", cell.SLOViolations,
 		"goodput_rps", cell.GoodputRPS, "clean", cell.Clean, "flagged", cell.Flagged)
 	return cell, nil
+}
+
+// flagContamination adds the reasons the GPUs give for not averaging this cell
+// in with the others. Summarize flags what the rows say; this flags what the
+// cards said.
+func flagContamination(cell *Cell) {
+	for _, reason := range cell.Contamination.reasons() {
+		cell.add(reason)
+	}
 }
 
 // loadCell reads a completed cell, if there is one.
@@ -230,6 +255,51 @@ func loadCell(cellDir, id string) (Cell, bool) {
 		return Cell{}, false
 	}
 	return cell, true
+}
+
+// matchesSLO reports whether a cached cell was summarised against the SLO now
+// configured.
+func (c Cell) matchesSLO(slo SLO) bool {
+	return c.SLOTTFTNs == slo.TTFT.Nanoseconds() && c.SLOITLNs == slo.ITL.Nanoseconds()
+}
+
+// resummarize recomputes a cached cell's summary from its rows under the
+// current SLO, keeping the contamination evidence the original run gathered.
+// The rows are the system of record precisely so this is possible.
+func resummarize(cellDir string, cached Cell, cfg SweepConfig) (Cell, error) {
+	rows, err := decodeFile[Result](filepath.Join(cellDir, cached.ID+".jsonl"))
+	if err != nil {
+		return Cell{}, err
+	}
+	cached.Summary = Summarize(rows, cfg.SLO, cfg.FailureThreshold)
+	flagContamination(&cached)
+	if err := writeCell(cellDir, cached); err != nil {
+		return Cell{}, err
+	}
+	return cached, nil
+}
+
+// discard moves a contaminated cell's record and rows out of the cell
+// directory, so the cell is recomputed while the evidence for why it was thrown
+// away survives. It lands outside cells/ so compaction cannot pick it up as
+// though it were a result.
+func discard(dir, cellDir, id string) error {
+	graveyard := filepath.Join(dir, "discarded")
+	if err := os.MkdirAll(graveyard, 0o755); err != nil {
+		return fmt.Errorf("bench: create %s: %w", graveyard, err)
+	}
+	stamp := time.Now().UTC().Format("20060102T150405Z")
+	for _, ext := range []string{".json", ".jsonl"} {
+		from := filepath.Join(cellDir, id+ext)
+		if _, err := os.Stat(from); err != nil {
+			continue
+		}
+		to := filepath.Join(graveyard, id+"-"+stamp+ext)
+		if err := os.Rename(from, to); err != nil {
+			return fmt.Errorf("bench: discard %s: %w", from, err)
+		}
+	}
+	return nil
 }
 
 // writeCell writes the record that marks a cell complete. It is written last

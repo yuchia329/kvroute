@@ -7,6 +7,7 @@
 #   ops/fleet.sh status
 #   ops/fleet.sh pids      # the replica supervisor pids, for contamination checks
 #   ops/fleet.sh replicas  # the -replicas spec for the router and the harness
+#   ops/fleet.sh env MODEL # read one pinned value out of versions.env
 #
 # Two things this script is careful about:
 #
@@ -103,12 +104,24 @@ replicas() {
   echo "${specs[*]}"
 }
 
+# env prints one value from versions.env, so nothing downstream needs a second
+# copy of a setting that is pinned there.
+env_value() {
+  local name="${1:-}"
+  [[ -n "$name" ]] || die "usage: $0 env <NAME>"
+  # ${!name+set} rather than [[ -v ]]: the box runs bash 5, but this file is
+  # also syntax-checked on a Mac, whose /bin/bash is 3.2.
+  [[ -n "${!name+set}" ]] || die "versions.env does not set $name"
+  echo "${!name}"
+}
+
 case "${1:-}" in
   up)        up ;;
   down)      down ;;
   status)    "$here/replica.sh" status ;;
   pids)      pids ;;
   replicas)  replicas ;;
+  env)       shift; env_value "${1:-}" ;;
   preflight) preflight ;;
-  *)         die "usage: $0 up|down|status|pids|replicas|preflight" ;;
+  *)         die "usage: $0 up|down|status|pids|replicas|preflight|env <NAME>" ;;
 esac

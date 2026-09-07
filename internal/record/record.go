@@ -36,9 +36,6 @@ const (
 	// router placed it fine. It has its own value so that a disconnect cannot
 	// inflate the failure count, which is the one number an overloaded fleet
 	// must not be able to hide behind.
-	//
-	// CONTEXT.md does not name this outcome yet; it needs a domain-modeling
-	// pass rather than a silent addition to the glossary.
 	OutcomeCancelled Outcome = "cancelled"
 )
 

@@ -42,7 +42,6 @@ type Device struct {
 // cannot name who is holding the card is not actionable.
 type Process struct {
 	PID           int    `json:"pid"`
-	PPID          int    `json:"ppid"`
 	User          string `json:"user"`
 	Command       string `json:"command"`
 	GPU           int    `json:"gpu"`
@@ -197,6 +196,15 @@ func (s Snapshot) descendsFrom(pid int, own map[int]bool) bool {
 	return false
 }
 
+// Indexes are the device indexes of a fleet of n GPUs, for Limit.
+func Indexes(n int) []int {
+	out := make([]int, 0, n)
+	for i := range n {
+		out = append(out, i)
+	}
+	return out
+}
+
 // Limit restricts the snapshot to the given device indexes, so cleanliness can
 // be answered for a subset of the cards. Dropping to a single NUMA node is the
 // escalation §10 takes if the replicas turn out not to be interchangeable.
@@ -276,7 +284,6 @@ func parseComputeApps(out []byte, byUUID map[string]int, table map[int]psEntry) 
 		entry := table[pid]
 		processes = append(processes, Process{
 			PID:           pid,
-			PPID:          entry.ppid,
 			User:          entry.user,
 			Command:       entry.command,
 			GPU:           index,

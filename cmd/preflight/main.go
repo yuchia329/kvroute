@@ -34,20 +34,25 @@ func main() {
 
 func run() error {
 	var (
-		gpus      = flag.Int("gpus", 6, "how many GPUs the fleet uses, checked as indexes 0..n-1")
-		threshold = flag.Int("threshold-mib", 256, "a GPU holding at least this much memory is dirty")
+		gpus      = flag.Int("gpus", 0, "how many GPUs the fleet uses, checked as indexes 0..n-1; no default, it is REPLICA_COUNT in ops/versions.env")
+		threshold = flag.Int("threshold-mib", 0, "a GPU holding at least this much memory is dirty; no default, it is GPU_DIRTY_THRESHOLD_MIB in ops/versions.env")
 		timeout   = flag.Duration("timeout", 30*time.Second, "how long to wait for nvidia-smi")
 		asJSON    = flag.Bool("json", false, "print the snapshot as JSON instead of a report")
 	)
 	flag.Parse()
 
+	// Neither of these has a default. Both live in ops/versions.env, which is
+	// the single source of truth for everything held constant between cells, and
+	// ops/fleet.sh passes them in. A default here would be a second copy that
+	// could quietly disagree with the file the fleet was actually built from.
+	if *gpus <= 0 || *threshold <= 0 {
+		return fmt.Errorf("-gpus and -threshold-mib are required; run this through 'ops/fleet.sh preflight', which reads both from ops/versions.env")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
-	indexes := make([]int, 0, *gpus)
-	for i := range *gpus {
-		indexes = append(indexes, i)
-	}
+	indexes := gpu.Indexes(*gpus)
 	snapshot, err := gpu.New().Snapshot(ctx)
 	if err != nil {
 		return err

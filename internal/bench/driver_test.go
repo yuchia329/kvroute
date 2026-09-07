@@ -19,6 +19,11 @@ import (
 	"github.com/yuchia329/kvroute/internal/router"
 )
 
+// testModel stands in for the model pinned in ops/versions.env. The fake
+// replica does not care what it is asked for, but a workload with no model is
+// not a request the real engine would accept.
+const testModel = "test-model"
+
 // inflight wraps a handler and reports the most requests it ever held at once.
 type inflight struct {
 	http.Handler
@@ -89,7 +94,7 @@ func (nopWriter) Write(p []byte) (int, error) { return len(p), nil }
 func drive(t *testing.T, cfg bench.DriverConfig) []bench.Result {
 	t.Helper()
 	if cfg.Workload == nil {
-		cfg.Workload = bench.NewFixedWorkload(bench.FixedWorkload{OutputTokens: 4})
+		cfg.Workload = bench.NewFixedWorkload(bench.FixedWorkload{Model: testModel, OutputTokens: 4})
 	}
 	results, err := bench.RunClosedLoop(context.Background(), cfg)
 	if err != nil {
@@ -201,7 +206,7 @@ func TestTimingsAreMeasuredFromTheClientSide(t *testing.T) {
 		Target:      target,
 		Concurrency: 1,
 		Duration:    10 * time.Millisecond,
-		Workload:    bench.NewFixedWorkload(bench.FixedWorkload{OutputTokens: 6}),
+		Workload:    bench.NewFixedWorkload(bench.FixedWorkload{Model: testModel, OutputTokens: 6}),
 	})
 
 	if len(results) == 0 {

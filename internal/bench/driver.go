@@ -16,7 +16,7 @@ import (
 	"github.com/yuchia329/kvroute/internal/router"
 )
 
-// SessionHeader carries the conversation identity to the router.
+// SessionHeader carries the session identity to the router.
 const SessionHeader = "X-Session-Id"
 
 // DriverConfig configures one closed-loop cell.
@@ -45,12 +45,18 @@ type DriverConfig struct {
 	Log    *slog.Logger
 }
 
-// Labels identify the cell a row belongs to.
+// Labels identify the cell a row belongs to. They are stamped onto every row
+// and embedded in Result, so a row and its cell cannot disagree about which
+// cell it is.
+//
+// Concurrency is not an input: RunClosedLoop fills it from the concurrency it
+// was actually asked to hold, because a label that could disagree with the run
+// is a label that will.
 type Labels struct {
-	CellID      string
-	Policy      string
-	Concurrency int
-	Repetition  int
+	CellID      string `json:"cell_id" parquet:"cell_id"`
+	Policy      string `json:"policy" parquet:"policy"`
+	Concurrency int    `json:"concurrency" parquet:"concurrency"`
+	Repetition  int    `json:"repetition" parquet:"repetition"`
 }
 
 // DefaultClient dispatches to the router.
@@ -96,6 +102,7 @@ func RunClosedLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
+	cfg.Labels.Concurrency = cfg.Concurrency
 
 	deadline := time.Now().Add(cfg.Duration)
 	collected := make([][]Result, cfg.Concurrency)
@@ -144,10 +151,7 @@ func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int) Result {
 	next := cfg.Workload.Next(user, turn)
 	started := time.Now()
 	row := Result{
-		CellID:      cfg.Labels.CellID,
-		Policy:      cfg.Labels.Policy,
-		Concurrency: cfg.Labels.Concurrency,
-		Repetition:  cfg.Labels.Repetition,
+		Labels:      cfg.Labels,
 		Session:     next.Session,
 		Turn:        turn,
 		VirtualUser: user,

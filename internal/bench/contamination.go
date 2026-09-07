@@ -2,6 +2,7 @@ package bench
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -139,15 +140,37 @@ func (w *Watcher) once(ctx context.Context) {
 	}
 	w.result.GPUSamples++
 
-	held := 0
 	for _, p := range snapshot.Foreign(w.cfg.OwnPIDs) {
-		held += p.MemoryUsedMiB
 		if !w.procSeen[p.PID] {
 			w.procSeen[p.PID] = true
 			w.result.ForeignProcs = append(w.result.ForeignProcs, p.String())
 		}
 	}
-	if held > w.result.MaxForeignGPUMemMiB {
+	if held := snapshot.ForeignMemoryMiB(w.cfg.OwnPIDs); held > w.result.MaxForeignGPUMemMiB {
 		w.result.MaxForeignGPUMemMiB = held
+	}
+}
+
+// Contaminated reports whether something the fleet did not start was seen on
+// its GPUs, or whether looking failed. It is narrower than !Clean: a cell whose
+// GPUs were never sampled is not clean either, but there is nothing to discard
+// it for and re-running it would never produce a different answer.
+func (c Contamination) Contaminated() bool {
+	return len(c.ForeignProcs) > 0 || c.ProbeErrors > 0
+}
+
+// reasons is why this evidence disqualifies a cell from being averaged in with
+// the others, or nothing if it does not.
+func (c Contamination) reasons() []string {
+	switch {
+	case c.Clean:
+		return nil
+	case c.GPUSamples == 0:
+		return []string{"the GPUs were never sampled, so this cell carries no cleanliness evidence"}
+	case c.ProbeErrors > 0:
+		return []string{fmt.Sprintf("%d GPU probes failed, so cleanliness is unproven", c.ProbeErrors)}
+	default:
+		return []string{fmt.Sprintf("%d foreign processes on the fleet's GPUs, peak %d MiB: %v",
+			len(c.ForeignProcs), c.MaxForeignGPUMemMiB, c.ForeignProcs)}
 	}
 }

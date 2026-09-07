@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/parquet-go/parquet-go"
 )
@@ -40,6 +39,9 @@ type Compaction struct {
 func Compact(dir string) (Compaction, error) {
 	cellDir := filepath.Join(dir, "cells")
 
+	// The globs exclude a crashed cell's rows by construction: those are written
+	// as <cell>.jsonl.partial and renamed into place only once the cell
+	// finishes, and neither pattern matches a .partial suffix.
 	rowFiles, err := filepath.Glob(filepath.Join(cellDir, "*.jsonl"))
 	if err != nil {
 		return Compaction{}, fmt.Errorf("bench: list cell rows: %w", err)
@@ -90,12 +92,6 @@ func compact[T any](sources []string, dest string) (int, error) {
 	}
 
 	for _, source := range sources {
-		// A .partial file is a cell that never finished. Its rows are readable
-		// and worth keeping on disk, but they do not belong in the compacted
-		// output as though they were a cell's complete data.
-		if strings.HasSuffix(source, ".partial") {
-			continue
-		}
 		rows, err := decodeFile[T](source)
 		if err != nil {
 			return 0, err

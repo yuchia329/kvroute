@@ -31,8 +31,10 @@ type Summary struct {
 	// It is derived from the rows rather than from the driver's clock so that
 	// the rate denominator cannot disagree with the rows it divides.
 	WindowNs int64 `json:"window_ns" parquet:"window_ns"`
-	// ThroughputRPS counts everything that completed. GoodputRPS counts only
-	// what completed inside the SLO, and is the primary metric.
+	// ThroughputRPS counts every response that completed, however slow.
+	// GoodputRPS counts only those that completed inside the SLO, and is the
+	// primary metric. A dropped or failed request produced no response and is
+	// in neither.
 	ThroughputRPS float64 `json:"throughput_rps" parquet:"throughput_rps"`
 	GoodputRPS    float64 `json:"goodput_rps" parquet:"goodput_rps"`
 
