@@ -2,8 +2,14 @@
 // about them.
 //
 // State is the whole of what a policy is allowed to see, so later work can add
-// exact inflight counts and scraped KV utilization here without any policy or
-// the router's ingress needing to change shape.
+// scraped KV utilization here without any policy or the router's ingress needing
+// to change shape.
+//
+// Inflight is counted here rather than read from anywhere: the router is the
+// sole ingress, so it knows exactly what it dispatched and what has not come
+// back. Deriving it from a scrape instead would make every request that arrived
+// inside one polling window see the same least-loaded replica and stampede it,
+// which would corrupt the load-aware policies without ever looking wrong.
 package fleet
 
 import (
@@ -12,6 +18,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // Replica is one vLLM process serving one model on one GPU.
@@ -30,15 +37,42 @@ func (r Replica) URL(path, rawQuery string) string {
 	return u
 }
 
-// State is a consistent snapshot of the fleet, taken once per routing decision.
+// Candidate is one replica as a policy sees it: its identity, plus the load the
+// router knows it is under.
+//
+// A policy is handed candidates rather than bare replicas so that a policy which
+// ignores load has to do so deliberately.
+type Candidate struct {
+	Replica
+	// Inflight is how many requests the router had dispatched to this replica
+	// and not yet seen complete when the snapshot was taken. Counted locally and
+	// exactly, never scraped. It includes the requests the replica is running
+	// and the ones it has queued, because the router cannot tell those apart and
+	// does not need to.
+	Inflight int
+}
+
+// State is a snapshot of the fleet, taken once per routing decision.
+//
+// The counts in it are read one replica at a time, so it is a snapshot rather
+// than an instant: two of its figures may be nanoseconds apart. That is the same
+// looseness as a policy's own decision being made before the request it is for
+// is dispatched, and it is five orders of magnitude tighter than the polling
+// window a scraped count would carry.
 type State struct {
-	Replicas []Replica
+	Replicas []Candidate
 }
 
 // Fleet is the router's view of the replicas it fronts.
 type Fleet struct {
 	mu       sync.RWMutex
 	replicas []Replica
+	// inflight is indexed as replicas, and index maps a replica id to that
+	// position. Atomics rather than a counter under mu, because every request
+	// takes two of these on its hot path and the routing decision above them is
+	// measured in microseconds.
+	inflight []atomic.Int64
+	index    map[string]int
 }
 
 // New builds a fleet. It rejects duplicate ids and unusable base URLs, because
@@ -66,14 +100,54 @@ func New(replicas []Replica) (*Fleet, error) {
 			return nil, fmt.Errorf("fleet: replica %s: base URL %q needs a scheme and a host", r.ID, r.BaseURL)
 		}
 	}
-	return &Fleet{replicas: append([]Replica(nil), replicas...)}, nil
+	index := make(map[string]int, len(replicas))
+	for i, r := range replicas {
+		index[r.ID] = i
+	}
+	return &Fleet{
+		replicas: append([]Replica(nil), replicas...),
+		inflight: make([]atomic.Int64, len(replicas)),
+		index:    index,
+	}, nil
 }
 
 // State returns a snapshot for one routing decision.
 func (f *Fleet) State() State {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	return State{Replicas: append([]Replica(nil), f.replicas...)}
+
+	candidates := make([]Candidate, len(f.replicas))
+	for i, r := range f.replicas {
+		candidates[i] = Candidate{Replica: r, Inflight: int(f.inflight[i].Load())}
+	}
+	return State{Replicas: candidates}
+}
+
+// Dispatch records that a request is on its way to a replica, and returns the
+// function that records it as complete.
+//
+// The router calls this at the moment it commits a request to a replica, not the
+// policy that chose it: inflight is what the router dispatched, and a policy that
+// counted its own choices would also count the ones it declined.
+//
+// The returned function must be called on every path a request can end on —
+// success, replica error, client disconnect and timeout alike — which is why the
+// router defers it the moment it acquires. It is idempotent: a second call cannot
+// drive the count below what is genuinely in flight, because an under-count is
+// what makes a policy pile more work onto a replica that is already busy. A
+// missed call is the direction that cannot be defended against here, and it
+// would leave a replica permanently and wrongly loaded.
+func (f *Fleet) Dispatch(id string) (func(), error) {
+	f.mu.RLock()
+	i, ok := f.index[id]
+	f.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("fleet: no replica %q to dispatch to", id)
+	}
+
+	f.inflight[i].Add(1)
+	var once sync.Once
+	return func() { once.Do(func() { f.inflight[i].Add(-1) }) }, nil
 }
 
 // ParseSpecs turns "replica-0=http://127.0.0.1:8000" command-line specs into

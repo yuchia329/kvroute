@@ -104,8 +104,12 @@ func NewFixedWorkload(cfg FixedWorkload) *Fixed {
 	return &Fixed{cfg: cfg}
 }
 
+// Name carries the seed as well as the shape, because the seed decides the bytes.
+// Two policies compared over one load point have to have sent the same prompts,
+// and the comparison checks that by this name: a name that named only the shape
+// would let two runs seeded differently pass as the same workload.
 func (f *Fixed) Name() string {
-	return fmt.Sprintf("fixed(prompt=%dB,output=%dt)", f.cfg.PromptBytes, f.cfg.OutputTokens)
+	return fmt.Sprintf("fixed(prompt=%dB,output=%dt,seed=%d)", f.cfg.PromptBytes, f.cfg.OutputTokens, f.cfg.Seed)
 }
 
 func (f *Fixed) Next(user, turn int) Turn {

@@ -71,6 +71,7 @@ linux: ## Cross-compile every command for the GPU box, which has no Go toolchain
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/bench-linux-amd64 ./cmd/bench
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/preflight-linux-amd64 ./cmd/preflight
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/characterize-linux-amd64 ./cmd/characterize
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/compare-linux-amd64 ./cmd/compare
 
 .PHONY: test
 test: ## Run the full suite under the race detector
@@ -123,6 +124,17 @@ goodput: build ## Offer a ladder of arrival rates open-loop and record goodput a
 		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
 		$(GOODPUT_ARGS)
+
+# The policy comparison: the table the project's claim is made in. It reads cell
+# records only, so it needs no fleet and no GPU — a checkout is enough. Both
+# policies' cells can live in one RUN_DIR, because a cell id carries its policy;
+# name several directories here if they were swept separately.
+COMPARE_DIRS ?= $(RUN_DIR) $(GOODPUT_DIR)
+COMPARE_OUT ?= runs/comparison.md
+
+.PHONY: compare
+compare: build ## Put the swept policies' goodput in one comparison table
+	$(BIN)/compare -out $(COMPARE_OUT) $(COMPARE_DIRS)
 
 .PHONY: characterize
 characterize: build ## Measure KV capacity, the latency floor, the SLO and replica symmetry

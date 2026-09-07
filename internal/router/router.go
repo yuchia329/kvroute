@@ -64,10 +64,20 @@ type Router struct {
 
 // Stats is what the router reports about itself.
 type Stats struct {
-	Policy         string        `json:"policy"`
-	Replicas       []string      `json:"replicas"`
-	Requests       int64         `json:"requests"`
-	RouterOverhead stats.Summary `json:"router_overhead"`
+	Policy         string         `json:"policy"`
+	Replicas       []ReplicaStats `json:"replicas"`
+	Requests       int64          `json:"requests"`
+	RouterOverhead stats.Summary  `json:"router_overhead"`
+}
+
+// ReplicaStats is one replica's load as the router knows it.
+//
+// Inflight is here rather than only in the rows because it is the signal the
+// load-aware policies decide on, and a signal that can only be reconstructed
+// after the run cannot be watched during one.
+type ReplicaStats struct {
+	ID       string `json:"id"`
+	Inflight int    `json:"inflight"`
 }
 
 // DefaultClient dispatches to replicas.
@@ -128,13 +138,13 @@ func (rt *Router) Handler() http.Handler {
 // Stats reports the router's own cost.
 func (rt *Router) Stats() Stats {
 	state := rt.fleet.State()
-	ids := make([]string, 0, len(state.Replicas))
-	for _, r := range state.Replicas {
-		ids = append(ids, r.ID)
+	replicas := make([]ReplicaStats, 0, len(state.Replicas))
+	for _, c := range state.Replicas {
+		replicas = append(replicas, ReplicaStats{ID: c.ID, Inflight: c.Inflight})
 	}
 	return Stats{
 		Policy:         rt.policy.Name(),
-		Replicas:       ids,
+		Replicas:       replicas,
 		Requests:       rt.requests.Load(),
 		RouterOverhead: rt.overhead.Summary(),
 	}
@@ -186,6 +196,24 @@ func (rt *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request
 	}
 	row.Replica = choice.Replica.ID
 	row.DecisionReason = string(choice.Reason)
+	row.Inflight = choice.Inflight
+
+	// The request is now committed to a replica, so it counts against that
+	// replica from here. Released by a defer rather than at each return, because
+	// the count has to come down on every path a request can take — success, a
+	// replica erroring, a client hanging up, a client timing out — and a release
+	// that has to be repeated at five returns is a release that will be missed at
+	// the sixth. A count that only ever rises would leave the fleet looking
+	// uniformly busy and every later decision made against that.
+	release, err := rt.fleet.Dispatch(choice.Replica.ID)
+	if err != nil {
+		// The policy chose from the fleet's own snapshot, so this means the
+		// replica went away between the decision and the dispatch. Dropped: the
+		// router never placed the request.
+		rt.drop(w, &row, http.StatusServiceUnavailable, err)
+		return
+	}
+	defer release()
 
 	upstream, err := http.NewRequestWithContext(req.Context(), http.MethodPost,
 		choice.Replica.URL(req.URL.Path, req.URL.RawQuery), bytes.NewReader(body))
@@ -213,6 +241,7 @@ func (rt *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request
 		"request_id", row.RequestID,
 		"replica", choice.Replica.ID,
 		"reason", choice.Reason,
+		"inflight", choice.Inflight,
 		"stream", row.Stream,
 		"overhead_us", float64(row.RouterOverheadNs)/1000,
 	)

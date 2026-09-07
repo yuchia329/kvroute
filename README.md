@@ -10,8 +10,9 @@ measured comparison of routing policies, not a service. See [`idea.md`](idea.md)
 > **Status: the fleet, the harness and the facts every later number scales off are in place** —
 > six replicas come up behind a preflight, the fleet's KV capacity, its latency floor, its SLO and
 > its symmetry are measured rather than assumed, and every cell lands as a row in the results table
-> with its own contamination evidence. What is missing is the comparison: three of the four
-> policies, both pressure axes, and the multi-turn workload that makes cache locality exist at all.
+> with its own contamination evidence. Two of the four policies are in — round-robin and
+> least-outstanding — and `cmd/compare` puts their goodput in one table. What is missing is the rest
+> of the comparison: the two cache-aware policies and both pressure axes.
 > This README gets replaced by a results-first one once there are results.
 >
 > **Verified on the box, 2026-09-06/07.** All six replicas came up under `ops/fleet.sh` behind the
@@ -72,9 +73,14 @@ been deleted is an assertion rather than a measurement.
 cmd/bench ──► router (:8080) ──► replica-0..5 (:8000..:8005, one GPU each)
     │             │                   │
     │             │                   └─ /v1/chat/completions (SSE), /metrics
-    │             └─ round-robin policy, per-request JSONL rows, own-overhead percentiles
+    │             └─ round-robin and least-outstanding policies, exact per-replica
+    │                inflight counters, per-request JSONL rows, own-overhead percentiles
     └─ closed-loop and open-loop drivers, per-cell caching, nvidia-smi
        contamination sampling, JSONL during the run → Parquet after
+
+cmd/compare ──► the cell records the sweeps wrote, no fleet in the path
+    └─ each policy's goodput against the derived SLO at each load point, with the
+       spread across repetitions beside it
 
 cmd/characterize ─────────────► replica-0..5, one at a time, no router in the path
     └─ fleet KV capacity off every replica, host topology, the latency floor,
@@ -83,7 +89,16 @@ cmd/characterize ─────────────► replica-0..5, one at
 
 - **`cmd/router`** — OpenAI-compatible `POST /v1/chat/completions` with SSE passed through
   untouched, one JSONL row per request, and its own accept-to-dispatch cost reported at
-  `GET /router/stats`.
+  `GET /router/stats`. It counts what each replica has outstanding itself, exactly, rather than
+  scraping it: the router is the sole ingress, so it knows what it dispatched, and a figure that
+  came from a 250 ms–1 s scrape would read the same for every request arriving inside one window —
+  so they would all pick the same least-loaded replica and stampede it. That is the classic stale
+  load-balancer failure, and it would have quietly corrupted both load-aware policies. `-policy`
+  selects the rule: `round_robin` distributes evenly with no state, `least_outstanding` takes the
+  replica holding the fewest inflight requests and breaks ties by rotation, because every replica of
+  an idle fleet is tied and a fixed tie-break would send the whole low-concurrency end of the sweep
+  to one card. Every row records the inflight the decision was weighed on, so how balanced a policy
+  left the fleet is a figure in the data rather than a claim about the code.
 - **`cmd/bench`** — the two load drivers and the sweeps they run. Refuses to start unless every
   replica answers `/health`, warms each one directly, then drives one of two axes, counting dropped,
   failed and SLO-violating requests in three separate columns. Samples the GPUs throughout and
@@ -109,6 +124,14 @@ cmd/characterize ─────────────► replica-0..5, one at
   its cores while all four are busy. `-render <dir>` rebuilds the analysis and the report from a
   finished run's own rows, so a corrected definition costs no GPU time and a published figure is
   never one no committed code can produce.
+- **`cmd/compare`** — the table the project's claim is made in: each policy's goodput against the
+  derived SLO at each point of the load axis. It reads the cell records only, so a comparison
+  rebuilds from a checkout with no fleet running. It refuses rather than renders when the cells
+  cannot honestly be put side by side — a different SLO on either side, a workload seeded
+  differently, or a cell with no SLO at all and therefore no goodput. Each figure is the median of
+  its repetitions with the range across them, a difference smaller than those ranges is labelled as
+  being inside the spread rather than left to read as a result, and a flagged or unclean cell is
+  excluded and listed rather than averaged in.
 - **`cmd/preflight`** — refuses to bring the fleet up while any GPU already holds memory. The
   same probe backs the per-cell contamination check: one preflight, two jobs.
 - **`cmd/fakereplica`** — a programmable stand-in for a replica with configurable TTFT and
@@ -132,7 +155,7 @@ curl -N http://127.0.0.1:8080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model":"m","messages":[{"role":"user","content":"hello"}],"stream":true}'
 
-curl -s http://127.0.0.1:8080/router/stats   # router overhead p50/p99
+curl -s http://127.0.0.1:8080/router/stats   # router overhead p50/p99, inflight per replica
 ```
 
 ## Run it against the real fleet
@@ -143,9 +166,20 @@ make fleet-up                                              # preflight, then six
 make contract CONTRACT_REPLICA="$(ops/fleet.sh replicas)"  # hold the fake to every replica
 make characterize                                          # capacity, topology, floor, SLO, symmetry
 make contention                                            # all six at once, compared by NUMA node
-make run-router REPLICAS="$(ops/fleet.sh replicas)"
-make bench BENCH_ARGS="-cell-duration 60s -repetitions 3 -slo-ttft 990ms -slo-itl 24ms"
-make goodput GOODPUT_ARGS="-cell-duration 60s -repetitions 3 -slo-ttft 990ms -slo-itl 24ms"
+SLO='-slo-ttft 990ms -slo-itl 24ms'                         # what characterize derived
+
+# One policy per router, the fleet untouched between them, so only the policy varies.
+make run-router POLICY=round_robin REPLICAS="$(ops/fleet.sh replicas)" &
+make bench   POLICY=round_robin BENCH_ARGS="-cell-duration 60s -repetitions 3 $SLO"
+make goodput POLICY=round_robin GOODPUT_ARGS="-cell-duration 60s -repetitions 3 $SLO"
+kill %1
+
+make run-router POLICY=least_outstanding REPLICAS="$(ops/fleet.sh replicas)" &
+make bench   POLICY=least_outstanding BENCH_ARGS="-cell-duration 60s -repetitions 3 $SLO"
+make goodput POLICY=least_outstanding GOODPUT_ARGS="-cell-duration 60s -repetitions 3 $SLO"
+kill %1
+
+make compare                                               # both policies, both axes, one table
 ```
 
 `make characterize` comes before `make bench` and not after it, because the SLO the sweep is judged
@@ -156,6 +190,13 @@ threshold the sweep applies is the one that was derived rather than one retyped 
 open-loop and is where the headline goodput number comes from. They land in separate directories
 because they are different drivers measuring different things — a closed-loop tail is optimistic by
 construction — and both write tables that name the driver behind them.
+
+**Each policy needs its own router, and the same `RUN_DIR` takes them all.** A router runs one
+policy, chosen at startup, so a two-policy comparison is two routers in turn against a fleet that is
+never restarted between them — only the policy varies. Their cells can share a directory because a
+cell id carries its policy, and `make compare` reads them back into one table. Two policies at the
+same load point send identical bytes, which is what makes them comparable; that falls out of the
+workload slice being keyed on the load axis and the repetition and deliberately not on the policy.
 
 `ops/versions.env` is the single source of truth for everything held constant between cells: the
 engine version, the model, the forced quantization backend, the prefix-caching and chunked-prefill
@@ -186,6 +227,13 @@ they existed is resummarised from its own rows rather than re-run.
   decisions is a reported result, so a policy returns it alongside the replica.
 - **Router overhead is reported separately**, never folded into TTFT, so the router's own cost is
   visible rather than hidden inside the fleet's latency.
+- **Inflight is counted, never scraped, and KV utilization is scraped, never counted.** The split is
+  deliberate: the router is the sole ingress so it knows exactly what it dispatched, while cache
+  occupancy is the one load signal it cannot derive locally. A scraped inflight would read the same
+  for every request arriving inside one polling window and send them all to the same replica.
+  `TestExactCountsPreventTheHerdAStaleViewWouldCause` runs both counts over one window of arrivals
+  and compares where the requests went. The term `queue_depth` is deleted from this project: vLLM's
+  `num_requests_waiting` and the router's inflight are different quantities.
 - **The records are the system of record.** Prometheus is a sampled TSDB and the wrong shape for
   per-request tail latency across hundreds of cells; every reported figure is recomputable from
   the JSONL rows.

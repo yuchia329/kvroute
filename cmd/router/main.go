@@ -33,7 +33,8 @@ func run() error {
 	var (
 		listen       = flag.String("listen", ":8080", "address to listen on")
 		replicaSpecs = flag.String("replicas", "", "comma-separated replica specs, id=url or bare url")
-		policyName   = flag.String("policy", policy.RoundRobinName, "routing policy to run")
+		policyName   = flag.String("policy", policy.RoundRobinName,
+			"routing policy to run: "+strings.Join(policy.Order, ", ")+". Only the policy varies between benchmark runs")
 		recordsPath  = flag.String("records", "", "path to append per-request JSONL rows to; empty discards them")
 		logLevel     = flag.String("log-level", "info", "log level: debug, info, warn or error. debug logs every routing decision")
 		shutdownWait = flag.Duration("shutdown-grace", 30*time.Second, "how long to let in-flight requests finish on shutdown")

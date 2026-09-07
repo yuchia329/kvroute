@@ -97,6 +97,12 @@ A pluggable rule mapping a request plus fleet state to a chosen replica. Four ex
 policy varies between benchmark runs.
 _Avoid_: strategy, algorithm, scheduler
 
+**Candidate**:
+One replica as a policy sees it: its identity together with the load the router knows it is under.
+Policies are handed candidates rather than bare replicas, so a rule that ignores load has to ignore
+it deliberately.
+_Avoid_: option, target, choice (that is the decision, not what it was made from)
+
 **Spill**:
 The router's decision to decline the best prefix match and route elsewhere because that replica
 is under KV or load pressure. A router-layer decision only.

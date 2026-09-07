@@ -51,6 +51,11 @@ type Request struct {
 	Policy         string `json:"policy" parquet:"policy"`
 	Replica        string `json:"replica" parquet:"replica"`
 	DecisionReason string `json:"decision_reason" parquet:"decision_reason"`
+	// Inflight is what the chosen replica already had outstanding when the
+	// decision was made, not counting this request. It is the load the policy
+	// weighed, recorded so that how balanced a policy left the fleet is a figure
+	// the rows can show rather than a claim about the policy's code.
+	Inflight int `json:"inflight" parquet:"inflight"`
 
 	Model  string `json:"model" parquet:"model"`
 	Stream bool   `json:"stream" parquet:"stream"`

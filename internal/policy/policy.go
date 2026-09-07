@@ -23,7 +23,20 @@ type Reason string
 const (
 	// ReasonRoundRobin is a stateless turn of the rotation.
 	ReasonRoundRobin Reason = "ROUND_ROBIN"
+	// ReasonLeastOutstanding is the replica with the fewest inflight requests.
+	ReasonLeastOutstanding Reason = "LEAST_OUTSTANDING"
 )
+
+// Order is the order the policies are compared in: the naive baseline first, then
+// each policy that claims to improve on it, as idea.md §5 numbers them.
+//
+// It is here rather than in the harness because the comparison table has to put
+// the baseline in the same column whichever order the runs happened in, and the
+// policies are what the ordering is about.
+var Order = []string{
+	RoundRobinName,
+	LeastOutstandingName,
+}
 
 // Request is everything a policy may know about an incoming request. The body
 // is the rendered prompt the prefix index will later chunk; policies must treat
@@ -37,6 +50,15 @@ type Request struct {
 type Choice struct {
 	Replica fleet.Replica
 	Reason  Reason
+	// Inflight is what the chosen replica's inflight was when the decision was
+	// made, not counting this request.
+	//
+	// It travels on the decision rather than being read off the fleet afterwards,
+	// because what the policy weighed and what the fleet looks like a moment
+	// later are different figures, and the row wants the one the decision was
+	// made on. Without it, a table showing that one policy balanced better than
+	// another would rest on nothing the rows can show.
+	Inflight int
 }
 
 // Policy picks the replica for a request.
@@ -53,6 +75,8 @@ func ByName(name string) (Policy, error) {
 	switch name {
 	case RoundRobinName:
 		return NewRoundRobin(), nil
+	case LeastOutstandingName:
+		return NewLeastOutstanding(), nil
 	default:
 		return nil, fmt.Errorf("policy: unknown policy %q", name)
 	}
