@@ -175,7 +175,9 @@ All values below are **measured on the box**, not assumed. Host: `nlp-gpu-01.be.
 | Serving | 6 × single-GPU vLLM replicas, ports 8000–8005 — one per card, no tensor parallelism |
 | vLLM | **0.28.0**, project-dedicated venv via `uv` (0.11.21). torch 2.13.0+cu130, arch list includes `sm_86` |
 | Model | `hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4`, from the HF cache (5.4 GB, complete) |
-| AWQ kernel | **force `backend='awq:marlin'`.** 0.28.0's `auto_awq.py` auto-selects Marlin; pin it so it cannot flip between runs |
+| AWQ kernel | **force both switches.** 0.28.0 auto-selects in two independent places: `--quantization awq_marlin` pins the config class, and `--linear-backend marlin` pins the GEMM kernel, which otherwise defaults to `auto`. Pinning one leaves the other free. Verified 2026-09-06; see [ADR-0001](docs/adr/0001-engine-pin-and-forced-kernel-selection.md) |
+| Sampler | **`VLLM_USE_FLASHINFER_SAMPLER=0`.** The FlashInfer sampler JIT-compiles a CUDA kernel at startup, which needs `nvcc` on `PATH` and puts a compile step plus a JIT cache inside every replica launch |
+| KV residency metrics | **`--kv-cache-metrics`**, off by default. Without it the `kv_block_*` histograms below are absent entirely, not zero |
 | Router | Go, cross-compiled `GOOS=linux GOARCH=amd64` on the Mac, scp'd |
 | Observability | Prometheus on the box at **:9091** (9090 is another user's); Grafana on the Mac via `ssh -L 9091:localhost:9091 nlp` |
 | Orchestration | **Bare processes.** No Docker, Podman or Apptainer on the box, and no permission to install |
@@ -204,6 +206,9 @@ and ~1.5–2 GB of activations and CUDA graphs ≈ **14 GiB KV**:
 × 6 replicas      = ~688,000 tokens fleet-wide
 ÷ 2k per session  = ~344 resident sessions
 ```
+
+✅ **Measured 2026-09-06 on one replica: 119,408 tokens**, against the ~114,700 estimated above —
+within 4%. Rescale working set ratios off the measured number.
 
 ⚠️ **That is the estimate; `num_gpu_blocks` is the truth.** Read it off vLLM at startup and
 compute `num_gpu_blocks × block_size × 128 KiB`. Every working set ratio in §6 scales off the
@@ -290,7 +295,11 @@ Replays workloads across two sweeps against four policies, emitting per-request 
    whose cache no longer has the data is strictly worse than least-loaded. Sizing the cap to model
    the fleet makes it a defensible modelling decision rather than an arbitrary constant, and
    `vllm:kv_block_lifetime_seconds` / `kv_block_idle_before_evict_seconds` let you calibrate it
-   empirically instead of guessing.
+   empirically instead of guessing — **but only if the replica was started with
+   `--kv-cache-metrics`**, which is off by default. Without it those families do not appear at
+   all, so a scrape finds nothing rather than zeros. It is enabled in `ops/versions.env` from the
+   first cell onward, because turning it on later would change the engine configuration every
+   cell is supposed to share.
 
 4. **Belief divergence** — the router models state it does not own. Log **prefix match** against
    `vllm:request_prefill_kv_computed_tokens` for the same request and plot the divergence. Nobody
@@ -311,21 +320,28 @@ Replays workloads across two sweeps against four policies, emitting per-request 
    router's inflight are different quantities; conflating them is what the herding argument
    exists to prevent.
 
-6. **Metric names — verified against vLLM 0.28.0**, not assumed:
+6. **Metric names — read off a live vLLM 0.28.0 replica on 2026-09-06**, not assumed. An earlier
+   draft of this table dropped the `_total` suffix on every counter and was wrong; the names below
+   are what the engine actually serves. `internal/vllmmetrics` is the executable copy, and
+   `test/contract` is what re-checks it against a replica.
 
    | Signal | Metric |
    |---|---|
    | KV utilization | `vllm:kv_cache_usage_perc` ⚠️ *not* `gpu_cache_usage_perc` |
    | Running / waiting | `vllm:num_requests_running`, `vllm:num_requests_waiting` |
-   | Prefix cache | `vllm:prefix_cache_hits`, `vllm:prefix_cache_queries` |
-   | Redundant prefill | `vllm:prompt_tokens` − `vllm:prompt_tokens_cached` ⚠️ `prompt_tokens_recomputed` was **removed** in 0.28.0 |
-   | Belief ground truth | `vllm:request_prefill_kv_computed_tokens` |
-   | Cache residency | `vllm:kv_block_lifetime_seconds`, `kv_block_idle_before_evict_seconds`, `kv_block_reuse_gap_seconds` |
-   | Engine preemption | `vllm:num_preemptions` — vLLM's own, **never call this spill** |
+   | Prefix cache | `vllm:prefix_cache_hits_total`, `vllm:prefix_cache_queries_total` |
+   | Redundant prefill | `vllm:prompt_tokens_total` − `vllm:prompt_tokens_cached_total` ⚠️ `prompt_tokens_recomputed` was **removed** in 0.28.0 |
+   | Belief ground truth | `vllm:request_prefill_kv_computed_tokens` (histogram) |
+   | Cache residency | `vllm:kv_block_lifetime_seconds`, `kv_block_idle_before_evict_seconds`, `kv_block_reuse_gap_seconds` — **require `--kv-cache-metrics`** |
+   | Engine preemption | `vllm:num_preemptions_total` — vLLM's own, **never call this spill** |
    | Server-side latency | `vllm:time_to_first_token_seconds`, `vllm:inter_token_latency_seconds`, `vllm:e2e_request_latency_seconds` |
 
+   ⚠️ **Counters carry `_total`; gauges and histograms do not.** The Prometheus client appends it
+   on exposition. This is the single most likely thing to be wrong again after a version bump.
+
    The Phase 1 gate asserts every one of these exists on a live replica, so a version drift fails
-   loudly instead of silently producing zeros.
+   loudly instead of silently producing zeros. It has been run: it caught the `_total` error and
+   the missing `--kv-cache-metrics` flag on first contact.
 
 7. **Health & ejection** — active health checks + passive failure tracking, eject, drain, reroute,
    re-admit on recovery.
@@ -336,7 +352,12 @@ Replays workloads across two sweeps against four policies, emitting per-request 
 
 All policies run against an **identical vLLM configuration**. Only the router varies. Hold
 constant: prefix caching enabled, `--gpu-memory-utilization`, chunked prefill setting,
-`--max-num-seqs`, CUDA graph settings, model, quantization, and the forced `awq:marlin` backend.
+`--max-num-seqs`, CUDA graph settings, model, both quantization switches (`--quantization
+awq_marlin` **and** `--linear-backend marlin`), `VLLM_USE_FLASHINFER_SAMPLER=0`, and
+`--kv-cache-metrics`.
+
+All of these live in `ops/versions.env`, which is the single source of truth; this list is a
+description of that file, not a second copy of it.
 
 | # | Policy | Represents |
 |---|---|---|
