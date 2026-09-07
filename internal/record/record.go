@@ -31,6 +31,15 @@ const (
 	OutcomeFailed Outcome = "failed"
 	// OutcomeDropped is a request the router could not place at all.
 	OutcomeDropped Outcome = "dropped"
+	// OutcomeCancelled is a request whose client went away before the response
+	// finished. It is neither dropped nor failed: no replica errored and the
+	// router placed it fine. It has its own value so that a disconnect cannot
+	// inflate the failure count, which is the one number an overloaded fleet
+	// must not be able to hide behind.
+	//
+	// CONTEXT.md does not name this outcome yet; it needs a domain-modeling
+	// pass rather than a silent addition to the glossary.
+	OutcomeCancelled Outcome = "cancelled"
 )
 
 // Request is one row: everything observed about a single request through the

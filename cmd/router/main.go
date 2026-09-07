@@ -7,19 +7,16 @@
 package main
 
 import (
-	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/yuchia329/kvroute/internal/fleet"
+	"github.com/yuchia329/kvroute/internal/httpserve"
 	"github.com/yuchia329/kvroute/internal/policy"
 	"github.com/yuchia329/kvroute/internal/record"
 	"github.com/yuchia329/kvroute/internal/router"
@@ -77,35 +74,13 @@ func run() error {
 		return err
 	}
 
-	srv := &http.Server{Addr: *listen, Handler: rt.Handler()}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	serveErr := make(chan error, 1)
-	go func() {
-		log.Info("router listening",
-			"addr", *listen,
-			"policy", chosen.Name(),
-			"replicas", len(replicas),
-			"records", *recordsPath,
-		)
-		serveErr <- srv.ListenAndServe()
-	}()
-
-	select {
-	case err := <-serveErr:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return err
-		}
-	case <-ctx.Done():
-		stop()
-		log.Info("draining", "grace", *shutdownWait)
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), *shutdownWait)
-		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			log.Error("shutdown did not complete cleanly", "err", err)
-		}
-	}
+	log.Info("router listening",
+		"addr", *listen,
+		"policy", chosen.Name(),
+		"replicas", len(replicas),
+		"records", *recordsPath,
+	)
+	serveErr := httpserve.Run(&http.Server{Addr: *listen, Handler: rt.Handler()}, *shutdownWait, log)
 
 	// Report the router's own cost on the way out, so it is visible even when
 	// nobody scraped /router/stats during the run.
@@ -116,7 +91,7 @@ func run() error {
 		"p99_us", s.RouterOverhead.P99Us,
 		"max_us", s.RouterOverhead.MaxUs,
 	)
-	return nil
+	return serveErr
 }
 
 func parseLevel(name string) (slog.Level, error) {

@@ -2,8 +2,9 @@
 //
 // The router talks to replicas over exactly two HTTP surfaces — chat
 // completions with SSE, and /metrics — so that pair is the project's single
-// test seam. Everything above it (proxy, prefix index, policies, inflight
-// accounting, scraping) is exercised unmodified against this fake.
+// test seam. Everything above it (the router's ingress, the prefix index, the
+// policies, inflight accounting and scraping) is exercised unmodified against
+// this fake.
 //
 // The fake is only worth having if it stays honest, so the assertions in
 // test/contract run against both this and a live replica of the pinned engine
@@ -43,8 +44,13 @@ type Config struct {
 	// KVUtilization is reported as vllm:kv_cache_usage_perc.
 	KVUtilization float64
 
-	// Now supplies the `created` timestamp. Tests pin it so that responses are
-	// byte-deterministic. Defaults to time.Now.
+	// Now supplies the `created` timestamp. Defaults to time.Now.
+	//
+	// Tests pin it because `created` is in whole seconds: two requests that
+	// straddle a second boundary would otherwise produce responses differing by
+	// one, and the byte-identity test compares a stream taken directly against
+	// one taken through the router. This is a knob on the fake, which is
+	// required to be programmable — the router's own timing code stays real.
 	Now func() time.Time
 }
 
@@ -61,19 +67,16 @@ type Failure struct {
 type Replica struct {
 	cfg Config
 
-	mu       sync.Mutex
-	failure  *Failure
-	kvUtil   float64
-	counters counters
+	mu         sync.Mutex
+	failure    *Failure
+	counters   counters
+	histograms map[string]*histogram
 }
 
 type counters struct {
-	requests          int64
-	promptTokens      int64
-	cachedTokens      int64
-	prefixCacheHits   int64
-	prefixCacheQuerys int64
-	completionTokens  int64
+	requests         int64
+	promptTokens     int64
+	completionTokens int64
 }
 
 // New builds a fake replica from cfg, filling in defaults.
@@ -90,7 +93,7 @@ func New(cfg Config) *Replica {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	return &Replica{cfg: cfg, kvUtil: cfg.KVUtilization}
+	return &Replica{cfg: cfg, histograms: newHistograms()}
 }
 
 // SetFailure makes every subsequent chat completion fail with f, or clears the
@@ -99,13 +102,6 @@ func (r *Replica) SetFailure(f *Failure) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.failure = f
-}
-
-// SetKVUtilization changes the value reported as vllm:kv_cache_usage_perc.
-func (r *Replica) SetKVUtilization(v float64) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.kvUtil = v
 }
 
 // Handler returns the replica's HTTP surface.
@@ -132,6 +128,37 @@ type chatRequest struct {
 type chatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+}
+
+// completion is one response the fake is about to produce. Streaming and
+// blocking share it so that the two paths cannot drift apart in identity,
+// length or usage accounting.
+type completion struct {
+	id           string
+	created      int64
+	model        string
+	tokens       int
+	promptTokens int
+	includeUsage bool
+}
+
+func (c completion) chunk(choices []chunkChoice, u *usage) chunk {
+	return chunk{
+		ID:      c.id,
+		Object:  "chat.completion.chunk",
+		Created: c.created,
+		Model:   c.model,
+		Choices: choices,
+		Usage:   u,
+	}
+}
+
+func (c completion) usage() *usage {
+	return &usage{
+		PromptTokens:     c.promptTokens,
+		CompletionTokens: c.tokens,
+		TotalTokens:      c.promptTokens + c.tokens,
+	}
 }
 
 func (r *Replica) handleChatCompletions(w http.ResponseWriter, req *http.Request) {
@@ -163,105 +190,104 @@ func (r *Replica) handleChatCompletions(w http.ResponseWriter, req *http.Request
 	// that the same request produces byte-identical responses whether it was
 	// sent directly or through the router.
 	sum := sha256.Sum256(body)
-	id := "chatcmpl-" + hex.EncodeToString(sum[:])[:32]
-	created := r.cfg.Now().Unix()
-
-	n := r.cfg.OutputTokens
-	if parsed.MaxTokens > 0 && parsed.MaxTokens < n {
-		n = parsed.MaxTokens
+	tokens := r.cfg.OutputTokens
+	if parsed.MaxTokens > 0 && parsed.MaxTokens < tokens {
+		tokens = parsed.MaxTokens
 	}
-	promptTokens := estimateTokens(parsed.Messages)
-	r.recordRequest(promptTokens, n)
+	c := completion{
+		id:           "chatcmpl-" + hex.EncodeToString(sum[:])[:32],
+		created:      r.cfg.Now().Unix(),
+		model:        r.cfg.Model,
+		tokens:       tokens,
+		promptTokens: estimateTokens(parsed.Messages),
+		includeUsage: parsed.StreamOptions != nil && parsed.StreamOptions.IncludeUsage,
+	}
+	r.observe(c)
 
 	if parsed.Stream {
-		includeUsage := parsed.StreamOptions != nil && parsed.StreamOptions.IncludeUsage
-		r.streamCompletion(w, req, id, created, n, promptTokens, includeUsage)
+		r.streamCompletion(w, req, c)
 		return
 	}
-	r.blockingCompletion(w, req, id, created, n, promptTokens)
+	r.blockingCompletion(w, req, c)
 }
 
-func (r *Replica) recordRequest(promptTokens, completionTokens int) {
+// observe folds one completion into the counters and histograms /metrics
+// reports. The fake's latency model is deterministic, so the values it records
+// are the ones it is about to spend.
+func (r *Replica) observe(c completion) {
+	ttft := r.cfg.TTFT.Seconds()
+	itl := r.cfg.InterToken.Seconds()
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.counters.requests++
-	r.counters.promptTokens += int64(promptTokens)
-	r.counters.completionTokens += int64(completionTokens)
-	r.counters.prefixCacheQuerys += int64(promptTokens)
+	r.counters.promptTokens += int64(c.promptTokens)
+	r.counters.completionTokens += int64(c.tokens)
+
+	r.histograms["vllm:time_to_first_token_seconds"].observe(ttft)
+	r.histograms["vllm:e2e_request_latency_seconds"].observe(ttft + float64(c.tokens-1)*itl)
+	r.histograms["vllm:request_prefill_kv_computed_tokens"].observe(float64(c.promptTokens))
+	for range c.tokens - 1 {
+		r.histograms["vllm:inter_token_latency_seconds"].observe(itl)
+	}
 }
 
-func (r *Replica) blockingCompletion(w http.ResponseWriter, req *http.Request, id string, created int64, n, promptTokens int) {
-	if !r.sleep(req, r.cfg.TTFT+time.Duration(n-1)*r.cfg.InterToken) {
+func (r *Replica) blockingCompletion(w http.ResponseWriter, req *http.Request, c completion) {
+	if !r.sleep(req, r.cfg.TTFT+time.Duration(c.tokens-1)*r.cfg.InterToken) {
 		return
 	}
 	stop := "stop"
 	resp := completionResponse{
-		ID:      id,
+		ID:      c.id,
 		Object:  "chat.completion",
-		Created: created,
-		Model:   r.cfg.Model,
+		Created: c.created,
+		Model:   c.model,
 		Choices: []completionChoice{{
 			Index:        0,
-			Message:      chatMessage{Role: "assistant", Content: generate(n)},
+			Message:      chatMessage{Role: "assistant", Content: generate(c.tokens)},
 			FinishReason: &stop,
 		}},
-		Usage: &usage{
-			PromptTokens:     promptTokens,
-			CompletionTokens: n,
-			TotalTokens:      promptTokens + n,
-		},
+		Usage: c.usage(),
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func (r *Replica) streamCompletion(w http.ResponseWriter, req *http.Request, id string, created int64, n, promptTokens int, includeUsage bool) {
+func (r *Replica) streamCompletion(w http.ResponseWriter, req *http.Request, c completion) {
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 
 	rc := http.NewResponseController(w)
-	role := "assistant"
-	empty := ""
+	role, empty := "assistant", ""
 
 	if !r.sleep(req, r.cfg.TTFT) {
 		return
 	}
-	first := chunk{ID: id, Object: "chat.completion.chunk", Created: created, Model: r.cfg.Model,
-		Choices: []chunkChoice{{Index: 0, Delta: chunkDelta{Role: &role, Content: &empty}}}}
-	if !writeChunk(w, rc, first) {
+	opening := c.chunk([]chunkChoice{{Index: 0, Delta: chunkDelta{Role: &role, Content: &empty}}}, nil)
+	if !writeChunk(w, rc, opening) {
 		return
 	}
 
-	for i := range n {
+	for i := range c.tokens {
 		if i > 0 && !r.sleep(req, r.cfg.InterToken) {
 			return
 		}
 		tok := token(i)
-		c := chunk{ID: id, Object: "chat.completion.chunk", Created: created, Model: r.cfg.Model,
-			Choices: []chunkChoice{{Index: 0, Delta: chunkDelta{Content: &tok}}}}
-		if !writeChunk(w, rc, c) {
+		if !writeChunk(w, rc, c.chunk([]chunkChoice{{Index: 0, Delta: chunkDelta{Content: &tok}}}, nil)) {
 			return
 		}
 	}
 
 	stop := "stop"
-	final := chunk{ID: id, Object: "chat.completion.chunk", Created: created, Model: r.cfg.Model,
-		Choices: []chunkChoice{{Index: 0, Delta: chunkDelta{}, FinishReason: &stop}}}
+	final := c.chunk([]chunkChoice{{Index: 0, Delta: chunkDelta{}, FinishReason: &stop}}, nil)
 	if !writeChunk(w, rc, final) {
 		return
 	}
 
-	if includeUsage {
-		u := chunk{ID: id, Object: "chat.completion.chunk", Created: created, Model: r.cfg.Model,
-			Choices: []chunkChoice{},
-			Usage: &usage{
-				PromptTokens:     promptTokens,
-				CompletionTokens: n,
-				TotalTokens:      promptTokens + n,
-			}}
-		if !writeChunk(w, rc, u) {
+	if c.includeUsage {
+		if !writeChunk(w, rc, c.chunk([]chunkChoice{}, c.usage())) {
 			return
 		}
 	}

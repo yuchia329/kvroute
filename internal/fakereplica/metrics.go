@@ -3,42 +3,96 @@ package fakereplica
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/yuchia329/kvroute/internal/vllmmetrics"
 )
 
-// histogramBuckets is a deliberately short bucket set. The fake's job is to
-// expose the same metric families under the same names as the engine, not to
-// reproduce its bucket boundaries.
-var histogramBuckets = []float64{0.05, 0.5, 5}
+// Bucket bounds are deliberately short. The fake's job is to expose the same
+// metric families under the same names as the engine, with internally
+// consistent values; it is not trying to reproduce the engine's boundaries.
+var (
+	latencyBuckets = []float64{0.01, 0.05, 0.1, 0.5, 1, 5, 30}
+	tokenBuckets   = []float64{16, 64, 256, 1024, 4096, 16384}
+)
+
+// histogram is a Prometheus histogram: per-bucket counts rendered cumulatively,
+// plus a sum and a count that agree with them.
+type histogram struct {
+	bounds []float64
+	counts []int64 // one per bound, plus a final +Inf bucket
+	sum    float64
+	count  int64
+}
+
+func newHistogram(bounds []float64) *histogram {
+	return &histogram{bounds: bounds, counts: make([]int64, len(bounds)+1)}
+}
+
+func (h *histogram) observe(v float64) {
+	h.counts[bucketIndex(h.bounds, v)]++
+	h.sum += v
+	h.count++
+}
+
+// bucketIndex is the bucket v falls in: the first bound it is less than or
+// equal to, or the trailing +Inf bucket.
+func bucketIndex(bounds []float64, v float64) int {
+	i, _ := slices.BinarySearch(bounds, v)
+	return i
+}
+
+func (h *histogram) render(b *strings.Builder, name, labels string) {
+	var cumulative int64
+	for i, bound := range h.bounds {
+		cumulative += h.counts[i]
+		fmt.Fprintf(b, "%s_bucket{%s,le=\"%g\"} %d\n", name, labels, bound, cumulative)
+	}
+	fmt.Fprintf(b, "%s_bucket{%s,le=\"+Inf\"} %d\n", name, labels, h.count)
+	fmt.Fprintf(b, "%s_sum{%s} %g\n", name, labels, h.sum)
+	fmt.Fprintf(b, "%s_count{%s} %d\n", name, labels, h.count)
+}
+
+// newHistograms builds one histogram per required histogram family. Families
+// the fake does not model stay empty, which is honest exposition: the series
+// exist, and report that nothing was observed.
+func newHistograms() map[string]*histogram {
+	out := map[string]*histogram{}
+	for _, f := range vllmmetrics.Required {
+		if f.Kind != vllmmetrics.Histogram {
+			continue
+		}
+		bounds := latencyBuckets
+		if f.Name == "vllm:request_prefill_kv_computed_tokens" {
+			bounds = tokenBuckets
+		}
+		out[f.Name] = newHistogram(bounds)
+	}
+	return out
+}
 
 // handleMetrics exposes every family in vllmmetrics.Required in the Prometheus
 // text format, under the engine's own names. The contract test asserts this
-// surface against a live replica, so a divergence here is caught rather than
+// surface against a live replica, so a divergence is caught rather than
 // discovered mid-sweep as a column of zeros.
 func (r *Replica) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	r.mu.Lock()
 	c := r.counters
-	kvUtil := r.kvUtil
-	r.mu.Unlock()
-
-	values := map[string]float64{
-		"vllm:kv_cache_usage_perc":                kvUtil,
-		"vllm:num_requests_running":               0,
-		"vllm:num_requests_waiting":               0,
-		"vllm:prefix_cache_hits":                  float64(c.prefixCacheHits),
-		"vllm:prefix_cache_queries":               float64(c.prefixCacheQuerys),
-		"vllm:prompt_tokens":                      float64(c.promptTokens),
-		"vllm:prompt_tokens_cached":               float64(c.cachedTokens),
-		"vllm:num_preemptions":                    0,
-		"vllm:request_prefill_kv_computed_tokens": float64(c.promptTokens - c.cachedTokens),
-		"vllm:time_to_first_token_seconds":        r.cfg.TTFT.Seconds() * float64(c.requests),
-		"vllm:inter_token_latency_seconds":        r.cfg.InterToken.Seconds() * float64(c.completionTokens),
-		"vllm:e2e_request_latency_seconds":        0,
-		"vllm:kv_block_lifetime_seconds":          0,
-		"vllm:kv_block_idle_before_evict_seconds": 0,
-		"vllm:kv_block_reuse_gap_seconds":         0,
+	kvUtil := r.cfg.KVUtilization
+	// Prefix-cache and preemption counters stay at zero: the fake models no
+	// prefix cache yet, and reporting queries without hits would fabricate a
+	// real-looking 0% hit rate. A block-LRU cache arrives with the prefix-index
+	// work that first depends on these.
+	scalars := map[string]float64{
+		"vllm:kv_cache_usage_perc":  kvUtil,
+		"vllm:num_requests_running": 0,
+		"vllm:num_requests_waiting": 0,
+		"vllm:prefix_cache_hits":    0,
+		"vllm:prefix_cache_queries": 0,
+		"vllm:prompt_tokens":        float64(c.promptTokens),
+		"vllm:prompt_tokens_cached": 0,
+		"vllm:num_preemptions":      0,
 	}
 
 	var b strings.Builder
@@ -46,19 +100,13 @@ func (r *Replica) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	for _, f := range vllmmetrics.Required {
 		fmt.Fprintf(&b, "# HELP %s %s\n", f.Name, f.Help)
 		fmt.Fprintf(&b, "# TYPE %s %s\n", f.Name, f.Kind)
-		v := values[f.Name]
-		switch f.Kind {
-		case vllmmetrics.Histogram:
-			for _, le := range histogramBuckets {
-				fmt.Fprintf(&b, "%s_bucket{%s,le=\"%g\"} %d\n", f.Name, labels, le, c.requests)
-			}
-			fmt.Fprintf(&b, "%s_bucket{%s,le=\"+Inf\"} %d\n", f.Name, labels, c.requests)
-			fmt.Fprintf(&b, "%s_sum{%s} %g\n", f.Name, labels, v)
-			fmt.Fprintf(&b, "%s_count{%s} %d\n", f.Name, labels, c.requests)
-		default:
-			fmt.Fprintf(&b, "%s{%s} %g\n", f.Name, labels, v)
+		if f.Kind == vllmmetrics.Histogram {
+			r.histograms[f.Name].render(&b, f.Name, labels)
+			continue
 		}
+		fmt.Fprintf(&b, "%s{%s} %g\n", f.Name, labels, scalars[f.Name])
 	}
+	r.mu.Unlock()
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	_, _ = w.Write([]byte(b.String()))

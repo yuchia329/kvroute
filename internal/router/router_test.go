@@ -2,6 +2,7 @@ package router_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -249,6 +250,40 @@ func TestUnreachableReplicaIsDropped(t *testing.T) {
 	}
 	if got[0].Error == "" {
 		t.Errorf("dropped row carries no error text")
+	}
+}
+
+// TestClientHangingUpIsNotCountedAsAReplicaFailure: dropped, failed and
+// cancelled are three different things, and a client's own disconnect must not
+// land in the column that says the fleet errored.
+func TestClientHangingUpIsNotCountedAsAReplicaFailure(t *testing.T) {
+	_, replicaURL := startFake(t, fakereplica.Config{
+		ID: "replica-0", TTFT: 5 * time.Millisecond, InterToken: time.Second, OutputTokens: 10,
+	})
+	routerURL, rows := startRouter(t, "replica-0="+replicaURL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, routerURL+"/v1/chat/completions", strings.NewReader(streamingRequest))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	// Take the first chunk, then walk away mid-stream.
+	if _, err := resp.Body.Read(make([]byte, 1)); err != nil {
+		t.Fatalf("read first byte: %v", err)
+	}
+	cancel()
+	resp.Body.Close()
+
+	got := rows.wait(t, 1)
+	if got[0].Outcome != record.OutcomeCancelled {
+		t.Errorf("outcome = %q, want %q: no replica errored here", got[0].Outcome, record.OutcomeCancelled)
+	}
+	if got[0].TTFTNs <= 0 {
+		t.Errorf("ttft_ns = %d: the client did receive a first byte", got[0].TTFTNs)
 	}
 }
 

@@ -6,6 +6,7 @@
 package stats
 
 import (
+	"math/rand/v2"
 	"slices"
 	"sync"
 	"time"
@@ -15,8 +16,14 @@ import (
 const DefaultCapacity = 1 << 20
 
 // Recorder accumulates durations. It is safe for concurrent use.
+//
+// Past its capacity it keeps a uniform random sample of everything it has seen
+// (Vitter's algorithm R) rather than the first N observations. Keeping the
+// first N would quietly turn a long run's percentiles into percentiles of its
+// warm-up, which is exactly the window least representative of the run.
 type Recorder struct {
 	mu       sync.Mutex
+	rng      *rand.Rand
 	samples  []time.Duration
 	observed int64
 	capacity int
@@ -42,7 +49,8 @@ func NewRecorder(capacity int) *Recorder {
 	if capacity <= 0 {
 		capacity = DefaultCapacity
 	}
-	return &Recorder{capacity: capacity}
+	// Seeded fixed: a rerun of a cell should summarise the same way.
+	return &Recorder{capacity: capacity, rng: rand.New(rand.NewPCG(1, 2))}
 }
 
 // Observe records one duration.
@@ -52,6 +60,10 @@ func (r *Recorder) Observe(d time.Duration) {
 	r.observed++
 	if len(r.samples) < r.capacity {
 		r.samples = append(r.samples, d)
+		return
+	}
+	if i := r.rng.Int64N(r.observed); i < int64(r.capacity) {
+		r.samples[i] = d
 	}
 }
 

@@ -1,8 +1,9 @@
 // Package contract_test asserts that the fake replica behaves like a real vLLM
 // replica on the surfaces the router depends on.
 //
-// The fake is the project's single test seam: proxy, prefix index, policies,
-// inflight accounting and scraping are all tested against it. That is only
+// The fake is the project's single test seam: the router's ingress, the prefix
+// index, the policies, inflight accounting and scraping are all tested against
+// it. That is only
 // meaningful if the fake is honest, so the same assertions run against a live
 // replica of the pinned engine version. Point KVROUTE_CONTRACT_REPLICA at one
 // during bring-up:
@@ -15,12 +16,15 @@ package contract_test
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -266,16 +270,147 @@ func runContract(t *testing.T, baseURL, model string) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("status = %d, want 200", resp.StatusCode)
 		}
-		exposed := seriesNames(string(readAll(t, resp.Body)))
+		body := string(readAll(t, resp.Body))
+		exposed := seriesNames(body)
 		for _, family := range vllmmetrics.Required {
 			for _, series := range family.SeriesNames() {
 				if !exposed[series] {
-					t.Errorf("metric %q (%s %s) is missing: the engine may have renamed it, so fix internal/vllmmetrics rather than ignoring this",
-						series, family.Kind, family.Name)
+					// Counters are the likely culprit: a Prometheus client
+					// appends _total on exposition, so an engine build may
+					// publish vllm:prompt_tokens_total where the spec recorded
+					// vllm:prompt_tokens. Confirm what the replica actually
+					// serves and fix the name in internal/vllmmetrics, which is
+					// the one place it is declared.
+					t.Errorf("metric %q (%s %s) is missing from %s: fix internal/vllmmetrics rather than ignoring this",
+						series, family.Kind, family.Name, baseURL)
 				}
+			}
+			if family.Kind == vllmmetrics.Histogram {
+				assertHistogramIsConsistent(t, body, family.Name)
 			}
 		}
 	})
+}
+
+// assertHistogramIsConsistent checks a histogram's exposition holds together:
+// cumulative buckets must not decrease as le rises, and the +Inf bucket must
+// equal the count. A histogram that fails this reads as garbage to any scrape
+// that computes a quantile from it, while still looking populated.
+func assertHistogramIsConsistent(t *testing.T, body, name string) {
+	t.Helper()
+
+	type bucket struct {
+		le    float64
+		value float64
+	}
+	var buckets []bucket
+	var infinite, count float64
+	var sawInf, sawCount bool
+
+	for line := range strings.SplitSeq(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		series, rawValue, found := strings.Cut(line, " ")
+		if !found || !strings.HasPrefix(series, name+"_") {
+			continue
+		}
+		value, err := strconv.ParseFloat(rawValue, 64)
+		if err != nil {
+			t.Errorf("%s carries an unparseable value %q", series, rawValue)
+			continue
+		}
+		switch {
+		case strings.HasPrefix(series, name+"_bucket"):
+			rawLE := labelValue(series, "le")
+			if rawLE == "+Inf" {
+				infinite, sawInf = value, true
+				continue
+			}
+			le, err := strconv.ParseFloat(rawLE, 64)
+			if err != nil {
+				t.Errorf("%s has an unparseable le %q", series, rawLE)
+				continue
+			}
+			buckets = append(buckets, bucket{le, value})
+		case strings.HasPrefix(series, name+"_count"):
+			count, sawCount = value, true
+		}
+	}
+
+	slices.SortFunc(buckets, func(a, b bucket) int { return cmp.Compare(a.le, b.le) })
+	for i := 1; i < len(buckets); i++ {
+		if buckets[i].value < buckets[i-1].value {
+			t.Errorf("%s buckets are not cumulative: le=%g holds %g but le=%g holds %g",
+				name, buckets[i-1].le, buckets[i-1].value, buckets[i].le, buckets[i].value)
+		}
+	}
+	if !sawInf || !sawCount {
+		return // the missing-series check above already reported this
+	}
+	if infinite != count {
+		t.Errorf("%s: the +Inf bucket holds %g but _count is %g", name, infinite, count)
+	}
+	if len(buckets) > 0 && buckets[len(buckets)-1].value > infinite {
+		t.Errorf("%s: bucket le=%g holds %g, more than the +Inf bucket's %g",
+			name, buckets[len(buckets)-1].le, buckets[len(buckets)-1].value, infinite)
+	}
+	if count == 0 {
+		return
+	}
+
+	// The sum has to be reachable from where the buckets say the observations
+	// landed. If every observation is claimed to be at or below some bound,
+	// the sum cannot exceed count times that bound. This is what catches a
+	// histogram whose buckets are filled from something other than the values
+	// it summed: structurally tidy, and nonsense to any quantile scrape.
+	sum, ok := seriesValue(body, name+"_sum")
+	if !ok {
+		return
+	}
+	for _, b := range buckets {
+		if b.value == count {
+			if sum > count*b.le*(1+1e-9) {
+				t.Errorf("%s: buckets put all %g observations at or below %g, but the sum is %g, which needs a mean of %g",
+					name, count, b.le, sum, sum/count)
+			}
+			break
+		}
+	}
+}
+
+// seriesValue reads the value of a series with no le label, such as a _sum.
+func seriesValue(body, name string) (float64, bool) {
+	for line := range strings.SplitSeq(body, "\n") {
+		line = strings.TrimSpace(line)
+		series, rawValue, found := strings.Cut(line, " ")
+		if !found || !strings.HasPrefix(series, name) {
+			continue
+		}
+		value, err := strconv.ParseFloat(rawValue, 64)
+		if err != nil {
+			return 0, false
+		}
+		return value, true
+	}
+	return 0, false
+}
+
+// labelValue pulls one label out of a series name such as
+// `vllm:x_bucket{model_name="m",le="0.5"}`.
+func labelValue(series, label string) string {
+	_, labels, found := strings.Cut(series, "{")
+	if !found {
+		return ""
+	}
+	for part := range strings.SplitSeq(strings.TrimSuffix(labels, "}"), ",") {
+		key, value, found := strings.Cut(part, "=")
+		if found && key == label {
+			return strings.Trim(value, `"`)
+		}
+	}
+	return ""
 }
 
 // seriesNames collects the series present in a Prometheus text exposition.

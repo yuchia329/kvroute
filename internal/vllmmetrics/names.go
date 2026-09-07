@@ -45,9 +45,14 @@ func (f Family) SeriesNames() []string {
 	return []string{f.Name}
 }
 
-// Required is every metric family this project depends on, verified against
-// vLLM 0.28.0. Adding a dependency on a new metric means adding it here, so
-// that the contract test starts checking for it on a live replica.
+// Required is every metric family this project depends on. The names are taken
+// from idea.md §4.6, which records them as read off vLLM 0.28.0 — but nothing
+// in this repo has yet confirmed them against a running engine. The contract
+// test is what does that, and until it has been run against a live replica
+// these names are the spec's claim, not a verified fact.
+//
+// Adding a dependency on a new metric means adding it here, so that the
+// contract test starts checking for it.
 var Required = []Family{
 	{"vllm:kv_cache_usage_perc", Gauge, "KV-cache usage as a fraction of capacity. NOT gpu_cache_usage_perc."},
 	{"vllm:num_requests_running", Gauge, "Requests currently in model execution batches."},

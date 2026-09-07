@@ -82,8 +82,15 @@ up() {
     --block-size "$BLOCK_SIZE"
     --max-model-len "$MAX_MODEL_LEN"
   )
-  [[ "$ENABLE_PREFIX_CACHING" == "1" ]] && args+=(--enable-prefix-caching)
-  [[ "$ENABLE_CHUNKED_PREFILL" == "1" ]] && args+=(--enable-chunked-prefill)
+  # Written as if/then, not `[[ ... ]] && ...`: under `set -e` a false test as
+  # the whole statement would exit the script, so turning a knob off would kill
+  # the launch instead of dropping the flag.
+  if [[ "$ENABLE_PREFIX_CACHING" == "1" ]]; then
+    args+=(--enable-prefix-caching)
+  fi
+  if [[ "$ENABLE_CHUNKED_PREFILL" == "1" ]]; then
+    args+=(--enable-chunked-prefill)
+  fi
 
   echo "starting $id on GPU $index, port $port, vLLM $VLLM_VERSION, quantization $QUANTIZATION"
   CUDA_VISIBLE_DEVICES="$index" nohup "$VENV/bin/vllm" "${args[@]}" >"$log" 2>&1 &
@@ -118,7 +125,7 @@ down() {
       kill -0 "$target" 2>/dev/null || break
       sleep 1
     done
-    kill -0 "$target" 2>/dev/null && kill -9 "$target" || true
+    if kill -0 "$target" 2>/dev/null; then kill -9 "$target" || true; fi
   fi
   rm -f "$pid"
 }
@@ -132,7 +139,7 @@ status() {
     id="$(basename "$pid" .pid)"
     target="$(cat "$pid")"
     state="stopped"
-    kill -0 "$target" 2>/dev/null && state="running"
+    if kill -0 "$target" 2>/dev/null; then state="running"; fi
     echo "$id  PID $target  $state"
   done
   (( any )) || echo "no replicas have been started from $run_dir"

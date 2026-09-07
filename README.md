@@ -3,7 +3,7 @@
 A KV-cache-aware inference router fronting six single-GPU vLLM replicas.
 
 The question it exists to answer: **where does cache-aware routing stop paying for itself against
-the sticky-session baseline any load balancer already gives you for free?** The deliverable is a
+the consistent-hash session-affinity baseline any load balancer already gives you for free?** The deliverable is a
 measured comparison of routing policies, not a service. See [`idea.md`](idea.md) for the spec and
 [`CONTEXT.md`](CONTEXT.md) for the vocabulary.
 
@@ -11,6 +11,14 @@ measured comparison of routing policies, not a service. See [`idea.md`](idea.md)
 > router with SSE intact, and lands as a row in the record. The results table, the policies and
 > the pressure map are not built yet. This README gets replaced by a results-first one once there
 > are results.
+>
+> **Not yet run against a GPU.** Everything above the replica HTTP boundary is tested and passing
+> against the fake. Nothing here has met a real vLLM replica: `ops/replica.sh` has never been
+> executed, the pinned engine version and the forced AWQ backend are transcribed from the spec
+> rather than confirmed on the box, and `TestLiveReplicaHonoursTheContract` has only ever skipped.
+> The metric names in `internal/vllmmetrics` are the spec's claim until that test runs. Expect the
+> first contact with the box to fail on one of those and fix it there — that is what the
+> assertions are for.
 
 ## What runs today
 
@@ -44,6 +52,8 @@ curl -s http://127.0.0.1:8080/router/stats   # router overhead p50/p99
 ```
 
 ## Run it against a real replica
+
+Unrun so far, in this order:
 
 ```sh
 make replica-up INDEX=0                                    # pinned vLLM, forced awq_marlin

@@ -9,6 +9,7 @@ package router
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -48,10 +49,6 @@ type Config struct {
 	// pass through byte for byte.
 	Client *http.Client
 	Logger *slog.Logger
-
-	// OverheadCapacity bounds how many overhead samples are retained for the
-	// percentile summary. Zero uses the default.
-	OverheadCapacity int
 }
 
 // Router fronts the fleet.
@@ -113,7 +110,7 @@ func New(cfg Config) (*Router, error) {
 		records:  cfg.Records,
 		client:   cfg.Client,
 		log:      cfg.Logger,
-		overhead: stats.NewRecorder(cfg.OverheadCapacity),
+		overhead: stats.NewRecorder(stats.DefaultCapacity),
 	}, nil
 }
 
@@ -191,12 +188,11 @@ func (rt *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request
 	row.DecisionReason = string(choice.Reason)
 
 	upstream, err := http.NewRequestWithContext(req.Context(), http.MethodPost,
-		choice.Replica.BaseURL+req.URL.Path, bytes.NewReader(body))
+		choice.Replica.URL(req.URL.Path, req.URL.RawQuery), bytes.NewReader(body))
 	if err != nil {
 		rt.drop(w, &row, http.StatusInternalServerError, fmt.Errorf("build upstream request: %w", err))
 		return
 	}
-	upstream.URL.RawQuery = req.URL.RawQuery
 	copyHeader(upstream.Header, req.Header)
 	upstream.Header.Set(RequestHeader, row.RequestID)
 
@@ -227,19 +223,30 @@ func (rt *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request
 	w.Header().Set(RequestHeader, row.RequestID)
 	w.WriteHeader(resp.StatusCode)
 
-	written, firstByte, copyErr := streamBody(w, resp.Body)
+	written, firstByte, upstreamErr, clientErr := streamBody(w, resp.Body)
 	row.ResponseBytes = written
 	if !firstByte.IsZero() {
 		row.TTFTNs = firstByte.Sub(accepted).Nanoseconds()
 	}
 
+	// Which side of the exchange broke decides the outcome, and the two are
+	// distinguished by which end reported rather than by racing the request
+	// context: a client hanging up shows as a failed write to the client, and
+	// also aborts the upstream read, so both orderings have to land on
+	// cancelled.
 	switch {
-	case copyErr != nil:
+	case clientErr != nil, upstreamErr != nil && req.Context().Err() != nil:
+		// The client went away. No replica errored, so counting this as a
+		// failure would put a client's behaviour in the fleet's failure column.
+		row.Outcome = record.OutcomeCancelled
+		row.Error = cmp.Or(clientErr, upstreamErr).Error()
+		rt.log.Debug("client went away mid-response", "request_id", row.RequestID, "replica", choice.Replica.ID)
+	case upstreamErr != nil:
 		// The replica accepted the request and the exchange then broke, so this
 		// is a failure rather than a request the router could not place.
 		row.Outcome = record.OutcomeFailed
-		row.Error = copyErr.Error()
-		rt.log.Warn("stream broke mid-response", "request_id", row.RequestID, "replica", choice.Replica.ID, "err", copyErr)
+		row.Error = upstreamErr.Error()
+		rt.log.Warn("stream broke mid-response", "request_id", row.RequestID, "replica", choice.Replica.ID, "err", upstreamErr)
 	case resp.StatusCode >= http.StatusBadRequest:
 		row.Outcome = record.OutcomeFailed
 		row.Error = fmt.Sprintf("upstream status %d", resp.StatusCode)
@@ -268,8 +275,12 @@ func (rt *Router) drop(w http.ResponseWriter, row *record.Request, status int, e
 
 // streamBody copies the replica's response to the client, flushing every chunk
 // so that a token reaches the client when the replica emits it rather than when
-// the response ends. It reports the bytes written and when the first one left.
-func streamBody(w http.ResponseWriter, body io.Reader) (written int64, firstByte time.Time, err error) {
+// the response ends.
+//
+// It reports the bytes written, when the first one left, and separately which
+// side broke if either did: an upstream error is the replica failing, a client
+// error is the client going away, and those are different outcomes.
+func streamBody(w http.ResponseWriter, body io.Reader) (written int64, firstByte time.Time, upstreamErr, clientErr error) {
 	flusher := http.NewResponseController(w)
 	buf := make([]byte, 32*1024)
 	for {
@@ -281,17 +292,17 @@ func streamBody(w http.ResponseWriter, body io.Reader) (written int64, firstByte
 			wrote, writeErr := w.Write(buf[:n])
 			written += int64(wrote)
 			if writeErr != nil {
-				return written, firstByte, writeErr
+				return written, firstByte, nil, writeErr
 			}
 			if flushErr := flusher.Flush(); flushErr != nil {
-				return written, firstByte, flushErr
+				return written, firstByte, nil, flushErr
 			}
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
-				return written, firstByte, nil
+				return written, firstByte, nil, nil
 			}
-			return written, firstByte, readErr
+			return written, firstByte, readErr, nil
 		}
 	}
 }

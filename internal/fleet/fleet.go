@@ -3,7 +3,7 @@
 //
 // State is the whole of what a policy is allowed to see, so later work can add
 // exact inflight counts and scraped KV utilization here without any policy or
-// the proxy needing to change shape.
+// the router's ingress needing to change shape.
 package fleet
 
 import (
@@ -18,6 +18,16 @@ import (
 type Replica struct {
 	ID      string
 	BaseURL string
+}
+
+// URL builds an upstream URL on this replica, so that callers never assemble
+// one out of a bare string.
+func (r Replica) URL(path, rawQuery string) string {
+	u := r.BaseURL + path
+	if rawQuery != "" {
+		u += "?" + rawQuery
+	}
+	return u
 }
 
 // State is a consistent snapshot of the fleet, taken once per routing decision.

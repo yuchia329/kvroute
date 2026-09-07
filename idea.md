@@ -12,10 +12,11 @@ Where this spec and the glossary disagree, the glossary wins.
 
 ## 0. Thesis
 
-> Cache-aware routing is convergent across the field, and OpenAI has productized its simplest
-> form as `prompt_cache_key`. The open question is not whether prefix affinity beats load
-> balancing. It is **at what pressure cache-aware routing starts paying for itself, and what it
-> costs to approximate cache state the router does not own.**
+> Cache-aware routing is convergent across the field, and OpenAI has productized it: requests are
+> already routed by a hash of the initial tokens plus load, with `prompt_cache_key` as a
+> disambiguator on top. The open question is not whether prefix affinity beats load balancing. It
+> is **at what pressure cache-aware routing starts paying for itself on a single consumer-GPU
+> host, and what it costs to approximate cache state the router does not own.**
 
 This is a **characterization study, not a hypothesis to defend.** Four policies, one harness, two
 pressure axes, on a fixed 6× RTX 3090 host. The deliverable is the map: which policy wins in
@@ -39,9 +40,14 @@ prefix affinity on inspection. Sticky hashing scatters those sessions evenly and
 cache the shared prefix independently, which is fine. Concentrating them would be worse.
 
 **There is no losing outcome. There is an invalid one.** If prefix affinity is within noise of
-session affinity everywhere, that is a publishable result and a rare one: every vendor publishes
-wins against round-robin, nobody publishes where the sophisticated thing stops paying against the
-baseline a frontier lab actually shipped.
+session affinity everywhere, that is still a publishable result.
+
+⚠️ But it is publishable on **narrower grounds than this spec originally claimed.** Published
+comparisons against sticky and consistent-hash baselines now exist — Anyscale, CacheRoute and
+llm-d all shipped one between February and August 2026 — every one of them at datacentre scale.
+A null result here is publishable as *"the crossover sits at working set X on a 6×3090 host, and
+here is the belief divergence that explains it,"* **not** as *"nobody has measured this."* That
+second sentence would be caught by anyone in the loop who has read the CacheRoute paper. See §1.
 
 But a null is only worth something if the experiment **could have detected a difference**. A flat
 result because the workload never pressured the cache is not a finding, it is a broken experiment,
@@ -75,40 +81,74 @@ lease/heartbeat crash safety). This project sits exactly on that intersection: i
 **scheduler and load balancer whose currency happens to be GPU memory**.
 
 ### Prior art — know this cold before the first interview
-KV-aware routing is an **active, well-known production pattern**, not an original idea. The
-people interviewing you at NVIDIA and the hyperscalers ship these systems.
+KV-aware routing is an **active, well-known production pattern**, not an original idea. The people
+interviewing you at NVIDIA and the hyperscalers ship these systems.
 
 | System | What it does |
 |---|---|
-| **SGLang router** | Rust, cache-aware load balancing over an approximate radix tree per worker |
-| **NVIDIA Dynamo** | KV-aware router; consumes KV cache events from workers to track block residency |
-| **llm-d / Gateway API Inference Extension** | Kubernetes endpoint-picker with prefix-cache-aware scoring |
-| **AIBrix** | AI-native control plane with cache-aware gateway routing |
-| **vLLM production-stack** | Reference router + observability for multi-replica vLLM |
-| **Mooncake (Kimi / Moonshot)** | Published frontier-lab design. Global scheduler estimates prefix hit length per instance, balances against instance load, and **rejects early** on predicted load — the spill rule generalized into admission control. The closest published relative of this project |
-| **OpenAI `prompt_cache_key`** | **Session affinity, productized.** An API parameter whose documented purpose is routing requests sharing a key to the same machine to raise cache hit rates. This is policy 3, shipped by a frontier lab — which is exactly why policy 3 is the baseline that matters and round-robin is not |
-
-⚠️ **Verify these before putting them in the README.** They are written from recall against a
-May 2026 knowledge cutoff, in a field that moves monthly. `prompt_cache_key`'s exact semantics and
-Mooncake's scheduler details both need checking against primary sources — a wrong prior-art claim
-in an interview is worse than no prior-art section. Run `/research` on this before publishing §1.
+| **SGLang** | Rust. The shipping gateway (`sgl-model-gateway`) keeps an **approximate radix tree per worker over raw text**: route to the best prefix match above `cache_threshold`, otherwise to the **smallest tree** (most free cache); a separate imbalance test — `(max−min) > abs_threshold` **and** `max > rel_threshold × min` — overrides both with shortest-queue. Its replacement (`experimental/sgl-router`) **removed those three flags**, falls back to power-of-two-choices, and takes its prefix signal from a router-local hash tree *or* an external gRPC KV indexer |
+| **NVIDIA Dynamo** | KV-aware router. A `KVPublisher` on each worker emits stored/removed block events; a `KvIndexer` builds a **global prefix tree** from them, while active decode blocks are counted **locally in the router**. Selects the lowest-cost worker under an explicit formula that credits device/host/disk cache overlap against prefill load and potential decode blocks — *"Higher overlap credits favor cache reuse (improving TTFT), while lower credits prioritize even load distribution (improving ITL)"* |
+| **llm-d / Gateway API Inference Extension** | Kubernetes endpoint picker with **pluggable scorers**. A `prefix-cache-scorer` consumes per-endpoint match data from one of three producers: `approx-prefix-cache-producer` (the **default** — routing-history-derived belief, 64-token blocks, per-pod LRU) or `precise-prefix-cache-producer` (a real KV-block index fed by **ZMQ KV events** from vLLM or SGLang). llm-d publishes precise-vs-approximate numbers: P90 TTFT 0.54 s vs 31.1 s. **The EPP moved from `kubernetes-sigs/gateway-api-inference-extension` to `llm-d/llm-d-router`** |
+| **AIBrix** | Envoy-gateway ext-proc router. Its `prefix-cache` strategy picks the best prefix-matched pod **within a stddev load threshold**, in either a local-hash-table mode or a KV-event-synced distributed-index mode, behind a **central** cluster-wide load-imbalance gate applied ahead of whichever strategy routes |
+| **vLLM production-stack** | Reference router + observability. Ships round-robin and **session-ID routing**; prefix-aware routing is still marked **WIP**. Cite it as evidence that *session stickiness is the shipped default in the vLLM ecosystem* |
+| **Mooncake (Kimi / Moonshot)** | Published frontier-lab design (arXiv 2407.00079; FAST '25). Global scheduler **Conductor** hashes prompt blocks, computes a per-instance `prefix_len`, estimates `T_queue + T_prefill` from it, and assigns the **shortest predicted TTFT** — with a second branch that, past `kvcache_balancing_threshold`, prices **migrating the KV to a less-loaded instance** instead. Rejects with HTTP 429 when no instance meets the SLO, using the *greater* of prefill and decode pool load, and predicts decode load to damp the anti-phase oscillation naive early rejection induces. The closest published relative of this project's spill rule |
+| **OpenAI `prompt_cache_key`** | **Cache-affinity routing, productized.** OpenAI already routes by *"a hash of the initial tokens"* plus machine load; `prompt_cache_key` is combined with that hash to keep a caller's requests on the same cache. The docs are explicit about its limits: *"Keys influence routing; they do not pin requests to a machine or guarantee a cache read hit."* It replaced the deprecated `user` field, which had done the same bucketing job alongside abuse detection (now `safety_identifier`). Cached input is discounted up to 90%; minimum 1,024 tokens (GPT-5.6+) / 2,048 (older); a cached prefix stays reusable 30 minutes after last use, with an opt-in 24 h retention; a single cache machine overflows above ~15 rpm |
+| **MiniMax** | MiniMax-M2 (arXiv 2605.26494, §6.2.6) publishes a *"cost-aware request router [that] dynamically balances queuing delay against cache migration costs, maximizing cache locality without overloading individual instances"* over a DFS-backed global KV cache — in their **agent-RL rollout** stack, not stated to be the production API path |
+| **DeepSeek** | Publishes the **cache** and the **disaggregation**, not the router: on-disk context caching in 64-token units with strict 0th-token prefix matching (~56% of tokens hit it), and PD-disaggregated EP32/EP144 serving behind three load balancers that equalize **input tokens, request counts, aggregate KVCache usage and expert dispatch** — none of them prefix-locality-aware |
+| **Anthropic / Google** | A different axis: **what to cache and for how long**, not where to route. Anthropic's `cache_control` marks up to 4 breakpoints, 5-minute default TTL or 1 hour, writes at 1.25×/2× and reads at 0.1×. Gemini offers implicit caching on by default (2.5+) and explicit `CachedContent` handles with a 1-hour default TTL. Neither documents anything about routing |
 
 **The field is convergent.** Every system above scores replicas by predicted prefix reuse and
 penalizes by load and memory pressure. Policy 4 is that same shape. The two real axes of variation
 are (a) approximate router-side index versus exact engine-published KV events, and (b) how
 aggressively the load term overrides the locality term — which are precisely this project's
 `KV_HIGH_WATER` and `LOAD_IMBALANCE_FACTOR`. **Claiming novelty of mechanism would be false and
-instantly caught.** What is unpublished is the ablation.
+instantly caught.**
 
-**Required README section and interview answer: how this differs.** Not novelty of mechanism —
-(a) a **head-to-head policy comparison under one controlled harness**, which none of the above
-publish for this hardware class; (b) a **quantified affinity-vs-balance crossover** as a function
-of working set ratio; (c) a measurement of **belief divergence** between the router's model of
-cache residency and the engine's actual state (§4.3); and (d) if the stretch goal lands, a direct
-measurement of **what the approximation costs** versus event-driven exact residency (§5, policy 5).
+**⚠️ And the ablation is no longer unpublished either — this is the part that changed.** Between
+February and August 2026, three sources published cache-aware routing against a consistent-hash or
+sticky baseline:
 
-"I reimplemented the pattern these systems use, then measured the thing they assert" is a strong
-position. "I invented cache-aware routing" is a losing one.
+- **Anyscale / Ray Serve LLM** benchmarked `ConsistentHashRouter` against `KVAwareRouter` and a
+  cache-only variant on one harness, and found the load-aware router won on p99 **despite a lower
+  prefix cache hit rate**.
+- **CacheRoute** used sticky consistent hashing and consistent-hashing-with-bounded-loads as two of
+  five baselines, and published an envelope in which *"affinity can reduce capacity when the
+  recoverable prefix work is small"* — 0.50–0.67× capacity on one workload.
+- **llm-d** published a numeric saturation threshold (τ = 286,720 tokens ≈ 14 s of queued prefill)
+  at which it stops honouring stickiness.
+
+So "nobody publishes where the sophisticated thing stops paying" is **no longer true**, and any
+README or interview answer that says it will be caught. What is *still* true is narrower and worth
+saying precisely:
+
+> Every published version of this comparison runs at datacentre scale — 8–60 H100/H200-class GPUs,
+> 32B–70B models, multi-node. None runs it on a single host with six consumer cards and a 4-bit 8B
+> model, where aggregate KV is ~14 GiB per replica and a working set can be pushed past fleet
+> capacity deliberately. None parameterizes by **working-set ratio over measured aggregate KV**,
+> and none separates **memory pressure from load imbalance as independent axes**. And none of them
+> measures **belief divergence** — the gap between the router's model of cache residency and the
+> engine's actual computed prefill tokens for the same request.
+
+**Required README section and interview answer: how this differs.** Not novelty of mechanism, and
+no longer novelty of the comparison either —
+(a) the comparison **at single-host, consumer-GPU scale**, where the published results do not
+reach and where the crossover sits at a different place;
+(b) a **two-axis pressure map** separating working-set ratio from Zipf skew, which no published
+version of this comparison does;
+(c) a measurement of **belief divergence** between the router's model of cache residency and the
+engine's actual state (§4.3), which nobody publishes at any scale; and
+(d) if the stretch goal lands, a **replication** of llm-d's approximate-vs-precise result on this
+hardware class — framed as a replication, since llm-d already published P90 TTFT 0.54 s vs 31.1 s
+for precise vs approximate.
+
+*"I reimplemented the pattern these systems use, then measured it in the regime they don't cover,
+and I can tell you exactly where my router's belief about the cache was wrong"* is a strong
+position. *"Nobody has published this comparison"* is now a losing one — someone in the loop will
+have read the CacheRoute paper.
+
+⚠️ **Verified against primary sources on 2026-09-06** — see `docs/research/prior-art-routing.md`
+for per-claim verdicts and URLs. This section carries a **permanent** re-verify warning: three of the
+claims above changed in the four weeks before it was written.
 
 ### What this is explicitly NOT
 - **Not** a from-scratch inference engine (see CoreLLM by classmate: Triton paged-attention
@@ -308,17 +348,38 @@ constant: prefix caching enabled, `--gpu-memory-utilization`, chunked prefill se
 
 ### Policy 3 is not optional
 Sticky sessions capture most multi-turn cache locality with zero prefix tracking, and every load
-balancer ships them. **If the trie only beats round-robin, you built a radix tree to beat a straw
-man.** Beating policy 3 — or honestly reporting that you did not — is the actual result. Because
-the session ID arrives as a header, policy 3 gets a perfect oracle, which makes it *stronger*
-than it would be in production; beating it therefore counts for more.
+balancer ships them — including vLLM's own production-stack, whose prefix-aware routing is still
+marked WIP while session-ID routing ships today (§1). **If the trie only beats round-robin, you
+built a radix tree to beat a straw man.** Because the session ID arrives as a header, policy 3
+gets a perfect oracle, which makes it *stronger* than it would be in production; separating from
+it therefore counts for more.
 
-Where policy 4 should beat policy 3, and what the workload must therefore contain:
-- **shared system prompts** across otherwise-unrelated sessions
-- **branched / regenerated** conversations sharing a common ancestor
-- **RAG-style shared context blocks** reused across sessions
+⚠️ **Do not describe policy 3 as "what OpenAI shipped."** Verified: OpenAI already routes by a
+hash of the initial tokens *plus machine load*, with `prompt_cache_key` combined into that hash as
+a disambiguator. Their production baseline therefore sits closer to **policy 4** than to policy 3,
+and their docs are explicit that keys *"influence routing; they do not pin requests to a machine."*
+The accurate line is that session stickiness is the shipped default in the **vLLM ecosystem**, and
+that frontier providers run something nearer prefix-hash routing with a load term.
+
+Where policy 4 should separate from policy 3, and what the workload must therefore contain:
+- **load imbalance under skew** — consistent hashing has no escape hatch when the hash lands hot
+  sessions together. **This is the primary mechanism** (§0), and it is why skew is a full sweep
+  axis rather than a side experiment
 - **rebalancing after replica loss** — consistent hashing rehashes and wrecks its cache; a prefix
   index degrades gracefully (measured in §7)
+- **branched / regenerated** conversations sharing a common ancestor under a new session ID
+- **RAG-style shared context blocks** reused across sessions, but only where the shared content
+  leads the prompt, since prefix caching is prefix-only and not arbitrary-substring
+
+**Struck from this list:** shared system prompts across otherwise-unrelated sessions. Sticky
+hashing scatters those evenly and every replica caches the shared prefix independently, which is
+fine; concentrating them would be worse. It does not favour policy 4.
+
+**Two published findings worth predicting against** (§1): Anyscale found a load-aware router beat
+consistent hashing on p99 *despite a lower prefix cache hit rate*, and CacheRoute found sticky
+routing achieved the highest hit rate and the lowest capacity. Both say the load term dominates
+the locality term. If this project's pressure map disagrees, that disagreement is the finding and
+needs explaining, not smoothing.
 
 ### Policy 4 rule
 ```
@@ -725,7 +786,7 @@ citizenship-gated. NVIDIA, hyperscalers, and larger labs do sponsor.
 4. Two supporting plots: goodput vs concurrency; cache hit rate and redundant prefill by policy
 5. Chaos-test recovery graph — policy 3 vs policy 4, with drop accounting
 6. Architecture diagram
-7. **Prior art and how this differs** (§1) — cite SGLang router, NVIDIA Dynamo, llm-d, AIBrix, **Mooncake**, and **OpenAI's `prompt_cache_key`** explicitly. The last is the single most important citation: it is session affinity productized by a frontier lab, which is precisely why policy 3 is the baseline that matters
+7. **Prior art and how this differs** (§1) — cite SGLang, NVIDIA Dynamo, llm-d, AIBrix, vLLM production-stack, **Mooncake**, MiniMax-M2, DeepSeek and **OpenAI's `prompt_cache_key`**. Then state plainly that the sticky-vs-cache-aware ablation **has been published** (Anyscale, CacheRoute, llm-d) and that this project's contribution is narrower: the same comparison at single-host consumer-GPU scale, a two-axis pressure map, and belief divergence — which nobody publishes at any scale
 8. Reproduce: `make up`, `make bench`
 9. Methodology: what was held constant, **how the SLO threshold was derived**, closed-loop vs open-loop, contamination handling, replica symmetry check
 10. Belief divergence: prefix match vs actual computed prefill tokens
