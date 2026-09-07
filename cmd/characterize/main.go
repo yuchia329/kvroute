@@ -52,10 +52,23 @@ func run() error {
 		// No literal here: the levels and the reasoning for them live in
 		// internal/characterize, and a second copy in a flag default is how the
 		// package gets changed and the command keeps measuring the old thing.
-		levels        = flag.String("levels", bench.FormatLevels(characterize.DefaultLevels), "load levels each replica is driven at, on its own; the first must be 1, which is where the floor lives")
-		repetitions   = flag.Int("repetitions", 2, "how many times the whole pass runs; the replica order reverses on alternate passes so a drifting host cannot look like a slow replica")
-		probeDuration = flag.Duration("probe-duration", 30*time.Second, "how long each replica is driven at each level")
-		warmup        = flag.Duration("warmup", 5*time.Second, "slice at the start of each probe recorded but excluded from the summary")
+		levels = flag.String("levels", bench.FormatLevels(characterize.DefaultLevels), "load levels each replica is driven at, on its own; the first must be 1, which is where the floor lives")
+		// Three, not two. The repetitions are what estimate the measurement's
+		// own noise, and two of them give one comparison per replica — enough
+		// to notice a difference, thin to size one.
+		repetitions = flag.Int("repetitions", 3, "how many times the whole pass runs; the replica order reverses on alternate passes so a drifting host cannot look like a slow replica")
+		// Ninety seconds and twenty-five, both measured rather than picked. At
+		// the second load level a replica holds 32 requests at once, and the
+		// first wave of them queues behind each other: TTFT p50 over the first
+		// five seconds came back at 5.2 s against a steady state of about 1 s.
+		// A five-second warm-up left the measured window still 30% faster in
+		// its second half than its first, which is what the under-warmed flag
+		// is for and what it caught. Twenty-five seconds clears the transient,
+		// and ninety leaves enough window after it that a closed-loop driver's
+		// wave pattern averages out rather than landing on the halves the drift
+		// check compares.
+		probeDuration = flag.Duration("probe-duration", 90*time.Second, "how long each replica is driven at each level")
+		warmup        = flag.Duration("warmup", 25*time.Second, "slice at the start of each probe recorded but excluded from the summary")
 		replicaWarmup = flag.Int("replica-warmup", 3, "requests sent to each replica directly before the first probe, so no replica serves its first forward pass inside the floor")
 		settle        = flag.Duration("settle", 5*time.Second, "pause between probes")
 
