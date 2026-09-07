@@ -6,6 +6,7 @@
 package stats
 
 import (
+	"cmp"
 	"math/rand/v2"
 	"slices"
 	"sync"
@@ -94,9 +95,16 @@ func (r *Recorder) Summary() Summary {
 // Exported so that the benchmark harness and the router's own overhead
 // reporting share one definition of a percentile. Two definitions would be two
 // numbers that disagree by a rank in the README.
-func Quantile(sorted []time.Duration, q float64) time.Duration {
+//
+// Generic over the ordered type for that same reason rather than for reuse's
+// sake: latencies are durations and goodput is a rate, and a median over rates
+// computed some other way would be a second definition by another route.
+// Nearest-rank interpolates nothing, so it needs no arithmetic on T — the figure
+// it returns is always one that was measured.
+func Quantile[T cmp.Ordered](sorted []T, q float64) T {
 	if len(sorted) == 0 {
-		return 0
+		var zero T
+		return zero
 	}
 	rank := int(q*float64(len(sorted)) + 0.5)
 	if rank < 1 {

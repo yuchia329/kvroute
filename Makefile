@@ -9,11 +9,15 @@ REPLICAS ?= replica-0=http://127.0.0.1:8000
 POLICY  ?= round_robin
 
 # The concurrency sweep. RUN_DIR is where cells land and where an interrupted
-# sweep resumes from. SLO_TTFT and SLO_ITL are left unset on purpose until they
-# have been derived from the measured concurrency-1 floor: a cell run without
-# them records that no SLO was applied rather than reporting a goodput that was
-# never checked against anything.
+# sweep resumes from.
+#
+# SLO_FROM is a characterization to take the derived SLO from — set it to CHAR_DIR
+# once that pass has run, and the threshold every cell is judged against is the one
+# that was derived rather than one retyped off a table. Unset, no SLO is applied
+# unless BENCH_ARGS states one, and a cell run without one records that fact rather
+# than reporting a goodput that was never checked against anything.
 RUN_DIR   ?= runs/concurrency
+SLO_FROM  ?=
 ROUTER    ?= http://127.0.0.1:8080
 BENCH_ARGS ?=
 
@@ -114,6 +118,7 @@ bench: build ## Sweep concurrency against the running fleet, resuming from RUN_D
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
+		$(if $(SLO_FROM),-slo-from $(SLO_FROM),) \
 		$(BENCH_ARGS)
 
 .PHONY: goodput
@@ -123,6 +128,7 @@ goodput: build ## Offer a ladder of arrival rates open-loop and record goodput a
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
+		$(if $(SLO_FROM),-slo-from $(SLO_FROM),) \
 		$(GOODPUT_ARGS)
 
 # The policy comparison: the table the project's claim is made in. It reads cell

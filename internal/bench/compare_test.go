@@ -209,9 +209,8 @@ func TestTwoDifferentWorkloadsAreNotOneComparison(t *testing.T) {
 func TestFlaggedCellsAreLeftOutOfTheFiguresAndSaidSo(t *testing.T) {
 	at8 := bench.ClosedLoopAt(8)
 	dirty := cell(policy.LeastOutstandingName, at8, 2, 99.0)
-	dirty.Clean = false
 	dirty.Flagged = true
-	dirty.FlagReasons = []string{"a foreign process held 3,214 MiB on GPU 2"}
+	dirty.FlagReasons = []string{"failure rate 12.00% exceeds the 1.00% threshold"}
 
 	var cs []bench.Cell
 	cs = append(cs, cells(policy.RoundRobinName, at8, 8.0, 8.0, 8.0)...)
@@ -224,11 +223,54 @@ func TestFlaggedCellsAreLeftOutOfTheFiguresAndSaidSo(t *testing.T) {
 		t.Errorf("the flagged cell was averaged in: pooled %d repetitions, max %v", pooled.Repetitions, pooled.MaxRPS)
 	}
 	report := got.Report()
-	if !strings.Contains(report, "foreign process held 3,214 MiB") {
+	if !strings.Contains(report, "failure rate 12.00%") {
 		t.Errorf("the excluded cell's reason is not reported:\n%s", report)
 	}
 	if !strings.Contains(report, "(n=1)") {
 		t.Errorf("a figure resting on one repetition does not say so:\n%s", report)
+	}
+}
+
+// TestAnUncleanCellIsExcludedWhetherOrNotItWasFlagged. Contamination keeps Clean
+// as its own field so that "nothing was found" and "nothing was looked for" cannot
+// be collapsed; a comparison that inferred cleanliness from the flags would pool a
+// record where the two disagree.
+func TestAnUncleanCellIsExcludedWhetherOrNotItWasFlagged(t *testing.T) {
+	at8 := bench.ClosedLoopAt(8)
+	unclean := cell(policy.LeastOutstandingName, at8, 2, 99.0)
+	unclean.Clean = false // and deliberately not flagged
+
+	var cs []bench.Cell
+	cs = append(cs, cells(policy.RoundRobinName, at8, 8.0)...)
+	cs = append(cs, cell(policy.LeastOutstandingName, at8, 1, 9.0), unclean)
+
+	got := compare(t, cs)
+
+	pooled := got.Rows[0].Goodput[policy.LeastOutstandingName]
+	if pooled.Repetitions != 1 || pooled.MaxRPS == 99.0 {
+		t.Errorf("an unclean cell was averaged in: pooled %d repetitions, max %v", pooled.Repetitions, pooled.MaxRPS)
+	}
+	if !strings.Contains(got.Report(), "not clean") {
+		t.Errorf("the report does not say the cell was excluded for being unclean:\n%s", got.Report())
+	}
+}
+
+// TestCellsRecordedUnderAnUnknownPolicyStillAppear. A cell's policy is the label
+// the sweep was told to record, not a name it resolves, so a mistyped -policy
+// produces cells under a name no policy has. Dropping them would hide a sweep.
+func TestCellsRecordedUnderAnUnknownPolicyStillAppear(t *testing.T) {
+	at8 := bench.ClosedLoopAt(8)
+	var cs []bench.Cell
+	cs = append(cs, cells(policy.RoundRobinName, at8, 8.0)...)
+	cs = append(cs, cells("least_outstandng", at8, 9.0)...) // as typed
+
+	got := compare(t, cs)
+
+	if len(got.Policies) != 2 || got.Policies[0] != policy.RoundRobinName {
+		t.Fatalf("policies = %v, want the baseline first and the unknown label after it", got.Policies)
+	}
+	if !strings.Contains(got.Report(), "least_outstandng") {
+		t.Errorf("a sweep recorded under an unknown policy label is missing from the table:\n%s", got.Report())
 	}
 }
 

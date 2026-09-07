@@ -136,7 +136,7 @@ func startRouter(t *testing.T, specs ...string) (string, *rowSink) {
 	return r.url, r.rows
 }
 
-// inflight totals what the router believes it has outstanding across the fleet.
+// inflight totals what the router believes is in flight across the fleet.
 func (r routed) inflight(t *testing.T) int {
 	t.Helper()
 	total := 0
@@ -802,6 +802,84 @@ func TestStatsReportInflightPerReplica(t *testing.T) {
 	}
 	if byID["replica-1"] != 0 {
 		t.Errorf("replica-1 inflight = %d, want 0: nothing was dispatched to it", byID["replica-1"])
+	}
+	rt.drains(t)
+}
+
+// TestAConcurrentBurstIsSpreadRatherThanPiledOntoOneReplica covers what the
+// serialised test above cannot: arrivals that are not merely inside one polling
+// window but genuinely simultaneous.
+//
+// Two mechanisms separate a burst, and they cover each other. Where the decisions
+// happen to be ordered, the counts separate them: each pick lifts that replica out
+// of the minimum. Where they are genuinely simultaneous and read one snapshot, the
+// tie-break rotation separates them, because its counter is atomic and two
+// choosers take different turns of it. Removing either one alone still spreads
+// this burst; removing both puts all twelve requests on one replica, which is the
+// stampede. So the test asserts that the burst was spread rather than that it was
+// split evenly, and the serialised test above is the one that isolates the counts.
+//
+// The bound is a third of the burst against the whole of it, which is where a
+// stale count would have put it.
+func TestAConcurrentBurstIsSpreadRatherThanPiledOntoOneReplica(t *testing.T) {
+	const (
+		replicas = 6
+		arrivals = 12
+	)
+
+	arrived := make(chan string, arrivals)
+	release := make(chan struct{})
+	specs := make([]string, 0, replicas)
+	for i := range replicas {
+		id := fmt.Sprintf("replica-%d", i)
+		// Every replica holds its requests, so nothing completes and drains the
+		// count before the rest of the burst has been placed.
+		specs = append(specs, id+"="+startGate(t, id, arrived, release, true))
+	}
+
+	rt := startRouterWith(t, policy.NewLeastOutstanding(), specs...)
+
+	// Released together rather than sent in a loop: a loop would stagger them by
+	// however long a round of dispatch takes, which is the case the serialised test
+	// already covers.
+	start := make(chan struct{})
+	done := make(chan response, arrivals)
+	for range arrivals {
+		go func() {
+			<-start
+			got, err := send(rt.url, blockingRequest)
+			got.err = err
+			done <- got
+		}()
+	}
+	close(start)
+
+	seen := map[string]int{}
+	for range arrivals {
+		select {
+		case id := <-arrived:
+			seen[id]++
+		case <-time.After(10 * time.Second):
+			t.Fatalf("only %d of %d arrivals landed: %v", len(seen), arrivals, seen)
+		}
+	}
+	close(release)
+	for range arrivals {
+		if got := <-done; got.err != nil {
+			t.Errorf("a request in the burst failed: %v", got.err)
+		}
+	}
+
+	worst := 0
+	for _, n := range seen {
+		worst = max(worst, n)
+	}
+	if worst > arrivals/3 {
+		t.Errorf("%d of a %d-request burst went to one replica (%v): a burst must be spread, not piled",
+			arrivals, worst, seen)
+	}
+	if len(seen) < replicas/2 {
+		t.Errorf("a %d-request burst used only %d of %d replicas (%v)", arrivals, len(seen), replicas, seen)
 	}
 	rt.drains(t)
 }

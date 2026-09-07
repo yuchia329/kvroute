@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/yuchia329/kvroute/internal/bench"
+	"github.com/yuchia329/kvroute/internal/characterize"
 	"github.com/yuchia329/kvroute/internal/fleet"
 	"github.com/yuchia329/kvroute/internal/gpu"
 )
@@ -66,6 +67,7 @@ func run() error {
 		fleetWarmup  = flag.Int("fleet-warmup", 3, "requests sent to each replica directly before the first cell, so every replica has done a real forward pass")
 		settle       = flag.Duration("settle", 10*time.Second, "pause between cells, so one cell's tail stays out of the next one's window")
 
+		sloFrom   = flag.String("slo-from", "", "a characterization directory or record to take the derived SLO from, instead of stating it as the two flags below; the SLO is derived from a measured floor, and a threshold retyped by hand is one that can differ from the one that was derived")
 		sloTTFT   = flag.Duration("slo-ttft", 0, "TTFT threshold; unset means no SLO was applied and goodput is not reported")
 		sloITL    = flag.Duration("slo-itl", 0, "inter-token latency threshold, evaluated against each request's median gap")
 		failureAt = flag.Float64("failure-threshold", bench.DefaultFailureThreshold, "failure rate above which a cell is flagged")
@@ -135,6 +137,40 @@ func run() error {
 	// the driver books as a replica failure.
 	if *model == "" {
 		return fmt.Errorf("bench: -model is required: pass \"$(ops/fleet.sh env MODEL)\", or run via make bench which does it for you")
+	}
+
+	slo := bench.SLO{TTFT: *sloTTFT, ITL: *sloITL}
+	if *sloFrom != "" {
+		if slo.Applied() {
+			// Two sources for one threshold is how a table comes to name an SLO it
+			// was not judged against.
+			return fmt.Errorf("bench: -slo-from and -slo-ttft/-slo-itl both given: the SLO comes from the characterization or from the flags, not from both")
+		}
+		c, err := characterize.Load(*sloFrom)
+		if err != nil {
+			return err
+		}
+		if ok, why := c.SLOUsable(); !ok {
+			// Every cell would be judged against this threshold and none of them
+			// would record that its derivation was in doubt.
+			return fmt.Errorf("bench: the SLO in the characterization at %s must not be applied: %s", *sloFrom, why)
+		}
+		slo = c.SLO.SLO()
+		log.Info("SLO read from the characterization rather than retyped",
+			"record", *sloFrom, "slo", c.SLO.String(), "measured_at", c.At)
+
+		// The floor is sound or the run would have stopped above. What the record
+		// says about the rest of the fleet is still the operator's to know, and the
+		// symmetry verdict most of all: a policy difference measured on a fleet
+		// whose replicas are not interchangeable could be the host rather than the
+		// policy.
+		if !c.Symmetry.Symmetric {
+			log.Warn("the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy",
+				"record", *sloFrom)
+		}
+		for _, reason := range c.FlagReasons {
+			log.Warn("the characterization this SLO came from is flagged", "reason", reason)
+		}
 	}
 
 	// The same spec string the router takes, parsed by the same code, so the
@@ -208,7 +244,7 @@ func run() error {
 		Warmup:               *warmup,
 		FleetWarmup:          *fleetWarmup,
 		Settle:               *settle,
-		SLO:                  bench.SLO{TTFT: *sloTTFT, ITL: *sloITL},
+		SLO:                  slo,
 		FailureThreshold:     *failureAt,
 		WarmupDriftThreshold: *driftAt,
 		ScheduleLagThreshold: *lagAt,
@@ -224,7 +260,7 @@ func run() error {
 		table := bench.Table(cells)
 		fmt.Print("\n" + table)
 		path := filepath.Join(*dir, "results.md")
-		if err := os.WriteFile(path, []byte(header(*policyName, cells, *sloTTFT, *sloITL)+table), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(header(*policyName, cells, slo)+table), 0o644); err != nil {
 			return err
 		}
 		compaction, err := bench.Compact(*dir)
@@ -301,13 +337,13 @@ func buildWorkload(cfg workloadConfig) (bench.Workload, error) {
 // The driver is read off the cells rather than assumed: this command runs
 // either axis, and a header that named a driver the run did not use would be
 // worse than none.
-func header(policy string, cells []bench.Cell, ttft, itl time.Duration) string {
-	slo := "none applied — goodput is not reported and SLO violations were not counted"
-	if ttft > 0 || itl > 0 {
-		slo = fmt.Sprintf("TTFT < %v, inter-token p50 < %v", ttft, itl)
+func header(policy string, cells []bench.Cell, slo bench.SLO) string {
+	stated := "none applied — goodput is not reported and SLO violations were not counted"
+	if slo.Applied() {
+		stated = fmt.Sprintf("TTFT < %v, inter-token p50 < %v", slo.TTFT, slo.ITL)
 	}
 	title, driverNote := tableHeading(cells)
-	return fmt.Sprintf("# %s — %s\n\n%s\n\nSLO: %s\n\n", title, policy, driverNote, slo)
+	return fmt.Sprintf("# %s — %s\n\n%s\n\nSLO: %s\n\n", title, policy, driverNote, stated)
 }
 
 // closedLoopNote and openLoopNote are why a reader has to know which drove the

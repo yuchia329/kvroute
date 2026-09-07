@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yuchia329/kvroute/internal/policy"
+	"github.com/yuchia329/kvroute/internal/stats"
 )
 
 // Comparison is what two or more policies did to the same fleet, at the same
@@ -109,7 +111,7 @@ func Compare(cells []Cell) (Comparison, error) {
 	for _, cell := range cells {
 		policies[cell.Policy] = true
 		loads[cell.Load()] = true
-		if reasons := excludedFor(cell); len(reasons) > 0 {
+		if reasons := whyExcluded(cell); len(reasons) > 0 {
 			for _, reason := range reasons {
 				c.Excluded = append(c.Excluded, fmt.Sprintf("`%s`: %s", cell.ID, reason))
 			}
@@ -158,7 +160,7 @@ func checkComparable(cells []Cell) error {
 		// goodput, and reporting throughput in its column is how a fleet with a
 		// dead tail is made to look fast.
 		return fmt.Errorf("bench: %d cells were run without an SLO, so they have no goodput to compare (%s). Re-run them with the SLO the characterization derived",
-			len(unjudged), strings.Join(truncate(unjudged, 4), ", "))
+			len(unjudged), strings.Join(firstFew(unjudged, 4), ", "))
 	}
 	if len(slos) > 1 {
 		return fmt.Errorf("bench: these cells were judged against %d different SLOs, so their goodput figures are not comparable: %s",
@@ -176,15 +178,27 @@ func checkComparable(cells []Cell) error {
 	return nil
 }
 
-// excludedFor is why this cell's figures are not pooled with the others.
-func excludedFor(cell Cell) []string {
-	if !cell.Flagged {
-		return nil
+// whyExcluded is why this cell's figures are not pooled with the others, or
+// nothing if they are.
+//
+// Cleanliness is read from the cell rather than inferred from its flags. A sweep
+// flags an unclean cell as it records it, so today the two agree — but
+// Contamination keeps Clean as its own field precisely so that "nothing was
+// found" and "nothing was looked for" cannot be collapsed into one another, and a
+// record that arrives here with clean false and no flag must not be averaged into
+// a published median on the strength of an inference.
+func whyExcluded(cell Cell) []string {
+	var reasons []string
+	if !cell.Clean {
+		reasons = append(reasons, "the cell is not clean, so it is discarded and re-run rather than averaged in")
 	}
-	if len(cell.FlagReasons) > 0 {
-		return cell.FlagReasons
+	if cell.Flagged {
+		if len(cell.FlagReasons) == 0 {
+			return append(reasons, "flagged, with no reason recorded")
+		}
+		reasons = append(reasons, cell.FlagReasons...)
 	}
-	return []string{"flagged, with no reason recorded"}
+	return reasons
 }
 
 // pool reduces a policy's repetitions at one load point to one figure.
@@ -201,29 +215,24 @@ func pool(name string, load Load, cells []Cell) (PolicyGoodput, bool) {
 		Policy:      name,
 		Load:        load,
 		Repetitions: len(rates),
-		MedianRPS:   median(rates),
-		MinRPS:      rates[0],
-		MaxRPS:      rates[len(rates)-1],
+		// stats.Quantile rather than arithmetic of its own: it is the project's one
+		// definition of a percentile, and a median over goodput computed differently
+		// from every other p50 would disagree with them by a rank.
+		MedianRPS: stats.Quantile(rates, 0.50),
+		MinRPS:    rates[0],
+		MaxRPS:    rates[len(rates)-1],
 	}, true
 }
 
-// median of a sorted slice. The middle value, or the mean of the two middles: with
-// three repetitions the median is the one that is not the best or the worst run,
-// which is what a repetition count of three is for.
-func median(sorted []float64) float64 {
-	n := len(sorted)
-	if n == 0 {
-		return 0
-	}
-	if n%2 == 1 {
-		return sorted[n/2]
-	}
-	return (sorted[n/2-1] + sorted[n/2]) / 2
-}
-
-// comparisonOrder puts the policies in the order idea.md §5 numbers them, with
-// any policy that order does not know about after them, so the baseline is the
-// baseline whichever order the runs happened in.
+// comparisonOrder puts the policies in the order idea.md §5 numbers them, so the
+// baseline is the baseline whichever order the runs happened in.
+//
+// A policy that order does not know about sorts after them rather than being
+// dropped. That is reachable rather than hypothetical: a cell's policy is the
+// label the sweep was told to record, not a name it resolves, so a mistyped
+// -policy produces cells under a name no policy has. Leaving them out of the table
+// would hide a whole sweep; sorting them last shows it, under the name it was
+// recorded with.
 func comparisonOrder(present map[string]bool) []string {
 	ordered := make([]string, 0, len(present))
 	for _, name := range policy.Order {
@@ -250,25 +259,25 @@ func sortedLoads(present map[Load]bool) []Load {
 	for load := range present {
 		loads = append(loads, load)
 	}
-	slices.SortFunc(loads, func(a, b Load) int {
-		if a.Driver != b.Driver {
-			if a.Driver == OpenLoopDriver {
-				return 1
-			}
-			return -1
-		}
-		if a.Concurrency != b.Concurrency {
-			return a.Concurrency - b.Concurrency
-		}
-		switch {
-		case a.ArrivalRate < b.ArrivalRate:
-			return -1
-		case a.ArrivalRate > b.ArrivalRate:
+	slices.SortFunc(loads, sweepOrder)
+	return loads
+}
+
+// sweepOrder is the order a sweep climbs its load axes: the closed-loop axis
+// first, then the open-loop one, each ascending. It reads nothing but a Load's own
+// fields, so it is a comparison between two of them rather than something the
+// table does to them.
+func sweepOrder(a, b Load) int {
+	if a.Driver != b.Driver {
+		if a.Driver == OpenLoopDriver {
 			return 1
 		}
-		return 0
-	})
-	return loads
+		return -1
+	}
+	if a.Concurrency != b.Concurrency {
+		return a.Concurrency - b.Concurrency
+	}
+	return cmp.Compare(a.ArrivalRate, b.ArrivalRate)
 }
 
 func sortedKeys(set map[string]bool) []string {
@@ -280,7 +289,9 @@ func sortedKeys(set map[string]bool) []string {
 	return out
 }
 
-func truncate(ids []string, n int) []string {
+// firstFew names the first n and says how many more there were, so an error about
+// forty cells does not print forty cell ids.
+func firstFew(ids []string, n int) []string {
 	if len(ids) <= n {
 		return ids
 	}
@@ -321,10 +332,14 @@ func (c Comparison) Report() string {
 		fmt.Fprintf(&b, "reasons listed underneath. There is no comparison here until they are re-run.**\n\n")
 	}
 
-	baseline := ""
-	if len(c.Policies) > 0 {
-		baseline = c.Policies[0]
+	if len(c.Policies) < 2 {
+		// Compare cannot produce this, but a zero value can be constructed, and a
+		// report that panicked on one would take a caller's process with it over a
+		// table it could simply refuse to draw.
+		fmt.Fprintf(&b, "No comparison: %d policies.\n", len(c.Policies))
+		return b.String()
 	}
+	baseline := c.Policies[0]
 
 	fmt.Fprintf(&b, "| driver | load |")
 	for _, name := range c.Policies {
@@ -349,8 +364,7 @@ func (c Comparison) Report() string {
 			fmt.Fprintf(&b, " %s |", figure(row.Goodput, name))
 		}
 		for _, name := range c.Policies[1:] {
-			fmt.Fprintf(&b, " %s |", delta(row.Goodput[baseline], row.Goodput[name],
-				row.has(baseline), row.has(name)))
+			fmt.Fprintf(&b, " %s |", row.delta(baseline, name))
 		}
 		fmt.Fprintln(&b)
 	}
@@ -375,12 +389,6 @@ func (c Comparison) usable() bool {
 	return false
 }
 
-// has reports whether a policy produced a usable figure at this load point.
-func (r ComparisonRow) has(policy string) bool {
-	_, ok := r.Goodput[policy]
-	return ok
-}
-
 // figure is one policy's cell in the table, or an em dash where it has no usable
 // cell. Absent is not zero: a policy that did not run at this load point did not
 // score nothing there.
@@ -392,27 +400,30 @@ func figure(goodput map[string]PolicyGoodput, policy string) string {
 	return g.String()
 }
 
-// delta is the difference between the baseline and a challenger, as a percentage
-// of the baseline, qualified by what the repetitions can support.
+// delta is the difference between the baseline and a challenger at this load
+// point, as a percentage of the baseline, qualified by what the repetitions can
+// support.
 //
 // A difference inside the two ranges' overlap is reported as such rather than as a
 // win: run-to-run spread on a shared box is the thing most likely to be mistaken
 // for a result.
-func delta(base, challenger PolicyGoodput, hasBase, hasChallenger bool) string {
-	if !hasBase || !hasChallenger {
+func (r ComparisonRow) delta(baseline, challenger string) string {
+	base, hasBase := r.Goodput[baseline]
+	other, hasOther := r.Goodput[challenger]
+	if !hasBase || !hasOther {
 		return "—"
 	}
 	if base.MedianRPS == 0 {
 		// A baseline of zero has no percentage. It is a real reading — the fleet
 		// met the SLO for nothing at this load — so it is described rather than
 		// divided by.
-		return fmt.Sprintf("+%.2f/s over a baseline of zero", challenger.MedianRPS)
+		return fmt.Sprintf("+%.2f/s over a baseline of zero", other.MedianRPS)
 	}
-	change := (challenger.MedianRPS - base.MedianRPS) / base.MedianRPS * 100
+	change := (other.MedianRPS - base.MedianRPS) / base.MedianRPS * 100
 	switch {
-	case base.Repetitions < 2 || challenger.Repetitions < 2:
+	case base.Repetitions < 2 || other.Repetitions < 2:
 		return fmt.Sprintf("%+.1f%% (unreplicated)", change)
-	case base.overlaps(challenger):
+	case base.overlaps(other):
 		return fmt.Sprintf("%+.1f%% (within spread)", change)
 	default:
 		return fmt.Sprintf("%+.1f%%", change)

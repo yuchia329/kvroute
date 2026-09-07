@@ -89,7 +89,7 @@ cmd/characterize ─────────────► replica-0..5, one at
 
 - **`cmd/router`** — OpenAI-compatible `POST /v1/chat/completions` with SSE passed through
   untouched, one JSONL row per request, and its own accept-to-dispatch cost reported at
-  `GET /router/stats`. It counts what each replica has outstanding itself, exactly, rather than
+  `GET /router/stats`. It counts each replica's inflight itself, exactly, rather than
   scraping it: the router is the sole ingress, so it knows what it dispatched, and a figure that
   came from a 250 ms–1 s scrape would read the same for every request arriving inside one window —
   so they would all pick the same least-loaded replica and stampede it. That is the classic stale
@@ -166,25 +166,30 @@ make fleet-up                                              # preflight, then six
 make contract CONTRACT_REPLICA="$(ops/fleet.sh replicas)"  # hold the fake to every replica
 make characterize                                          # capacity, topology, floor, SLO, symmetry
 make contention                                            # all six at once, compared by NUMA node
-SLO='-slo-ttft 990ms -slo-itl 24ms'                         # what characterize derived
+export SLO_FROM=runs/characterization    # the SLO comes from the record, not from typing
 
 # One policy per router, the fleet untouched between them, so only the policy varies.
 make run-router POLICY=round_robin REPLICAS="$(ops/fleet.sh replicas)" &
-make bench   POLICY=round_robin BENCH_ARGS="-cell-duration 60s -repetitions 3 $SLO"
-make goodput POLICY=round_robin GOODPUT_ARGS="-cell-duration 60s -repetitions 3 $SLO"
+make bench   POLICY=round_robin BENCH_ARGS="-cell-duration 60s -repetitions 3"
+make goodput POLICY=round_robin GOODPUT_ARGS="-cell-duration 60s -repetitions 3"
 kill %1
 
 make run-router POLICY=least_outstanding REPLICAS="$(ops/fleet.sh replicas)" &
-make bench   POLICY=least_outstanding BENCH_ARGS="-cell-duration 60s -repetitions 3 $SLO"
-make goodput POLICY=least_outstanding GOODPUT_ARGS="-cell-duration 60s -repetitions 3 $SLO"
+make bench   POLICY=least_outstanding BENCH_ARGS="-cell-duration 60s -repetitions 3"
+make goodput POLICY=least_outstanding GOODPUT_ARGS="-cell-duration 60s -repetitions 3"
 kill %1
 
 make compare                                               # both policies, both axes, one table
 ```
 
 `make characterize` comes before `make bench` and not after it, because the SLO the sweep is judged
-against is derived from what `characterize` measures. It prints the two flags to pass on, so the
-threshold the sweep applies is the one that was derived rather than one retyped off a table.
+against is derived from what `characterize` measures. `SLO_FROM` then points the sweep at that
+record, so the threshold applied is read from the derivation rather than retyped off a table — a
+mistyped threshold produces a goodput figure that is internally consistent and silently wrong.
+`bench` refuses the record's SLO if the *floor* it came from cannot be built on, and warns rather
+than refuses about everything else the record flags, including a symmetry verdict — which is worth
+reading, because a policy difference measured on a fleet whose replicas are not interchangeable
+could be the host rather than the policy.
 
 `make bench` sweeps concurrency closed-loop; `make goodput` offers a ladder of arrival rates
 open-loop and is where the headline goodput number comes from. They land in separate directories
@@ -214,8 +219,9 @@ rows instead of costing another hour of GPU time. See
 
 **The SLO was unset until it had been measured, and now it is measured.** `-slo-ttft` and `-slo-itl`
 still default to zero, and a cell run without them records that no SLO was applied rather than
-reporting a goodput that was never checked against anything. The thresholds to pass are **990 ms and
-24 ms**, three times the measured floor; `make characterize` prints them, and a cell that ran before
+reporting a goodput that was never checked against anything. The derived thresholds are **990 ms and
+24 ms**, three times the measured floor. Prefer `-slo-from <characterization>` over passing them:
+the two are the same numbers only for as long as nobody mistypes one, and a cell that ran before
 they existed is resummarised from its own rows rather than re-run.
 
 ## Design notes worth knowing before reading the code
