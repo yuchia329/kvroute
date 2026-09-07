@@ -40,71 +40,68 @@ var ConcurrencySweep = []int{1, 4, 8, 16, 32, 64, 128, 256}
 // should move it rather than reporting the edge of the range as the answer.
 var ArrivalRateSweep = []float64{4, 8, 12, 16, 24, 32, 48}
 
-// FormatLevels renders load levels into the comma-separated spec the commands
-// take, so a flag's default can be the package's own value rather than a second
-// copy of it that drifts.
+// FormatLevels renders concurrency levels into the comma-separated spec the
+// commands take, so a flag's default can be the package's own value rather than
+// a second copy of it that drifts.
 func FormatLevels(levels []int) string {
-	fields := make([]string, 0, len(levels))
-	for _, n := range levels {
-		fields = append(fields, strconv.Itoa(n))
+	return formatSpec(levels, strconv.Itoa)
+}
+
+// ParseLevels reads a comma-separated spec of concurrency levels.
+//
+// Here rather than in each command because several commands take the same spec,
+// and two parsers for one format is two places for "0" or "-4" to be accepted by
+// one and rejected by the other.
+func ParseLevels(spec string) ([]int, error) {
+	return parseSpec(spec, "load level", "a positive integer", strconv.Atoi)
+}
+
+// formatSpec and parseSpec are the comma-separated spec both load axes are
+// written in. One implementation, so the two axes cannot come to disagree about
+// what an empty field, a stray space or a zero means — which is the same reason
+// the parser lives here rather than in each command.
+func formatSpec[T any](values []T, format func(T) string) string {
+	fields := make([]string, 0, len(values))
+	for _, v := range values {
+		fields = append(fields, format(v))
 	}
 	return strings.Join(fields, ",")
 }
 
-// ParseLevels reads a comma-separated spec of load levels.
-//
-// Here rather than in each command because both take the same spec, and two
-// parsers for one format is two places for "0" or "-4" to be accepted by one
-// and rejected by the other.
-func ParseLevels(spec string) ([]int, error) {
-	var levels []int
+// parseSpec parses each field with parse and rejects any that is not positive.
+// what names the thing being parsed and want describes what a field must be, so
+// the error says which axis was wrong and what it wanted.
+func parseSpec[T interface{ ~int | ~float64 }](spec, what, want string, parse func(string) (T, error)) ([]T, error) {
+	var values []T
 	for field := range strings.SplitSeq(spec, ",") {
 		field = strings.TrimSpace(field)
 		if field == "" {
 			continue
 		}
-		n, err := strconv.Atoi(field)
-		if err != nil || n <= 0 {
-			return nil, fmt.Errorf("bench: load level %q is not a positive integer", field)
+		v, err := parse(field)
+		if err != nil || v <= 0 {
+			return nil, fmt.Errorf("bench: %s %q is not %s", what, field, want)
 		}
-		levels = append(levels, n)
+		values = append(values, v)
 	}
-	if len(levels) == 0 {
-		return nil, errors.New("bench: no load levels given")
+	if len(values) == 0 {
+		return nil, fmt.Errorf("bench: no %ss given", what)
 	}
-	return levels, nil
+	return values, nil
 }
 
 // FormatRates renders arrival rates into the comma-separated spec the commands
 // take, for the same reason FormatLevels does.
 func FormatRates(rates []float64) string {
-	fields := make([]string, 0, len(rates))
-	for _, r := range rates {
-		fields = append(fields, strconv.FormatFloat(r, 'g', -1, 64))
-	}
-	return strings.Join(fields, ",")
+	return formatSpec(rates, func(r float64) string { return strconv.FormatFloat(r, 'g', -1, 64) })
 }
 
 // ParseRates reads a comma-separated spec of arrival rates in requests per
 // second. Fractional rates are allowed: a rate is an offered schedule, not a
 // count of anything.
 func ParseRates(spec string) ([]float64, error) {
-	var rates []float64
-	for field := range strings.SplitSeq(spec, ",") {
-		field = strings.TrimSpace(field)
-		if field == "" {
-			continue
-		}
-		rate, err := strconv.ParseFloat(field, 64)
-		if err != nil || rate <= 0 {
-			return nil, fmt.Errorf("bench: arrival rate %q is not a positive number of requests per second", field)
-		}
-		rates = append(rates, rate)
-	}
-	if len(rates) == 0 {
-		return nil, errors.New("bench: no arrival rates given")
-	}
-	return rates, nil
+	return parseSpec(spec, "arrival rate", "a positive number of requests per second",
+		func(field string) (float64, error) { return strconv.ParseFloat(field, 64) })
 }
 
 // Load is one point of a sweep's load axis.
@@ -114,9 +111,9 @@ func ParseRates(spec string) ([]float64, error) {
 // flag. A closed-loop point holds a concurrency and offered load is the outcome;
 // an open-loop point holds an arrival rate and concurrency is the outcome.
 type Load struct {
-	Driver      string  `json:"driver" parquet:"driver"`
-	Concurrency int     `json:"concurrency" parquet:"concurrency"`
-	ArrivalRate float64 `json:"arrival_rate" parquet:"arrival_rate"`
+	Driver      Driver
+	Concurrency int
+	ArrivalRate float64
 }
 
 // ClosedLoopAt is one point of the concurrency axis.
@@ -148,24 +145,31 @@ func (l Load) String() string {
 }
 
 // validate reports whether this point can be run and recorded.
+//
+// Both axes are bounded at LoadLevelsPerDriver, and for the same reason:
+// overrunning the half of the workload's user space this driver's levels occupy
+// puts a cell on another cell's prompts, which makes the second of them read the
+// replicas' prefix caches instead of measuring prefill. checkWorkloadPartition
+// catches that within one sweep, but two sweeps into one directory — which is a
+// supported way to run both axes — are two calls it never sees together. The
+// bound holds across them, and it is far above anything six 3090s can serve.
 func (l Load) validate() error {
 	switch l.Driver {
 	case OpenLoopDriver:
 		if l.ArrivalRate <= 0 {
 			return fmt.Errorf("bench: an open-loop point needs a positive arrival rate, got %g", l.ArrivalRate)
 		}
-		if l.ArrivalRate >= maxSweepArrivalRate {
-			// Silently overlapping another cell's slice of the workload's user
-			// space would make two cells send the same bytes, and the second of
-			// them would be reading the replicas' prefix caches rather than
-			// measuring prefill. Refusing is the only honest option, and the
-			// bound is far above anything six 3090s can serve.
+		if l.ArrivalRate >= LoadLevelsPerDriver {
 			return fmt.Errorf("bench: an arrival rate of %g is above the %d the workload's user space is partitioned for",
-				l.ArrivalRate, maxSweepArrivalRate)
+				l.ArrivalRate, LoadLevelsPerDriver)
 		}
 	case ClosedLoopDriver, "":
 		if l.Concurrency <= 0 {
 			return fmt.Errorf("bench: a closed-loop point needs a positive concurrency, got %d", l.Concurrency)
+		}
+		if l.Concurrency >= LoadLevelsPerDriver {
+			return fmt.Errorf("bench: a concurrency of %d is above the %d the workload's user space is partitioned for",
+				l.Concurrency, LoadLevelsPerDriver)
 		}
 	default:
 		return fmt.Errorf("bench: unknown driver %q", l.Driver)
@@ -181,7 +185,7 @@ type Cell struct {
 	// Driver, Concurrency and ArrivalRate are the cell's load axis, flattened:
 	// they are the fields of Load, kept flat because the row schema is flat and
 	// a cell that nested them would not compact to the same columns.
-	Driver      string  `json:"driver" parquet:"driver"`
+	Driver      Driver  `json:"driver" parquet:"driver"`
 	Concurrency int     `json:"concurrency" parquet:"concurrency"`
 	ArrivalRate float64 `json:"arrival_rate" parquet:"arrival_rate"`
 	Repetition  int     `json:"repetition" parquet:"repetition"`
@@ -200,17 +204,16 @@ func (c Cell) Load() Load {
 	return Load{Driver: c.Driver, Concurrency: c.Concurrency, ArrivalRate: c.ArrivalRate}
 }
 
-// maxSweepArrivalRate is the arrival rate above which a cell would run off the
-// end of its repetition's block of the workload's user space and into the next
-// one's. See loadOffset.
-const maxSweepArrivalRate = 512
+// LoadLevelsPerDriver is how many slices of the workload's user space each
+// driver's load levels get inside a repetition's block. See loadOffset.
+const LoadLevelsPerDriver = 512
 
 // CellWorkloadOffset is the slice of the workload's user space a cell sends
 // from. It is derived from the axes alone — deliberately not from the policy —
 // so a re-run of a cell sends its own bytes again and no cell ever re-sends
 // another's.
 func CellWorkloadOffset(load Load, repetition int) int {
-	return (repetition*1024 + loadOffset(load)) * WorkloadStride
+	return (repetition*2*LoadLevelsPerDriver + loadOffset(load)) * WorkloadStride
 }
 
 // checkWorkloadPartition refuses a sweep in which two cells would send the same
@@ -238,15 +241,15 @@ func checkWorkloadPartition(policy string, loads []Load, repetitions int) error 
 	return nil
 }
 
-// loadOffset is a load level's position within its repetition's block of 1024
-// slices. Concurrency levels take the low half and arrival rates the high half,
-// so a concurrency of 8 and a rate of 8 land in different slices and never send
-// each other's bytes. The concurrency arithmetic is unchanged, so cells recorded
-// before the open-loop driver existed still resolve to the slice they were run
-// on.
+// loadOffset is a load level's position within its repetition's block of
+// 2 x LoadLevelsPerDriver slices. Concurrency levels take the low half and
+// arrival rates the high half, so a concurrency of 8 and a rate of 8 land in
+// different slices and never send each other's bytes. The concurrency arithmetic
+// is unchanged, so cells recorded before the open-loop driver existed still
+// resolve to the slice they were run on.
 func loadOffset(load Load) int {
 	if load.Driver == OpenLoopDriver {
-		return maxSweepArrivalRate + int(math.Round(load.ArrivalRate))
+		return LoadLevelsPerDriver + int(math.Round(load.ArrivalRate))
 	}
 	return load.Concurrency
 }

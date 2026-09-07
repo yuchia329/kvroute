@@ -87,9 +87,23 @@ type Summary struct {
 	Cancelled     int `json:"cancelled" parquet:"cancelled"`
 	SLOViolations int `json:"slo_violations" parquet:"slo_violations"`
 
-	// WindowNs is the first measured request's start to the last one's finish.
-	// It is derived from the rows rather than from the driver's clock so that
-	// the rate denominator cannot disagree with the rows it divides.
+	// WindowNs is the span the rates below are computed over, derived from the
+	// rows rather than from the driver's clock so that the denominator cannot
+	// disagree with the rows it divides.
+	//
+	// It is the window load was *offered* in, which is not the same span under
+	// the two drivers. A closed-loop cell offers load for as long as it is
+	// receiving responses, so the window is its first measured request's start
+	// to the last one's finish. An open-loop cell offers load on a schedule and
+	// then waits for what is still in flight, and past saturation that drain
+	// tail runs well past the last arrival — counting it would divide the
+	// requests offered in a minute by a minute and a half and call the result a
+	// rate. So a scheduled cell's window is its schedule: first arrival due to
+	// last arrival due, plus the one inter-arrival gap the last arrival owns.
+	//
+	// Requests that finished after the window still count in the numerator.
+	// They were offered inside it, and dropping them would let a fleet improve
+	// its goodput by being too slow to answer before the cell ended.
 	WindowNs int64 `json:"window_ns" parquet:"window_ns"`
 	// ThroughputRPS counts every response that completed, however slow.
 	// GoodputRPS counts only those that completed inside the SLO, and is the
@@ -164,6 +178,8 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 
 	var ttft, total, itl, lag []time.Duration
 	var first, last time.Time
+	var firstDue, lastDue time.Time
+	rate := 0.0
 	met := 0
 
 	for _, r := range results {
@@ -188,6 +204,16 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 		if r.ScheduledAtNs != 0 {
 			s.Scheduled++
 			lag = append(lag, r.ScheduleLag())
+			due := time.Unix(0, r.ScheduledAtNs)
+			if firstDue.IsZero() || due.Before(firstDue) {
+				firstDue = due
+			}
+			if due.After(lastDue) {
+				lastDue = due
+			}
+			// Off the rows, not off a caller's parameter: the rate the window is
+			// derived from has to be the rate the requests in it were offered at.
+			rate = r.ArrivalRate
 		}
 
 		switch r.Outcome {
@@ -219,11 +245,10 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 	if s.Requests > 0 {
 		s.FailureRate = float64(s.Failed+s.Dropped) / float64(s.Requests)
 	}
-	if !last.IsZero() && last.After(first) {
-		s.WindowNs = last.Sub(first).Nanoseconds()
-		seconds := last.Sub(first).Seconds()
-		s.ThroughputRPS = float64(s.Successes) / seconds
-		s.GoodputRPS = float64(met) / seconds
+	if window := measuredWindow(first, last, firstDue, lastDue, rate); window > 0 {
+		s.WindowNs = window.Nanoseconds()
+		s.ThroughputRPS = float64(s.Successes) / window.Seconds()
+		s.GoodputRPS = float64(met) / window.Seconds()
 	}
 
 	slices.Sort(ttft)
@@ -247,6 +272,27 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 	s.ScheduleLagThresholdNs = opts.scheduleLagThreshold().Nanoseconds()
 	s.flag(opts.driftThreshold(), opts.scheduleLagThreshold())
 	return s
+}
+
+// measuredWindow is the span the cell's rates are computed over: the schedule a
+// scheduled cell offered load on, and otherwise the span its rows cover.
+//
+// The distinction is the open-loop driver's whole point arriving in the
+// arithmetic. Its cell fires for its duration and then waits out whatever is
+// still in flight, so at and past saturation the last response lands well after
+// the last arrival. Dividing by that would understate the rate exactly where the
+// driver exists to stop the rate being understated.
+func measuredWindow(first, last, firstDue, lastDue time.Time, rate float64) time.Duration {
+	if !firstDue.IsZero() && rate > 0 {
+		// Plus one inter-arrival gap: n arrivals at rate r occupy n/r seconds,
+		// and the span between the first and the last is one gap short of that.
+		// Without it a cell of one arrival would have no window at all.
+		return lastDue.Sub(firstDue) + time.Duration(float64(time.Second)/rate)
+	}
+	if last.IsZero() || !last.After(first) {
+		return 0
+	}
+	return last.Sub(first)
 }
 
 // minHalfForDrift is how many successes each half needs before their medians

@@ -11,11 +11,6 @@ import (
 	"time"
 )
 
-// OpenLoopDriver names the driver in a row and in a cell record. Offered load is
-// this driver's input rather than its outcome, which is what makes it the one
-// the headline goodput number comes from.
-const OpenLoopDriver = "open_loop"
-
 // openLoopPoolSeconds is how many seconds of arrivals the default client keeps
 // idle connections for.
 //
@@ -83,6 +78,10 @@ func RunOpenLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 	}
 	cfg.Labels.Driver = OpenLoopDriver
 	cfg.Labels.ArrivalRate = cfg.ArrivalRate
+	// Cleared for the same reason RunClosedLoop clears the rate: under this
+	// driver concurrency is an outcome, and a row that labelled one as an input
+	// would be a row disagreeing with the run that produced it.
+	cfg.Labels.Concurrency = 0
 
 	start := time.Now()
 	deadline := start.Add(cfg.Duration)
@@ -114,7 +113,7 @@ func RunOpenLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 			mu.Lock()
 			results = append(results, row)
 			mu.Unlock()
-			keep(cfg, row)
+			writeRow(cfg, row)
 		}()
 	}
 	wg.Wait()

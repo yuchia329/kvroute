@@ -201,6 +201,13 @@ request and summarised per cell, and a cell whose lag ran past the threshold is 
 than quietly reporting a rate it never offered.
 _Avoid_: jitter, delay, drift
 
+**Load level**:
+One point of a sweep's load axis: a concurrency under the closed-loop driver, or an arrival rate
+under the open-loop one. It is one type in the code (`bench.Load`) because the two drivers differ
+in exactly this — which side of the loop is held fixed — and a cell carries the level it was run
+at rather than the number of requests that happened to result.
+_Avoid_: load (unqualified — that is offered load or inflight), level, step
+
 **Sweep**:
 A set of cells varying one axis while everything else is held fixed. Three exist: concurrency,
 arrival rate and policy tunables. The first two are the same measurement under the two drivers and

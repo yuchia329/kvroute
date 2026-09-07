@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -79,18 +80,33 @@ func TestTheOpenLoopDriverHoldsItsScheduleWhileTheFleetSlowsUnderIt(t *testing.T
 	if len(results) != want {
 		t.Errorf("fired %d requests against a schedule of %d: the driver did not hold its arrival rate", len(results), want)
 	}
+	var lags []time.Duration
 	for i, r := range results {
 		if r.ScheduledAtNs == 0 {
 			t.Fatalf("row %d carries no due time, so nothing in the record shows the schedule was held", i)
 		}
-		// The k-th request is due at start + k/rate, computed from the cell's
-		// own origin rather than accumulated, so lateness cannot compound.
-		if lag := r.ScheduleLag(); lag > 60*time.Millisecond {
-			t.Errorf("request %d was sent %v after it was due: the driver fell behind its own schedule", i, lag)
-		}
-		if lag := r.ScheduleLag(); lag < 0 {
+		lag := r.ScheduleLag()
+		if lag < 0 {
 			t.Errorf("request %d was sent %v before it was due", i, lag)
 		}
+		// The k-th request is due at start + k/rate, computed from the cell's
+		// own origin rather than accumulated, so lateness cannot compound. This
+		// bound is loose because it has to survive a loaded machine under the
+		// race detector; the median below is what says the schedule was held
+		// rather than merely not abandoned.
+		if lag > 60*time.Millisecond {
+			t.Errorf("request %d was sent %v after it was due: the driver fell behind its own schedule", i, lag)
+		}
+		lags = append(lags, lag)
+	}
+
+	// A driver that waits on the fleet drifts monotonically behind, so its
+	// median lag grows into the hundreds of milliseconds this fleet takes to
+	// answer. Holding the median to a fraction of one 10ms arrival gap is the
+	// assertion that the schedule was kept rather than approximated.
+	slices.Sort(lags)
+	if median := lags[len(lags)/2]; median > 5*time.Millisecond {
+		t.Errorf("the median request was sent %v after it was due, against a 10ms arrival gap: the driver is pacing off the fleet rather than off its schedule", median)
 	}
 }
 

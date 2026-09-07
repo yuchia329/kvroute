@@ -35,7 +35,7 @@ func Table(cells []Cell) string {
 			violations = fmt.Sprintf("%d", c.SLOViolations)
 		}
 		fmt.Fprintf(&b, "| %s | %s | %d | %s | %.2f | %s | %s | %s | %d | %d | %d | %d | %s | %s | %s |\n",
-			DriverName(c.Driver), c.Load(), c.Repetition,
+			c.Driver.Name(), c.Load(), c.Repetition,
 			goodput, c.ThroughputRPS,
 			ms(c.TTFTP50Ns), ms(c.TTFTP99Ns), ms(c.ITLP50Ns),
 			c.Requests, c.Successes, c.Dropped, c.Failed, violations,
@@ -61,23 +61,6 @@ func Table(cells []Cell) string {
 		}
 	}
 	return b.String()
-}
-
-// DriverName is how a driver reads in prose and in a table. The recorded value
-// is the machine-readable one; this is the same fact spelled for a reader.
-func DriverName(driver string) string {
-	switch driver {
-	case ClosedLoopDriver:
-		return "closed-loop"
-	case OpenLoopDriver:
-		return "open-loop"
-	case "":
-		// A cell recorded before cells named their driver. Better an admission
-		// than a guess: this is the column the table exists to be honest about.
-		return "**unstated**"
-	default:
-		return driver
-	}
 }
 
 func ms(ns int64) string {

@@ -57,7 +57,7 @@ func run() error {
 		replicaSpecs = flag.String("replicas", "", "the same -replicas spec the router was given; each is asked for /health before the sweep starts")
 		dir          = flag.String("dir", "runs/concurrency", "where cells are written and resumed from")
 		policyName   = flag.String("policy", "round_robin", "the policy the router is running; recorded as the cell's label")
-		driver       = flag.String("driver", bench.ClosedLoopDriver, "which axis to run: closed_loop holds virtual users at each -concurrency level, open_loop fires at each -arrival-rates level, both runs the two in one directory")
+		driver       = flag.String("driver", string(bench.ClosedLoopDriver), "which axis to run: closed_loop holds virtual users at each -concurrency level, open_loop fires at each -arrival-rates level, both runs the two in one directory")
 		levels       = flag.String("concurrency", bench.FormatLevels(bench.ConcurrencySweep), "closed-loop axis: concurrency levels to sweep, holding that many virtual users")
 		rates        = flag.String("arrival-rates", bench.FormatRates(bench.ArrivalRateSweep), "open-loop axis: arrival rates in requests per second, fired on a fixed schedule whether or not earlier requests have finished")
 		repetitions  = flag.Int("repetitions", 3, "repetitions per level; p99 is noisy at low sample counts")
@@ -99,7 +99,7 @@ func run() error {
 	// shared box that would be hours.
 	var concurrencies []int
 	var arrivalRates []float64
-	switch *driver {
+	switch bench.Driver(*driver) {
 	case bench.ClosedLoopDriver:
 		if concurrencies, err = bench.ParseLevels(*levels); err != nil {
 			return err
@@ -227,8 +227,8 @@ func header(policy string, cells []bench.Cell, ttft, itl time.Duration) string {
 	if ttft > 0 || itl > 0 {
 		slo = fmt.Sprintf("TTFT < %v, inter-token p50 < %v", ttft, itl)
 	}
-	title, driver := drivers(cells)
-	return fmt.Sprintf("# %s — %s\n\n%s\n\nSLO: %s\n\n", title, policy, driver, slo)
+	title, driverNote := tableHeading(cells)
+	return fmt.Sprintf("# %s — %s\n\n%s\n\nSLO: %s\n\n", title, policy, driverNote, slo)
 }
 
 // closedLoopNote and openLoopNote are why a reader has to know which drove the
@@ -238,8 +238,8 @@ const (
 	openLoopNote   = "Driver: open-loop (offered load is an input and is held when the fleet\nslows, so these numbers describe behaviour at and past saturation)."
 )
 
-// drivers names the table and states the driver behind it.
-func drivers(cells []bench.Cell) (title, driver string) {
+// tableHeading names the table and states the driver behind it.
+func tableHeading(cells []bench.Cell) (title, driverNote string) {
 	closed, open := false, false
 	for _, c := range cells {
 		switch c.Driver {

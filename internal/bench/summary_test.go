@@ -363,3 +363,58 @@ func TestAClosedLoopCellIsNotJudgedAgainstAScheduleItNeverHad(t *testing.T) {
 		t.Errorf("a closed-loop cell was flagged: %v", got.FlagReasons)
 	}
 }
+
+// Past saturation an open-loop cell stops firing at its deadline and then waits
+// for what is still in flight. That drain tail is not time load was offered in,
+// and dividing by it would understate the headline number by the same
+// mechanism the open-loop driver exists to remove.
+func TestAnOpenLoopCellsRateIsOverTheWindowItOfferedLoadInNotTheDrainTail(t *testing.T) {
+	start := time.Unix(1757000000, 0)
+	const rate = 10.0
+
+	// Ten arrivals over one second, each answered so slowly that the last one
+	// lands four seconds after the cell stopped firing.
+	var rows []bench.Result
+	for i := range 10 {
+		due := start.Add(time.Duration(i) * 100 * time.Millisecond)
+		row := success(due, time.Second)
+		row.ScheduledAtNs = due.UnixNano()
+		row.ArrivalRate = rate
+		row.Driver = bench.OpenLoopDriver
+		row.TotalNs = (4 * time.Second).Nanoseconds()
+		rows = append(rows, row)
+	}
+
+	got := bench.Summarize(rows, bench.SummaryOptions{SLO: slo})
+
+	// One second of offered load, not the five seconds the rows span.
+	if window := time.Duration(got.WindowNs); window < 900*time.Millisecond || window > 1100*time.Millisecond {
+		t.Errorf("the window is %v, want the one second the schedule offered load over", window)
+	}
+	if got.ThroughputRPS < 9 || got.ThroughputRPS > 11 {
+		t.Errorf("throughput is %.2f/s against ten requests offered over a second", got.ThroughputRPS)
+	}
+	if got.GoodputRPS < 9 || got.GoodputRPS > 11 {
+		t.Errorf("goodput is %.2f/s against ten requests offered over a second, all inside the SLO", got.GoodputRPS)
+	}
+}
+
+// A closed-loop cell has no schedule, so its window stays what it always was:
+// the span of its rows.
+func TestAClosedLoopCellsRateIsStillOverTheSpanOfItsRows(t *testing.T) {
+	start := time.Unix(1757000000, 0)
+	var rows []bench.Result
+	for i := range 4 {
+		row := success(start.Add(time.Duration(i)*time.Second), time.Second)
+		row.TotalNs = time.Second.Nanoseconds()
+		rows = append(rows, row)
+	}
+
+	got := bench.Summarize(rows, bench.SummaryOptions{SLO: slo})
+
+	// First start to last finish: three seconds of starts plus the last
+	// request's second.
+	if window := time.Duration(got.WindowNs); window != 4*time.Second {
+		t.Errorf("the window is %v, want 4s", window)
+	}
+}

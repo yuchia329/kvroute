@@ -11,7 +11,7 @@ never pushed past its knee and the measured tail is systematically optimistic. T
 omission, and it is why `idea.md` §"Closed-loop and open-loop" asks for both drivers rather than
 one.
 
-An open-loop driver fires on a fixed arrival schedule instead. Offered load becomes an input. Three
+An open-loop driver fires on a fixed arrival schedule instead. Offered load becomes an input. Five
 things about that are decisions rather than details, because each has a way of being implemented
 that looks right and quietly reintroduces the omission the driver exists to remove.
 
@@ -42,7 +42,22 @@ the due time would hide it in the latencies. Both, and the difference is evidenc
 Measured against a fake fleet on the development machine, a 40 req/s cell holds its schedule to a
 375 µs median and a 1.6 ms worst case.
 
-**3. The schedule is even, not Poisson.**
+**3. A scheduled cell's rates are computed over the window it offered load in.**
+
+A cell fires for its duration and then waits out whatever is still in flight. Past saturation that
+drain tail runs well beyond the last arrival, so dividing the requests by the span of the rows would
+divide a minute's offered load by a minute and a half and call the result a rate — understating the
+headline number by the same mechanism the driver was written to remove. A scheduled cell's window is
+therefore its schedule: first arrival due to last arrival due, plus the one inter-arrival gap the
+last arrival owns, so *n* arrivals at rate *r* occupy exactly *n/r* seconds. A closed-loop cell keeps
+the old window, first start to last finish, because it offers load for as long as it is receiving
+responses.
+
+Requests that finished after the window still count in the numerator. They were offered inside it,
+and dropping them would let a fleet improve its goodput by being too slow to answer before the cell
+ended.
+
+**4. The schedule is even, not Poisson.**
 
 `CONTEXT.md` defines the open-loop driver as firing on a *fixed* arrival schedule, and an even one
 is what the project needs from it: it is reproducible between repetitions of the same cell, and its
@@ -51,7 +66,7 @@ inter-arrival distribution is more realistic about how requests arrive in the wo
 thing to reach for if a result turns out to depend on the smoothness of the offering. It is not
 needed to push a fleet past its knee, which is what this driver is for.
 
-**4. Both drivers write one row schema, and every table names the driver.**
+**5. Both drivers write one row schema, and every table names the driver.**
 
 `bench.Result` gained `driver`, `arrival_rate` and `scheduled_at_ns` columns; the closed-loop driver
 leaves the last two zero, because under it offered load is an outcome and nothing scheduled
@@ -69,8 +84,11 @@ guessed at.
 - ADR-0004's partition of the workload's user space now covers both axes: concurrency levels take
   the low half of a repetition's block and arrival rates the high half, so a cell at 8 req/s and one
   at concurrency 8 never send each other's prompts. The concurrency arithmetic is unchanged, so
-  cells recorded before this ADR still resolve to the slice they were run on. The partition bounds
-  the rate axis at 512 req/s, which the sweep refuses rather than silently overlapping.
+  cells recorded before this ADR still resolve to the slice they were run on. Each axis is bounded
+  at 512 levels and the sweep refuses anything above, because a run of `-concurrency 520` would
+  otherwise land on 8 req/s's slice. Within one sweep the whole partition is checked before the
+  first cell runs; the bound is what holds across two sweeps into one directory, which is a
+  supported way to run both axes and which no single check can see.
 - An open-loop cell can fire more requests than the 4,096-wide slice it draws from, so arrivals wrap
   onto later turns of the same sessions rather than running off the end. Under the fixed workload a
   session is only a header; when the multi-turn generator lands it will want a say in how arrivals

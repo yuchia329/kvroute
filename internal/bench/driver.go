@@ -19,11 +19,41 @@ import (
 // SessionHeader carries the session identity to the router.
 const SessionHeader = "X-Session-Id"
 
-// ClosedLoopDriver names the driver in a row and in a cell record, so no table
-// can be read without knowing which one produced it. A closed-loop driver
-// throttles itself when the fleet slows, so its tail is systematically
-// optimistic; the headline goodput number comes from the open-loop driver.
-const ClosedLoopDriver = "closed_loop"
+// Driver names which load generator produced a row or a cell, so no table can be
+// read without knowing which one produced it.
+//
+// A named type rather than a bare string, as record.Outcome is: it is recorded
+// in every row, it is what tells two rows apart that are otherwise identical,
+// and the set of values is closed.
+type Driver string
+
+const (
+	// ClosedLoopDriver holds a fixed number of virtual users. It throttles
+	// itself when the fleet slows, so its tail is systematically optimistic;
+	// the headline goodput number comes from the open-loop driver.
+	ClosedLoopDriver Driver = "closed_loop"
+	// OpenLoopDriver fires on a fixed arrival schedule. Offered load is its
+	// input rather than its outcome, which is what makes it the one the
+	// headline goodput number comes from.
+	OpenLoopDriver Driver = "open_loop"
+)
+
+// Name is how a driver reads in prose and in a table. The recorded value is the
+// machine-readable one; this is the same fact spelled for a reader.
+func (d Driver) Name() string {
+	switch d {
+	case ClosedLoopDriver:
+		return "closed-loop"
+	case OpenLoopDriver:
+		return "open-loop"
+	case "":
+		// A cell recorded before cells named their driver. Better an admission
+		// than a guess: this is the column the table exists to be honest about.
+		return "**unstated**"
+	default:
+		return string(d)
+	}
+}
 
 // DriverConfig configures one cell, under either driver.
 //
@@ -93,7 +123,7 @@ type Labels struct {
 	// same schema, so the rows of a closed-loop cell and an open-loop one are
 	// concatenated into one file and read by one query; this column is what
 	// keeps them distinguishable once they are.
-	Driver string `json:"driver" parquet:"driver"`
+	Driver Driver `json:"driver" parquet:"driver"`
 	// Concurrency is the number of virtual users held, under the closed-loop
 	// driver. Zero under the open-loop one, where concurrency is an outcome.
 	Concurrency int `json:"concurrency" parquet:"concurrency"`
@@ -151,6 +181,10 @@ func RunClosedLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 	}
 	cfg.Labels.Driver = ClosedLoopDriver
 	cfg.Labels.Concurrency = cfg.Concurrency
+	// Cleared, not merely left alone: nothing scheduled these requests, and a
+	// row carrying a rate no schedule offered is exactly the label that
+	// disagrees with its run.
+	cfg.Labels.ArrivalRate = 0
 
 	start := time.Now()
 	deadline := start.Add(cfg.Duration)
@@ -190,14 +224,15 @@ func runVirtualUser(ctx context.Context, cfg DriverConfig, user int, deadline, w
 		// one finished, so there is no schedule to be late against.
 		row := sendTurn(ctx, cfg, user, turn, warmUntil, time.Time{})
 		rows = append(rows, row)
-		keep(cfg, row)
+		writeRow(cfg, row)
 	}
 }
 
-// keep writes one row to the run's record, if there is one. A failed write is
-// logged rather than returned: the returned rows are still whole, and abandoning
-// a cell that is otherwise running would cost more than the line that was lost.
-func keep(cfg DriverConfig, row Result) {
+// writeRow appends one row to the run's record, if there is one. A failed write
+// is logged rather than returned: the returned rows are still whole, and
+// abandoning a cell that is otherwise running would cost more than the line that
+// was lost.
+func writeRow(cfg DriverConfig, row Result) {
 	if cfg.Rows == nil {
 		return
 	}
