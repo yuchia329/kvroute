@@ -8,6 +8,12 @@ import (
 
 // Table renders cells as the results table.
 //
+// Every row names the driver that produced it. A goodput figure is not
+// interpretable without it: the closed-loop driver throttles itself when the
+// fleet slows, so its tail is optimistic, and the two drivers' rows share a
+// schema precisely so they can be read side by side — which they cannot be if
+// the table does not say which is which.
+//
 // Dropped, failed and SLO violations get a column each and are never summed
 // into one. Goodput leads because it is the primary metric: throughput with a
 // dead tail is how people lie about serving systems. Every cell keeps its own
@@ -16,8 +22,8 @@ import (
 func Table(cells []Cell) string {
 	var b strings.Builder
 
-	fmt.Fprintln(&b, "| conc | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |")
-	fmt.Fprintln(&b, "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|")
+	fmt.Fprintln(&b, "| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |")
+	fmt.Fprintln(&b, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|")
 
 	for _, c := range cells {
 		goodput := "—"
@@ -28,8 +34,8 @@ func Table(cells []Cell) string {
 		if c.SLOApplied {
 			violations = fmt.Sprintf("%d", c.SLOViolations)
 		}
-		fmt.Fprintf(&b, "| %d | %d | %s | %.2f | %s | %s | %s | %d | %d | %d | %d | %s | %s | %s |\n",
-			c.Concurrency, c.Repetition,
+		fmt.Fprintf(&b, "| %s | %s | %d | %s | %.2f | %s | %s | %s | %d | %d | %d | %d | %s | %s | %s |\n",
+			DriverName(c.Driver), c.Load(), c.Repetition,
 			goodput, c.ThroughputRPS,
 			ms(c.TTFTP50Ns), ms(c.TTFTP99Ns), ms(c.ITLP50Ns),
 			c.Requests, c.Successes, c.Dropped, c.Failed, violations,
@@ -55,6 +61,23 @@ func Table(cells []Cell) string {
 		}
 	}
 	return b.String()
+}
+
+// DriverName is how a driver reads in prose and in a table. The recorded value
+// is the machine-readable one; this is the same fact spelled for a reader.
+func DriverName(driver string) string {
+	switch driver {
+	case ClosedLoopDriver:
+		return "closed-loop"
+	case OpenLoopDriver:
+		return "open-loop"
+	case "":
+		// A cell recorded before cells named their driver. Better an admission
+		// than a guess: this is the column the table exists to be honest about.
+		return "**unstated**"
+	default:
+		return driver
+	}
 }
 
 func ms(ns int64) string {

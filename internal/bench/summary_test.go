@@ -299,3 +299,67 @@ func TestDriftIsNotJudgedOnTooFewRequestsToCompare(t *testing.T) {
 		t.Errorf("drift is %.2f over 4 requests, want 0: too few to compare", got.WarmupDrift)
 	}
 }
+
+// The open-loop driver's claim is that offered load is an input. A cell whose
+// driver fell behind its own schedule offered less than it says it did, so the
+// goodput computed from it is a figure for a rate the fleet was never given.
+func TestACellWhoseDriverFellBehindItsArrivalScheduleIsFlagged(t *testing.T) {
+	start := time.Unix(1757000000, 0)
+	var late, punctual []bench.Result
+	for i := range 20 {
+		due := start.Add(time.Duration(i) * 100 * time.Millisecond)
+
+		// Sent half a second after it was due: the driver was waiting on the
+		// fleet rather than on the clock.
+		row := success(due.Add(500*time.Millisecond), time.Second)
+		row.ScheduledAtNs = due.UnixNano()
+		late = append(late, row)
+
+		row = success(due.Add(time.Millisecond), time.Second)
+		row.ScheduledAtNs = due.UnixNano()
+		punctual = append(punctual, row)
+	}
+
+	got := bench.Summarize(late, bench.SummaryOptions{SLO: slo})
+
+	if got.Scheduled != len(late) {
+		t.Errorf("counted %d scheduled requests of %d", got.Scheduled, len(late))
+	}
+	if lag := time.Duration(got.ScheduleLagP50Ns); lag < 400*time.Millisecond {
+		t.Errorf("reports a median lag of %v against requests sent 500ms late", lag)
+	}
+	if !got.Flagged {
+		t.Fatal("a cell that did not hold its arrival schedule was not flagged")
+	}
+	if !strings.Contains(strings.Join(got.FlagReasons, " "), "arrival schedule") {
+		t.Errorf("the flag does not say the schedule was missed: %v", got.FlagReasons)
+	}
+
+	// And a driver that held its schedule is not flagged for the wobble that
+	// scheduling a goroutine costs.
+	if held := bench.Summarize(punctual, bench.SummaryOptions{SLO: slo}); held.Flagged {
+		t.Errorf("a driver that held its schedule to within a millisecond was flagged: %v", held.FlagReasons)
+	}
+}
+
+// A closed-loop cell has no schedule to be late against, so it must never carry
+// the lag figures or the flag that goes with them.
+func TestAClosedLoopCellIsNotJudgedAgainstAScheduleItNeverHad(t *testing.T) {
+	start := time.Unix(1757000000, 0)
+	var rows []bench.Result
+	for i := range 20 {
+		rows = append(rows, success(start.Add(time.Duration(i)*time.Second), time.Second))
+	}
+
+	got := bench.Summarize(rows, bench.SummaryOptions{SLO: slo})
+
+	if got.Scheduled != 0 {
+		t.Errorf("counted %d scheduled requests in a cell nothing scheduled", got.Scheduled)
+	}
+	if got.ScheduleLagP50Ns != 0 || got.ScheduleLagMaxNs != 0 {
+		t.Errorf("reports a schedule lag of %d/%d for a driver with no schedule", got.ScheduleLagP50Ns, got.ScheduleLagMaxNs)
+	}
+	if got.Flagged {
+		t.Errorf("a closed-loop cell was flagged: %v", got.FlagReasons)
+	}
+}

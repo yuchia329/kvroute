@@ -73,8 +73,8 @@ cmd/bench ──► router (:8080) ──► replica-0..5 (:8000..:8005, one GPU
     │             │                   │
     │             │                   └─ /v1/chat/completions (SSE), /metrics
     │             └─ round-robin policy, per-request JSONL rows, own-overhead percentiles
-    └─ closed-loop driver, per-cell caching, nvidia-smi contamination sampling,
-       JSONL during the run → Parquet after
+    └─ closed-loop and open-loop drivers, per-cell caching, nvidia-smi
+       contamination sampling, JSONL during the run → Parquet after
 
 cmd/characterize ─────────────► replica-0..5, one at a time, no router in the path
     └─ fleet KV capacity off every replica, host topology, the latency floor,
@@ -84,10 +84,20 @@ cmd/characterize ─────────────► replica-0..5, one at
 - **`cmd/router`** — OpenAI-compatible `POST /v1/chat/completions` with SSE passed through
   untouched, one JSONL row per request, and its own accept-to-dispatch cost reported at
   `GET /router/stats`.
-- **`cmd/bench`** — the closed-loop driver and the concurrency sweep. Refuses to start unless every
-  replica answers `/health`, warms each one directly, then holds a fixed number of virtual users at
-  each of eight levels, counting dropped, failed and SLO-violating requests in three separate
-  columns. Samples the GPUs throughout and resumes from cached cells.
+- **`cmd/bench`** — the two load drivers and the sweeps they run. Refuses to start unless every
+  replica answers `/health`, warms each one directly, then drives one of two axes, counting dropped,
+  failed and SLO-violating requests in three separate columns. Samples the GPUs throughout and
+  resumes from cached cells. Every table it writes names the driver behind it, because the two are
+  not comparable:
+  - `-driver closed_loop` (the default) holds a fixed number of virtual users at each of eight
+    concurrency levels. Offered load is an outcome, so the tail is optimistic by construction — the
+    fleet slows, the driver slows with it, and the knee is never reached. That is the right shape
+    for a *scaling* axis and the wrong one for goodput.
+  - `-driver open_loop` fires on a fixed arrival schedule at each rate of a ladder, whether or not
+    earlier requests have finished. Offered load is an input, so this is where the headline goodput
+    number comes from. Every row records when it was *due* beside when it was sent, and a cell whose
+    driver fell behind its own schedule is flagged rather than reporting a rate the fleet was never
+    offered — [ADR-0005](docs/adr/0005-open-loop-fires-on-schedule-and-records-its-own-lateness.md).
 - **`cmd/characterize`** — establishes the measured facts every other number scales off, in one
   pass: aggregate KV capacity read off all six replicas' own `num_gpu_blocks`, the host's GPU
   topology and NUMA placement, the hardware latency floor, the SLO derived from that floor as a
@@ -135,11 +145,17 @@ make characterize                                          # capacity, topology,
 make contention                                            # all six at once, compared by NUMA node
 make run-router REPLICAS="$(ops/fleet.sh replicas)"
 make bench BENCH_ARGS="-cell-duration 60s -repetitions 3 -slo-ttft 990ms -slo-itl 24ms"
+make goodput GOODPUT_ARGS="-cell-duration 60s -repetitions 3 -slo-ttft 990ms -slo-itl 24ms"
 ```
 
 `make characterize` comes before `make bench` and not after it, because the SLO the sweep is judged
 against is derived from what `characterize` measures. It prints the two flags to pass on, so the
 threshold the sweep applies is the one that was derived rather than one retyped off a table.
+
+`make bench` sweeps concurrency closed-loop; `make goodput` offers a ladder of arrival rates
+open-loop and is where the headline goodput number comes from. They land in separate directories
+because they are different drivers measuring different things — a closed-loop tail is optimistic by
+construction — and both write tables that name the driver behind them.
 
 `ops/versions.env` is the single source of truth for everything held constant between cells: the
 engine version, the model, the forced quantization backend, the prefix-caching and chunked-prefill

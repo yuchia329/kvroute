@@ -23,7 +23,12 @@ func Report(c Characterization) string {
 	if c.Schedule == ScheduleTogether {
 		how = "**driven all at once**, so each one's host-side work competed with the others'"
 	}
-	fmt.Fprintf(&b, "Model `%s`, workload `%s`, %s %s.\n\n",
+	// The driver is stated because no latency table is interpretable without it.
+	// A probe asks what a replica does at a stated load, which is a question
+	// about concurrency, so it is the closed-loop driver that asks it; the
+	// open-loop driver exists for goodput at saturation, which is not what any
+	// figure below claims to be.
+	fmt.Fprintf(&b, "Model `%s`, workload `%s`, %s %s, closed-loop driver.\n\n",
 		c.Model, c.Workload, count(len(c.Capacity.Replicas), "replica", "replicas"), how)
 	if c.Flagged {
 		fmt.Fprintln(&b, "> ⚠️ **This characterization is flagged.** Every downstream figure scales off these")

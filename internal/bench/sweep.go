@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,6 +24,21 @@ import (
 // ConcurrencySweep is the scaling axis: how each policy's latency degrades as
 // offered load rises.
 var ConcurrencySweep = []int{1, 4, 8, 16, 32, 64, 128, 256}
+
+// ArrivalRateSweep is the ladder the headline goodput number is read off, in
+// requests per second offered to the whole fleet. It is the open-loop axis, as
+// ConcurrencySweep is the closed-loop one.
+//
+// It brackets the knee rather than climbing to an arbitrary ceiling: goodput
+// rises with offered load until the SLO starts failing and then falls, so the
+// figure only means anything if the ladder has points on both sides of the
+// turn. The bring-up sweep put the fleet at 11.6 completed requests per second
+// at concurrency 8 with none of them missing the SLO, so the turn is somewhere
+// above that — the low rungs are there to be comfortably under it and the top
+// two to be past it. It is a starting ladder for a fleet that has been measured
+// once, not a constant: a run that turns before 12 or has not turned by 48
+// should move it rather than reporting the edge of the range as the answer.
+var ArrivalRateSweep = []float64{4, 8, 12, 16, 24, 32, 48}
 
 // FormatLevels renders load levels into the comma-separated spec the commands
 // take, so a flag's default can be the package's own value rather than a second
@@ -59,21 +75,117 @@ func ParseLevels(spec string) ([]int, error) {
 	return levels, nil
 }
 
-// ClosedLoopDriver names the driver in a cell record, so no table can be read
-// without knowing which one produced it. A closed-loop driver throttles itself
-// when the fleet slows, so its tail is systematically optimistic; the headline
-// goodput number comes from the open-loop driver instead.
-const ClosedLoopDriver = "closed_loop"
+// FormatRates renders arrival rates into the comma-separated spec the commands
+// take, for the same reason FormatLevels does.
+func FormatRates(rates []float64) string {
+	fields := make([]string, 0, len(rates))
+	for _, r := range rates {
+		fields = append(fields, strconv.FormatFloat(r, 'g', -1, 64))
+	}
+	return strings.Join(fields, ",")
+}
 
-// Cell is one benchmark data point: a fixed policy, concurrency and repetition,
+// ParseRates reads a comma-separated spec of arrival rates in requests per
+// second. Fractional rates are allowed: a rate is an offered schedule, not a
+// count of anything.
+func ParseRates(spec string) ([]float64, error) {
+	var rates []float64
+	for field := range strings.SplitSeq(spec, ",") {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		rate, err := strconv.ParseFloat(field, 64)
+		if err != nil || rate <= 0 {
+			return nil, fmt.Errorf("bench: arrival rate %q is not a positive number of requests per second", field)
+		}
+		rates = append(rates, rate)
+	}
+	if len(rates) == 0 {
+		return nil, errors.New("bench: no arrival rates given")
+	}
+	return rates, nil
+}
+
+// Load is one point of a sweep's load axis.
+//
+// The two drivers differ in exactly one thing — which side of the loop is held
+// fixed — so the sweep varies one type rather than carrying two lists and a mode
+// flag. A closed-loop point holds a concurrency and offered load is the outcome;
+// an open-loop point holds an arrival rate and concurrency is the outcome.
+type Load struct {
+	Driver      string  `json:"driver" parquet:"driver"`
+	Concurrency int     `json:"concurrency" parquet:"concurrency"`
+	ArrivalRate float64 `json:"arrival_rate" parquet:"arrival_rate"`
+}
+
+// ClosedLoopAt is one point of the concurrency axis.
+func ClosedLoopAt(concurrency int) Load {
+	return Load{Driver: ClosedLoopDriver, Concurrency: concurrency}
+}
+
+// OpenLoopAt is one point of the arrival rate axis.
+func OpenLoopAt(rate float64) Load {
+	return Load{Driver: OpenLoopDriver, ArrivalRate: rate}
+}
+
+// Key is the load's part of a cell id: `c8` for eight virtual users, `a12.5` for
+// twelve and a half requests per second. Two letters rather than one shared one,
+// so a cell's file name says which axis it is on.
+func (l Load) Key() string {
+	if l.Driver == OpenLoopDriver {
+		return "a" + strconv.FormatFloat(l.ArrivalRate, 'g', -1, 64)
+	}
+	return "c" + strconv.Itoa(l.Concurrency)
+}
+
+// String is how a load reads in a table: what was held fixed, in its own units.
+func (l Load) String() string {
+	if l.Driver == OpenLoopDriver {
+		return fmt.Sprintf("%g req/s", l.ArrivalRate)
+	}
+	return fmt.Sprintf("%d users", l.Concurrency)
+}
+
+// validate reports whether this point can be run and recorded.
+func (l Load) validate() error {
+	switch l.Driver {
+	case OpenLoopDriver:
+		if l.ArrivalRate <= 0 {
+			return fmt.Errorf("bench: an open-loop point needs a positive arrival rate, got %g", l.ArrivalRate)
+		}
+		if l.ArrivalRate >= maxSweepArrivalRate {
+			// Silently overlapping another cell's slice of the workload's user
+			// space would make two cells send the same bytes, and the second of
+			// them would be reading the replicas' prefix caches rather than
+			// measuring prefill. Refusing is the only honest option, and the
+			// bound is far above anything six 3090s can serve.
+			return fmt.Errorf("bench: an arrival rate of %g is above the %d the workload's user space is partitioned for",
+				l.ArrivalRate, maxSweepArrivalRate)
+		}
+	case ClosedLoopDriver, "":
+		if l.Concurrency <= 0 {
+			return fmt.Errorf("bench: a closed-loop point needs a positive concurrency, got %d", l.Concurrency)
+		}
+	default:
+		return fmt.Errorf("bench: unknown driver %q", l.Driver)
+	}
+	return nil
+}
+
+// Cell is one benchmark data point: a fixed policy, load level and repetition,
 // with its own summary and its own contamination evidence.
 type Cell struct {
-	ID          string `json:"id" parquet:"id"`
-	Policy      string `json:"policy" parquet:"policy"`
-	Concurrency int    `json:"concurrency" parquet:"concurrency"`
-	Repetition  int    `json:"repetition" parquet:"repetition"`
-	Driver      string `json:"driver" parquet:"driver"`
-	Workload    string `json:"workload" parquet:"workload"`
+	ID     string `json:"id" parquet:"id"`
+	Policy string `json:"policy" parquet:"policy"`
+	// Driver, Concurrency and ArrivalRate are the cell's load axis, flattened:
+	// they are the fields of Load, kept flat because the row schema is flat and
+	// a cell that nested them would not compact to the same columns.
+	Driver      string  `json:"driver" parquet:"driver"`
+	Concurrency int     `json:"concurrency" parquet:"concurrency"`
+	ArrivalRate float64 `json:"arrival_rate" parquet:"arrival_rate"`
+	Repetition  int     `json:"repetition" parquet:"repetition"`
+	Workload    string  `json:"workload" parquet:"workload"`
 
 	StartedAtNs int64 `json:"started_at_ns" parquet:"started_at_ns"`
 	EndedAtNs   int64 `json:"ended_at_ns" parquet:"ended_at_ns"`
@@ -82,21 +194,71 @@ type Cell struct {
 	Contamination `json:"contamination"`
 }
 
+// Load is the point of the load axis this cell sits on, reassembled from the
+// flat columns it is recorded in.
+func (c Cell) Load() Load {
+	return Load{Driver: c.Driver, Concurrency: c.Concurrency, ArrivalRate: c.ArrivalRate}
+}
+
+// maxSweepArrivalRate is the arrival rate above which a cell would run off the
+// end of its repetition's block of the workload's user space and into the next
+// one's. See loadOffset.
+const maxSweepArrivalRate = 512
+
 // CellWorkloadOffset is the slice of the workload's user space a cell sends
 // from. It is derived from the axes alone — deliberately not from the policy —
 // so a re-run of a cell sends its own bytes again and no cell ever re-sends
 // another's.
-func CellWorkloadOffset(concurrency, repetition int) int {
-	return (repetition*1024 + concurrency) * WorkloadStride
+func CellWorkloadOffset(load Load, repetition int) int {
+	return (repetition*1024 + loadOffset(load)) * WorkloadStride
+}
+
+// checkWorkloadPartition refuses a sweep in which two cells would send the same
+// prompts.
+//
+// ADR-0004: a cell's slice of the workload's user space is derived from its axes,
+// so two cells sharing a slice send the same bytes and the second of them reads
+// the replicas' prefix caches instead of measuring prefill — a seven-fold TTFT
+// difference that nothing in the latency admits to. The arithmetic that derives
+// the slice cannot separate every pair of load levels a caller might ask for
+// (two arrival rates a fraction apart round to one index), so rather than
+// trusting it, the whole partition is checked before a single cell runs.
+func checkWorkloadPartition(policy string, loads []Load, repetitions int) error {
+	seen := map[int]string{}
+	for _, load := range loads {
+		for repetition := 1; repetition <= repetitions; repetition++ {
+			id := CellID(policy, load, repetition)
+			offset := CellWorkloadOffset(load, repetition)
+			if other, clash := seen[offset]; clash {
+				return fmt.Errorf("bench: cells %s and %s would send the same prompts, so the second would measure the replicas' prefix caches rather than prefill: separate their load levels", other, id)
+			}
+			seen[offset] = id
+		}
+	}
+	return nil
+}
+
+// loadOffset is a load level's position within its repetition's block of 1024
+// slices. Concurrency levels take the low half and arrival rates the high half,
+// so a concurrency of 8 and a rate of 8 land in different slices and never send
+// each other's bytes. The concurrency arithmetic is unchanged, so cells recorded
+// before the open-loop driver existed still resolve to the slice they were run
+// on.
+func loadOffset(load Load) int {
+	if load.Driver == OpenLoopDriver {
+		return maxSweepArrivalRate + int(math.Round(load.ArrivalRate))
+	}
+	return load.Concurrency
 }
 
 // CellID is the cell's identity and its cache key. It is derived from the axes
 // alone, so re-running a sweep with the same axes finds the same cells.
-func CellID(policy string, concurrency, repetition int) string {
-	return fmt.Sprintf("%s-c%d-r%d", policy, concurrency, repetition)
+func CellID(policy string, load Load, repetition int) string {
+	return fmt.Sprintf("%s-%s-r%d", policy, load.Key(), repetition)
 }
 
-// SweepConfig configures a concurrency sweep.
+// SweepConfig configures a sweep: a set of cells varying one load axis with
+// everything else held fixed.
 type SweepConfig struct {
 	// Dir holds the sweep's cells. An interrupted sweep resumes from what is
 	// already in it.
@@ -108,9 +270,21 @@ type SweepConfig struct {
 	// the truth.
 	Policy string
 
+	// Concurrencies are the closed-loop axis: virtual users held for a whole
+	// cell, with offered load as the outcome. Defaults to ConcurrencySweep when
+	// no load levels are given at all.
 	Concurrencies []int
-	Repetitions   int
-	CellDuration  time.Duration
+	// ArrivalRates are the open-loop axis: requests per second offered whether
+	// or not earlier requests have finished. This is the axis the headline
+	// goodput number comes from, because a closed-loop driver throttles itself
+	// at exactly the saturation the number is about.
+	//
+	// Both may be set, and then one sweep runs both axes: every cell records
+	// which driver produced it, so the two never merge into an unreadable
+	// column.
+	ArrivalRates []float64
+	Repetitions  int
+	CellDuration time.Duration
 	// Warmup is the slice at the start of each cell whose rows are recorded but
 	// excluded from the summary.
 	Warmup time.Duration
@@ -131,13 +305,17 @@ type SweepConfig struct {
 	// WarmupDriftThreshold flags a cell whose measured window was still
 	// speeding up. Zero uses DefaultWarmupDriftThreshold.
 	WarmupDriftThreshold float64
+	// ScheduleLagThreshold flags an open-loop cell whose driver fell behind the
+	// arrival schedule it claims to have offered. Zero uses
+	// DefaultScheduleLagThreshold. It says nothing about a closed-loop cell.
+	ScheduleLagThreshold time.Duration
 	Workload             Workload
 	Contamination        ContaminationConfig
 
 	Log *slog.Logger
 }
 
-// RunSweep runs every cell of the concurrency sweep and returns them in order.
+// RunSweep runs every cell of the sweep and returns them in order.
 //
 // Cells already on disk are loaded rather than re-run. The sweep is hours long
 // on a shared box, so resumability is not a convenience: without it an
@@ -149,11 +327,15 @@ func RunSweep(ctx context.Context, cfg SweepConfig) ([]Cell, error) {
 	if cfg.Policy == "" {
 		return nil, errors.New("bench: the policy the router is running must be named")
 	}
-	if len(cfg.Concurrencies) == 0 {
-		cfg.Concurrencies = ConcurrencySweep
+	loads, err := cfg.loads()
+	if err != nil {
+		return nil, err
 	}
 	if cfg.Repetitions <= 0 {
 		cfg.Repetitions = 1
+	}
+	if err := checkWorkloadPartition(cfg.Policy, loads, cfg.Repetitions); err != nil {
+		return nil, err
 	}
 	if cfg.FailureThreshold <= 0 {
 		cfg.FailureThreshold = DefaultFailureThreshold
@@ -184,9 +366,9 @@ func RunSweep(ctx context.Context, cfg SweepConfig) ([]Cell, error) {
 	}
 
 	var cells []Cell
-	for _, concurrency := range cfg.Concurrencies {
+	for _, load := range loads {
 		for repetition := 1; repetition <= cfg.Repetitions; repetition++ {
-			id := CellID(cfg.Policy, concurrency, repetition)
+			id := CellID(cfg.Policy, load, repetition)
 
 			cached, ok := loadCell(cellDir, id)
 			switch {
@@ -226,7 +408,7 @@ func RunSweep(ctx context.Context, cfg SweepConfig) ([]Cell, error) {
 				time.Sleep(cfg.Settle)
 			}
 
-			cell, err := runCell(ctx, cfg, cellDir, id, concurrency, repetition)
+			cell, err := runCell(ctx, cfg, cellDir, id, load, repetition)
 			if err != nil {
 				return cells, err
 			}
@@ -241,7 +423,30 @@ func (cfg SweepConfig) summaryOptions() SummaryOptions {
 		SLO:                  cfg.SLO,
 		FailureThreshold:     cfg.FailureThreshold,
 		WarmupDriftThreshold: cfg.WarmupDriftThreshold,
+		ScheduleLagThreshold: cfg.ScheduleLagThreshold,
 	}
+}
+
+// loads is the sweep's load axis: its concurrency levels, then its arrival
+// rates. Empty means the concurrency sweep, which is what a sweep given no
+// levels at all has always run.
+func (cfg SweepConfig) loads() ([]Load, error) {
+	if len(cfg.Concurrencies) == 0 && len(cfg.ArrivalRates) == 0 {
+		cfg.Concurrencies = ConcurrencySweep
+	}
+	loads := make([]Load, 0, len(cfg.Concurrencies)+len(cfg.ArrivalRates))
+	for _, concurrency := range cfg.Concurrencies {
+		loads = append(loads, ClosedLoopAt(concurrency))
+	}
+	for _, rate := range cfg.ArrivalRates {
+		loads = append(loads, OpenLoopAt(rate))
+	}
+	for _, load := range loads {
+		if err := load.validate(); err != nil {
+			return nil, err
+		}
+	}
+	return loads, nil
 }
 
 // WarmConfig configures the direct warm-up.
@@ -390,7 +595,7 @@ func ping(ctx context.Context, client *http.Client, base string) error {
 }
 
 // runCell runs one cell and writes it to disk.
-func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, concurrency, repetition int) (Cell, error) {
+func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load, repetition int) (Cell, error) {
 	// Rows stream to a partial file and are renamed into place only once the
 	// cell has finished. A crash therefore leaves readable partial data under a
 	// name that is visibly incomplete, and never leaves a half-run cell looking
@@ -402,27 +607,35 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, concurren
 		return Cell{}, err
 	}
 
-	cfg.Log.Info("running cell", "cell", id, "concurrency", concurrency, "duration", cfg.CellDuration)
+	cfg.Log.Info("running cell", "cell", id, "driver", load.Driver, "load", load.String(), "duration", cfg.CellDuration)
 	started := time.Now()
 	watcher := Watch(ctx, cfg.Contamination)
 
-	results, runErr := RunClosedLoop(ctx, DriverConfig{
+	driver := DriverConfig{
 		Target:      cfg.Target,
-		Concurrency: concurrency,
+		Concurrency: load.Concurrency,
+		ArrivalRate: load.ArrivalRate,
 		Duration:    cfg.CellDuration,
 		Warmup:      cfg.Warmup,
 		// Each cell gets its own slice of the workload's user space, keyed on
 		// the axes it varies and not on the policy. Two cells that differ only
-		// in repetition or concurrency therefore send different bytes — without
+		// in repetition or load level therefore send different bytes — without
 		// it the second repetition re-sends the first one's prompts and reads
 		// them back out of the replica's prefix cache — while the same cell
 		// under two policies sends identical bytes, which is what makes the
 		// policies comparable at all.
-		Workload: Shifted(cfg.Workload, CellWorkloadOffset(concurrency, repetition)),
+		Workload: Shifted(cfg.Workload, CellWorkloadOffset(load, repetition)),
 		Rows:     rows,
 		Labels:   Labels{CellID: id, Policy: cfg.Policy, Repetition: repetition},
 		Log:      cfg.Log,
-	})
+	}
+	var results []Result
+	var runErr error
+	if load.Driver == OpenLoopDriver {
+		results, runErr = RunOpenLoop(ctx, driver)
+	} else {
+		results, runErr = RunClosedLoop(ctx, driver)
+	}
 	contamination := watcher.Stop()
 	ended := time.Now()
 
@@ -447,9 +660,10 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, concurren
 	cell := Cell{
 		ID:            id,
 		Policy:        cfg.Policy,
-		Concurrency:   concurrency,
+		Driver:        load.Driver,
+		Concurrency:   load.Concurrency,
+		ArrivalRate:   load.ArrivalRate,
 		Repetition:    repetition,
-		Driver:        ClosedLoopDriver,
 		Workload:      cfg.Workload.Name(),
 		StartedAtNs:   started.UnixNano(),
 		EndedAtNs:     ended.UnixNano(),
@@ -461,7 +675,7 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, concurren
 	if err := writeCell(cellDir, cell); err != nil {
 		return Cell{}, err
 	}
-	cfg.Log.Info("cell complete", "cell", id,
+	cfg.Log.Info("cell complete", "cell", id, "driver", cell.Driver,
 		"requests", cell.Requests, "successes", cell.Successes,
 		"dropped", cell.Dropped, "failed", cell.Failed, "slo_violations", cell.SLOViolations,
 		"goodput_rps", cell.GoodputRPS, "clean", cell.Clean, "flagged", cell.Flagged)

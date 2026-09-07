@@ -186,10 +186,27 @@ requests have finished. Offered load is an input. Used for the headline goodput 
 a closed-loop driver throttles itself when the fleet slows and so understates the tail.
 _Avoid_: rate driver, Poisson driver
 
+**Arrival rate**:
+The requests per second an open-loop cell offers the fleet. It is that driver's input the way
+concurrency is the closed-loop driver's, and it is a property of the schedule rather than of the
+fleet: a cell offered 32 requests per second offered exactly that whether the fleet served 32 or
+four. Written into the cell id as `a32`, against `c32` for a concurrency.
+_Avoid_: offered load (that is the quantity, not the axis), throughput, RPS
+
+**Schedule lag**:
+How long after its due time a request was actually sent. It is the open-loop driver auditing
+itself: a driver that fell behind its own schedule offered less than the cell claims, which is
+the closed-loop failure mode reappearing inside the driver that exists to avoid it. Recorded per
+request and summarised per cell, and a cell whose lag ran past the threshold is flagged rather
+than quietly reporting a rate it never offered.
+_Avoid_: jitter, delay, drift
+
 **Sweep**:
-A set of cells varying one axis while everything else is held fixed. Two exist: concurrency and
-policy tunables. The pressure grid runs alongside them and is not a sweep, because it crosses two
-axes at once.
+A set of cells varying one axis while everything else is held fixed. Three exist: concurrency,
+arrival rate and policy tunables. The first two are the same measurement under the two drivers and
+are never merged into one column — a concurrency level and an arrival rate are different inputs to
+different loops. The pressure grid runs alongside them all and is not a sweep, because it crosses
+two axes at once.
 _Avoid_: benchmark, experiment (those mean the whole comparison), pressure grid
 
 **Pressure grid**:

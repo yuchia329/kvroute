@@ -19,7 +19,19 @@ import (
 // SessionHeader carries the session identity to the router.
 const SessionHeader = "X-Session-Id"
 
-// DriverConfig configures one closed-loop cell.
+// ClosedLoopDriver names the driver in a row and in a cell record, so no table
+// can be read without knowing which one produced it. A closed-loop driver
+// throttles itself when the fleet slows, so its tail is systematically
+// optimistic; the headline goodput number comes from the open-loop driver.
+const ClosedLoopDriver = "closed_loop"
+
+// DriverConfig configures one cell, under either driver.
+//
+// One type rather than two because the drivers differ in exactly one field:
+// closed-loop holds a Concurrency and open-loop fires at an ArrivalRate.
+// Everything else — what is sent, where, for how long, and how the outcome is
+// booked — has to be identical or the two drivers' rows could not populate one
+// table.
 type DriverConfig struct {
 	// Target is the base URL to drive: the router, or one replica directly when
 	// DirectReplica names it.
@@ -34,8 +46,13 @@ type DriverConfig struct {
 	// router in the path would fold its policy — and its overhead — into the
 	// answer.
 	DirectReplica string
-	// Concurrency is the number of virtual users held for the whole cell.
+	// Concurrency is the number of virtual users held for the whole cell. It is
+	// RunClosedLoop's input, and RunOpenLoop ignores it.
 	Concurrency int
+	// ArrivalRate is requests per second. It is RunOpenLoop's input — the
+	// schedule it fires on whether or not earlier requests have finished — and
+	// RunClosedLoop ignores it.
+	ArrivalRate float64
 	// Duration is how long users keep starting new turns. A request already in
 	// flight when it expires is allowed to finish.
 	Duration time.Duration
@@ -66,14 +83,24 @@ type DriverConfig struct {
 // and embedded in Result, so a row and its cell cannot disagree about which
 // cell it is.
 //
-// Concurrency is not an input: RunClosedLoop fills it from the concurrency it
-// was actually asked to hold, because a label that could disagree with the run
+// Driver, Concurrency and ArrivalRate are not inputs: each driver fills in the
+// ones it is authoritative for, because a label that could disagree with the run
 // is a label that will.
 type Labels struct {
-	CellID      string `json:"cell_id" parquet:"cell_id"`
-	Policy      string `json:"policy" parquet:"policy"`
-	Concurrency int    `json:"concurrency" parquet:"concurrency"`
-	Repetition  int    `json:"repetition" parquet:"repetition"`
+	CellID string `json:"cell_id" parquet:"cell_id"`
+	Policy string `json:"policy" parquet:"policy"`
+	// Driver is which load generator produced the row. Both drivers write the
+	// same schema, so the rows of a closed-loop cell and an open-loop one are
+	// concatenated into one file and read by one query; this column is what
+	// keeps them distinguishable once they are.
+	Driver string `json:"driver" parquet:"driver"`
+	// Concurrency is the number of virtual users held, under the closed-loop
+	// driver. Zero under the open-loop one, where concurrency is an outcome.
+	Concurrency int `json:"concurrency" parquet:"concurrency"`
+	// ArrivalRate is the offered requests per second, under the open-loop
+	// driver. Zero under the closed-loop one, where offered load is an outcome.
+	ArrivalRate float64 `json:"arrival_rate" parquet:"arrival_rate"`
+	Repetition  int     `json:"repetition" parquet:"repetition"`
 }
 
 // DefaultClient dispatches to the router.
@@ -122,6 +149,7 @@ func RunClosedLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 	if cfg.Warmup >= cfg.Duration && cfg.Duration > 0 {
 		return nil, fmt.Errorf("bench: warm-up %v leaves nothing of a %v cell to measure", cfg.Warmup, cfg.Duration)
 	}
+	cfg.Labels.Driver = ClosedLoopDriver
 	cfg.Labels.Concurrency = cfg.Concurrency
 
 	start := time.Now()
@@ -158,18 +186,33 @@ func runVirtualUser(ctx context.Context, cfg DriverConfig, user int, deadline, w
 		if turn > 0 && (time.Now().After(deadline) || ctx.Err() != nil) {
 			return rows
 		}
-		row := sendTurn(ctx, cfg, user, turn, warmUntil)
+		// No due time: under this driver the next request is due when the last
+		// one finished, so there is no schedule to be late against.
+		row := sendTurn(ctx, cfg, user, turn, warmUntil, time.Time{})
 		rows = append(rows, row)
-		if cfg.Rows != nil {
-			if err := cfg.Rows.Write(row); err != nil {
-				cfg.Log.Error("could not write a row", "cell", cfg.Labels.CellID, "err", err)
-			}
-		}
+		keep(cfg, row)
+	}
+}
+
+// keep writes one row to the run's record, if there is one. A failed write is
+// logged rather than returned: the returned rows are still whole, and abandoning
+// a cell that is otherwise running would cost more than the line that was lost.
+func keep(cfg DriverConfig, row Result) {
+	if cfg.Rows == nil {
+		return
+	}
+	if err := cfg.Rows.Write(row); err != nil {
+		cfg.Log.Error("could not write a row", "cell", cfg.Labels.CellID, "err", err)
 	}
 }
 
 // sendTurn sends one request and observes what came back.
-func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int, warmUntil time.Time) Result {
+//
+// scheduled is when an arrival schedule said this request was due, and the zero
+// time when nothing scheduled it. Both drivers share this function so that an
+// outcome cannot be booked one way under one driver and another way under the
+// other.
+func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int, warmUntil, scheduled time.Time) Result {
 	next := cfg.Workload.Next(user, turn)
 	started := time.Now()
 	row := Result{
@@ -179,8 +222,13 @@ func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int, warmUntil t
 		VirtualUser: user,
 		// Judged on when the request started: a request that began inside the
 		// warm-up window is a warm-up request however long it took to finish.
+		// One rule for both drivers, so a row's warm-up flag means the same
+		// thing wherever it came from.
 		Warmup:      started.Before(warmUntil),
 		StartedAtNs: started.UnixNano(),
+	}
+	if !scheduled.IsZero() {
+		row.ScheduledAtNs = scheduled.UnixNano()
 	}
 	finish := func(outcome record.Outcome, err error) Result {
 		row.TotalNs = time.Since(started).Nanoseconds()

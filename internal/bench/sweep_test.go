@@ -239,7 +239,7 @@ func TestAnInterruptedCellIsNotCachedAsThoughItHadFinished(t *testing.T) {
 	if len(cells) != 0 {
 		t.Errorf("an interrupted sweep returned %d cells", len(cells))
 	}
-	id := bench.CellID("round_robin", 1, 1)
+	id := bench.CellID("round_robin", bench.ClosedLoopAt(1), 1)
 	if _, err := os.Stat(filepath.Join(dir, "cells", id+".json")); err == nil {
 		t.Error("the interrupted cell was written as a completed cell record")
 	}
@@ -330,6 +330,92 @@ func TestChangingTheSLORecomputesCachedCellsFromTheirRowsInsteadOfReRunningThem(
 	})
 	if !reloaded[0].SLOApplied || reloaded[0].SLOViolations != second[0].SLOViolations {
 		t.Errorf("the resummarised cell was not written back: %+v", reloaded[0].Summary)
+	}
+}
+
+// The sweep's load axis takes either driver, and a cell records which one ran
+// it. Both axes in one directory is the case that has to work: the headline
+// goodput number and the concurrency scaling are read side by side.
+func TestASweepRunsBothLoadAxesAndEachCellSaysWhichDriverRanIt(t *testing.T) {
+	dir := t.TempDir()
+
+	cells, _ := sweepUnderTest(t, dir, bench.SweepConfig{
+		Concurrencies: []int{2},
+		ArrivalRates:  []float64{50},
+		CellDuration:  60 * time.Millisecond,
+	})
+
+	if len(cells) != 2 {
+		t.Fatalf("produced %d cells, want one per load level", len(cells))
+	}
+	closed, open := cells[0], cells[1]
+	if closed.Driver != bench.ClosedLoopDriver || closed.Concurrency != 2 || closed.ArrivalRate != 0 {
+		t.Errorf("the concurrency cell records driver %q, concurrency %d, rate %g", closed.Driver, closed.Concurrency, closed.ArrivalRate)
+	}
+	if open.Driver != bench.OpenLoopDriver || open.ArrivalRate != 50 || open.Concurrency != 0 {
+		t.Errorf("the rate cell records driver %q, concurrency %d, rate %g", open.Driver, open.Concurrency, open.ArrivalRate)
+	}
+	// The ids say which axis a cell is on, so the two never collide in the
+	// directory they resume from.
+	if open.ID != bench.CellID("round_robin", bench.OpenLoopAt(50), 1) || open.ID == closed.ID {
+		t.Errorf("cell ids %q and %q do not tell the two axes apart", closed.ID, open.ID)
+	}
+	if open.Requests+open.Warmup == 0 {
+		t.Error("the open-loop cell sent nothing")
+	}
+	if open.Scheduled == 0 {
+		t.Error("the open-loop cell records no scheduled requests, so nothing shows it held its rate")
+	}
+}
+
+func TestASweepRefusesToStartWhenARateIsAboveWhatTheWorkloadIsPartitionedFor(t *testing.T) {
+	dir := t.TempDir()
+	target, _, _ := fleetUnderTest(t, fakereplica.Config{})
+
+	// Two cells whose slices of the workload's user space would overlap send
+	// each other's bytes, and the second would be reading the replicas' prefix
+	// caches rather than measuring prefill. Refusing beats discovering it in
+	// the results.
+	_, err := bench.RunSweep(context.Background(), bench.SweepConfig{
+		Dir: dir, Target: target, Policy: "round_robin",
+		ArrivalRates: []float64{4096},
+		CellDuration: 20 * time.Millisecond,
+		Workload:     bench.NewFixedWorkload(bench.FixedWorkload{Model: testModel, OutputTokens: 2}),
+		Log:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+
+	if err == nil {
+		t.Fatal("the sweep accepted an arrival rate the workload cannot be partitioned for")
+	}
+	if !strings.Contains(err.Error(), "4096") {
+		t.Errorf("the error does not name the rate it refused: %v", err)
+	}
+}
+
+func TestASweepRefusesToStartWhenTwoCellsWouldSendTheSamePrompts(t *testing.T) {
+	dir := t.TempDir()
+	target, _, _ := fleetUnderTest(t, fakereplica.Config{})
+
+	// Two rates a fraction apart are two cells by their ids and one slice of the
+	// workload's user space by the arithmetic that partitions it. ADR-0004: the
+	// second would read the replicas' prefix caches rather than measure prefill,
+	// and its latency would not admit to it.
+	_, err := bench.RunSweep(context.Background(), bench.SweepConfig{
+		Dir: dir, Target: target, Policy: "round_robin",
+		ArrivalRates: []float64{12.4, 12.44},
+		CellDuration: 20 * time.Millisecond,
+		Workload:     bench.NewFixedWorkload(bench.FixedWorkload{Model: testModel, OutputTokens: 2}),
+		Log:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+
+	if err == nil {
+		t.Fatal("the sweep accepted two cells that would send each other's prompts")
+	}
+	if !strings.Contains(err.Error(), "same prompts") {
+		t.Errorf("the error does not say what is wrong: %v", err)
+	}
+	if entries, _ := filepath.Glob(filepath.Join(dir, "cells", "*.json")); len(entries) != 0 {
+		t.Errorf("a cell ran before the partition was checked: %v", entries)
 	}
 }
 

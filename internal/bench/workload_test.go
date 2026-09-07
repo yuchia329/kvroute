@@ -32,31 +32,68 @@ func TestShiftedWorkloadSendsBytesTheUnshiftedOneNeverSends(t *testing.T) {
 }
 
 // The offset is keyed on the axes and not on the policy: two cells differing
-// only in repetition or concurrency must send different bytes, and the same
+// only in repetition or load level must send different bytes, and the same
 // cell under two policies must send identical bytes or the policies are not
 // being compared on the same workload.
 func TestCellWorkloadOffsetsSeparateRepetitionsAndLevelsAndNothingElse(t *testing.T) {
-	seen := map[int]string{}
+	var loads []bench.Load
 	for _, concurrency := range bench.ConcurrencySweep {
+		loads = append(loads, bench.ClosedLoopAt(concurrency))
+	}
+	// The rate axis crosses the concurrency axis: a rate of 8 requests per
+	// second is a different cell from eight virtual users, and the two must not
+	// land on the same prompts.
+	for _, rate := range bench.ArrivalRateSweep {
+		loads = append(loads, bench.OpenLoopAt(rate))
+	}
+
+	seen := map[int]string{}
+	for _, load := range loads {
 		for repetition := 1; repetition <= 3; repetition++ {
-			offset := bench.CellWorkloadOffset(concurrency, repetition)
-			id := bench.CellID("round_robin", concurrency, repetition)
+			offset := bench.CellWorkloadOffset(load, repetition)
+			id := bench.CellID("round_robin", load, repetition)
 			if other, clash := seen[offset]; clash {
 				t.Errorf("%s and %s share workload offset %d, so one re-sends the other's prompts", id, other, offset)
 			}
 			seen[offset] = id
-			// The user ids inside a cell run 0..concurrency-1, so two cells'
-			// ranges must not overlap either.
-			if next := bench.CellWorkloadOffset(concurrency, repetition) + concurrency; next > offset+bench.WorkloadStride {
-				t.Errorf("%s uses %d users, more than the %d stride between cells", id, concurrency, bench.WorkloadStride)
+			// The user ids inside a closed-loop cell run 0..concurrency-1, so
+			// two cells' ranges must not overlap either.
+			if next := offset + load.Concurrency; next > offset+bench.WorkloadStride {
+				t.Errorf("%s uses %d users, more than the %d stride between cells", id, load.Concurrency, bench.WorkloadStride)
 			}
 		}
 	}
-	if bench.CellWorkloadOffset(8, 2) == bench.CellWorkloadOffset(8, 1) {
+
+	if bench.CellWorkloadOffset(bench.ClosedLoopAt(8), 2) == bench.CellWorkloadOffset(bench.ClosedLoopAt(8), 1) {
 		t.Error("two repetitions of the same cell send the same bytes")
 	}
-	if bench.CellWorkloadOffset(16, 1) == bench.CellWorkloadOffset(8, 1) {
+	if bench.CellWorkloadOffset(bench.ClosedLoopAt(16), 1) == bench.CellWorkloadOffset(bench.ClosedLoopAt(8), 1) {
 		t.Error("two concurrency levels send the same bytes")
+	}
+	if bench.CellWorkloadOffset(bench.OpenLoopAt(8), 1) == bench.CellWorkloadOffset(bench.ClosedLoopAt(8), 1) {
+		t.Error("a cell at 8 requests per second sends the same bytes as one at concurrency 8")
+	}
+}
+
+// Rates round-trip through the flag spec for the same reason levels do.
+func TestArrivalRatesSurviveARoundTripThroughTheSpecTheFlagsTake(t *testing.T) {
+	for _, rates := range [][]float64{bench.ArrivalRateSweep, {0.5, 2.5}, {16}} {
+		spec := bench.FormatRates(rates)
+		got, err := bench.ParseRates(spec)
+		if err != nil {
+			t.Fatalf("parse %q: %v", spec, err)
+		}
+		if len(got) != len(rates) {
+			t.Fatalf("parsing %q gave %v, want %v", spec, got, rates)
+		}
+		for i := range rates {
+			if got[i] != rates[i] {
+				t.Errorf("parsing %q gave %v, want %v", spec, got, rates)
+			}
+		}
+	}
+	if _, err := bench.ParseRates("4,-1"); err == nil {
+		t.Error("a negative arrival rate was accepted")
 	}
 }
 

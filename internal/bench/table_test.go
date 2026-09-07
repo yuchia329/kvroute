@@ -10,6 +10,7 @@ import (
 func TestTheResultsTableKeepsTheThreeFailureColumnsApart(t *testing.T) {
 	cells := []bench.Cell{{
 		ID:          "round_robin-c8-r1",
+		Driver:      bench.ClosedLoopDriver,
 		Concurrency: 8,
 		Repetition:  1,
 		Summary: bench.Summary{
@@ -27,6 +28,37 @@ func TestTheResultsTableKeepsTheThreeFailureColumnsApart(t *testing.T) {
 	}
 	if !strings.Contains(got, "failure rate 10.00%") {
 		t.Errorf("the flag reason is not reported:\n%s", got)
+	}
+}
+
+// A goodput figure is not interpretable without the driver that produced it,
+// and the two drivers' rows share a schema so that they land in one table.
+func TestEveryRowOfTheResultsTableSaysWhichDriverProducedIt(t *testing.T) {
+	cells := []bench.Cell{{
+		ID: "round_robin-c8-r1", Driver: bench.ClosedLoopDriver, Concurrency: 8, Repetition: 1,
+		Summary: bench.Summary{Requests: 100, Successes: 100, GoodputRPS: 8.3, SLOApplied: true},
+	}, {
+		ID: "round_robin-a16-r1", Driver: bench.OpenLoopDriver, ArrivalRate: 16, Repetition: 1,
+		Summary: bench.Summary{Requests: 200, Successes: 180, GoodputRPS: 12.1, SLOApplied: true},
+	}}
+
+	got := bench.Table(cells)
+
+	if !strings.Contains(got, "| closed-loop | 8 users |") {
+		t.Errorf("the closed-loop row does not name its driver and the concurrency it held:\n%s", got)
+	}
+	if !strings.Contains(got, "| open-loop | 16 req/s |") {
+		t.Errorf("the open-loop row does not name its driver and the rate it offered:\n%s", got)
+	}
+}
+
+// A cell recorded before cells named their driver must not be quietly rendered
+// as one of them.
+func TestACellThatDoesNotSayWhichDriverProducedItSaysSo(t *testing.T) {
+	got := bench.Table([]bench.Cell{{ID: "round_robin-c8-r1", Concurrency: 8, Repetition: 1}})
+
+	if !strings.Contains(got, "unstated") {
+		t.Errorf("a cell with no driver was rendered as though it had one:\n%s", got)
 	}
 }
 

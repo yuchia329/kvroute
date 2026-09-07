@@ -23,6 +23,17 @@ const DefaultFailureThreshold = 0.01
 // stops being read.
 const DefaultWarmupDriftThreshold = 0.25
 
+// DefaultScheduleLagThreshold is how far behind its own arrival schedule an
+// open-loop cell may fall, at the 99th percentile, before it is flagged.
+//
+// The fleet's own latencies are hundreds of milliseconds, so a driver that is
+// more than a tenth of a second late on one request in a hundred is
+// contributing meaningfully to the numbers it reports — and, worse, is
+// throttling itself in exactly the way the open-loop driver exists to avoid.
+// Below that the lateness is host scheduling noise on top of load the fleet did
+// receive.
+const DefaultScheduleLagThreshold = 100 * time.Millisecond
+
 // SummaryOptions are the thresholds a cell is judged against. They travel
 // together everywhere, so they are one type rather than three arguments.
 type SummaryOptions struct {
@@ -34,6 +45,12 @@ type SummaryOptions struct {
 	// which a cell is flagged as under-warmed. Zero uses
 	// DefaultWarmupDriftThreshold; a negative value disables the check.
 	WarmupDriftThreshold float64
+	// ScheduleLagThreshold is how late an open-loop cell's requests may be sent
+	// against the schedule that asked for them, at the 99th percentile, before
+	// the cell is flagged. Zero uses DefaultScheduleLagThreshold; a negative
+	// value disables the check. It says nothing about a closed-loop cell, which
+	// has no schedule to be late against.
+	ScheduleLagThreshold time.Duration
 }
 
 func (o SummaryOptions) failureThreshold() float64 {
@@ -48,6 +65,13 @@ func (o SummaryOptions) driftThreshold() float64 {
 		return DefaultWarmupDriftThreshold
 	}
 	return o.WarmupDriftThreshold
+}
+
+func (o SummaryOptions) scheduleLagThreshold() time.Duration {
+	if o.ScheduleLagThreshold == 0 {
+		return DefaultScheduleLagThreshold
+	}
+	return o.ScheduleLagThreshold
 }
 
 // Summary is the arithmetic over one cell's rows.
@@ -102,6 +126,20 @@ type Summary struct {
 	// level. NaN-free: zero when there are too few successes to compare.
 	WarmupDrift float64 `json:"warmup_drift" parquet:"warmup_drift"`
 
+	// Scheduled is how many measured requests carried a due time, which is all
+	// of them under the open-loop driver and none under the closed-loop one.
+	// The lag figures below are over those requests, whatever their outcome:
+	// how late the driver was is a property of the driver, not of what came
+	// back.
+	Scheduled        int   `json:"scheduled" parquet:"scheduled"`
+	ScheduleLagP50Ns int64 `json:"schedule_lag_p50_ns" parquet:"schedule_lag_p50_ns"`
+	ScheduleLagP99Ns int64 `json:"schedule_lag_p99_ns" parquet:"schedule_lag_p99_ns"`
+	ScheduleLagMaxNs int64 `json:"schedule_lag_max_ns" parquet:"schedule_lag_max_ns"`
+	// ScheduleLagThresholdNs is the p99 lag above which this cell was flagged
+	// as not having held its schedule, so the flag can be read against what it
+	// was judged by.
+	ScheduleLagThresholdNs int64 `json:"schedule_lag_threshold_ns" parquet:"schedule_lag_threshold_ns"`
+
 	// FailureRate is dropped plus failed over every measured request.
 	FailureRate      float64 `json:"failure_rate" parquet:"failure_rate"`
 	FailureThreshold float64 `json:"failure_threshold" parquet:"failure_threshold"`
@@ -124,7 +162,7 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 		FailureThreshold: opts.failureThreshold(),
 	}
 
-	var ttft, total, itl []time.Duration
+	var ttft, total, itl, lag []time.Duration
 	var first, last time.Time
 	met := 0
 
@@ -141,6 +179,15 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 		}
 		if ended := r.EndedAt(); ended.After(last) {
 			last = ended
+		}
+
+		// Before the outcome switch: an arrival that was fired late was late
+		// whether or not anything came back, and a driver that fell behind
+		// while the fleet was dropping requests is exactly the case the figure
+		// exists to catch.
+		if r.ScheduledAtNs != 0 {
+			s.Scheduled++
+			lag = append(lag, r.ScheduleLag())
 		}
 
 		switch r.Outcome {
@@ -182,6 +229,12 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 	slices.Sort(ttft)
 	slices.Sort(total)
 	slices.Sort(itl)
+	slices.Sort(lag)
+	s.ScheduleLagP50Ns = stats.Quantile(lag, 0.50).Nanoseconds()
+	s.ScheduleLagP99Ns = stats.Quantile(lag, 0.99).Nanoseconds()
+	if len(lag) > 0 {
+		s.ScheduleLagMaxNs = lag[len(lag)-1].Nanoseconds()
+	}
 	s.TTFTP50Ns = stats.Quantile(ttft, 0.50).Nanoseconds()
 	s.TTFTP95Ns = stats.Quantile(ttft, 0.95).Nanoseconds()
 	s.TTFTP99Ns = stats.Quantile(ttft, 0.99).Nanoseconds()
@@ -191,7 +244,8 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 	s.ITLP95Ns = stats.Quantile(itl, 0.95).Nanoseconds()
 
 	s.WarmupDrift = warmupDrift(results, first, last)
-	s.flag(opts.driftThreshold())
+	s.ScheduleLagThresholdNs = opts.scheduleLagThreshold().Nanoseconds()
+	s.flag(opts.driftThreshold(), opts.scheduleLagThreshold())
 	return s
 }
 
@@ -237,7 +291,7 @@ func warmupDrift(results []Result, first, last time.Time) float64 {
 
 // flag records every reason this cell should not be silently averaged in with
 // the others.
-func (s *Summary) flag(driftThreshold float64) {
+func (s *Summary) flag(driftThreshold float64, scheduleLagThreshold time.Duration) {
 	if s.Requests == 0 {
 		s.Flag("cell produced no measured requests")
 	}
@@ -248,6 +302,16 @@ func (s *Summary) flag(driftThreshold float64) {
 	if driftThreshold > 0 && s.WarmupDrift > driftThreshold {
 		s.Flag(fmt.Sprintf("still warming up: the first half of the measured window was %.0f%% slower than the second by TTFT p50, over a %.0f%% threshold. Lengthen the warm-up and re-run",
 			s.WarmupDrift*100, driftThreshold*100))
+	}
+	if s.Scheduled > 0 && scheduleLagThreshold > 0 && s.ScheduleLagP99Ns > scheduleLagThreshold.Nanoseconds() {
+		// The open-loop driver's whole claim is that offered load is an input.
+		// A driver that fell behind its own schedule offered less than the cell
+		// says it did, and the goodput computed from it would be a figure for a
+		// rate the fleet was never actually given.
+		s.Flag(fmt.Sprintf("the driver did not hold its arrival schedule: 1%% of requests were sent more than %v late (worst %v), over a %v threshold. The offered rate is not the rate this cell reports",
+			time.Duration(s.ScheduleLagP99Ns).Round(time.Millisecond),
+			time.Duration(s.ScheduleLagMaxNs).Round(time.Millisecond),
+			scheduleLagThreshold))
 	}
 	if s.Cancelled > 0 {
 		// The driver lets in-flight requests finish, so a cancellation means

@@ -35,6 +35,17 @@ CONTRACT_REPLICA ?=
 CHAR_DIR ?= runs/characterization
 CHAR_ARGS ?=
 
+# The headline goodput number: the open-loop driver at a ladder of arrival
+# rates. Its own directory because it is a different axis of a different driver
+# from RUN_DIR's concurrency sweep, and the two are read side by side rather
+# than merged. GOODPUT_ARGS carries the SLO, which this measurement is
+# meaningless without: goodput is requests per second that met it.
+# GOODPUT_RATES overrides the ladder; unset, the command uses the package's own,
+# which is the single copy of it.
+GOODPUT_DIR ?= runs/goodput
+GOODPUT_RATES ?=
+GOODPUT_ARGS ?=
+
 # The contention experiment: all six replicas driven at once, compared by NUMA
 # node. Separate from CHAR_DIR because it is a different measurement of a
 # different thing — a solo latency and a contended one are not comparable, and
@@ -103,6 +114,15 @@ bench: build ## Sweep concurrency against the running fleet, resuming from RUN_D
 		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
 		$(BENCH_ARGS)
+
+.PHONY: goodput
+goodput: build ## Offer a ladder of arrival rates open-loop and record goodput at each, resuming from GOODPUT_DIR
+	$(BIN)/bench -router $(ROUTER) -dir $(GOODPUT_DIR) -policy $(POLICY) -driver open_loop \
+		$(if $(GOODPUT_RATES),-arrival-rates $(GOODPUT_RATES),) \
+		-model "$$(ops/fleet.sh env MODEL)" \
+		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
+		-replicas "$$(ops/fleet.sh replicas)" \
+		$(GOODPUT_ARGS)
 
 .PHONY: characterize
 characterize: build ## Measure KV capacity, the latency floor, the SLO and replica symmetry

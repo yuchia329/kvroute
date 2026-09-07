@@ -53,10 +53,16 @@ func fleetUnderTest(t *testing.T, cfg fakereplica.Config) (string, *fakereplica.
 	t.Helper()
 	replica := fakereplica.New(cfg)
 	counted := &inflight{Handler: replica.Handler()}
-	replicaSrv := httptest.NewServer(counted)
-	t.Cleanup(replicaSrv.Close)
+	return routerOver(t, counted), replica, counted
+}
 
-	return routerFor(t, "replica-0="+replicaSrv.URL), replica, counted
+// routerOver runs a round-robin router over one replica handler, which may be
+// the fake replica or anything wrapped around it.
+func routerOver(t *testing.T, h http.Handler) string {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return routerFor(t, "replica-0="+srv.URL)
 }
 
 // routerFor runs a round-robin router over the given replica specs.

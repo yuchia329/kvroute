@@ -39,15 +39,28 @@ type Result struct {
 	// Session is the multi-turn exchange this request belongs to. Under the
 	// fixed workload one virtual user is one session; the multi-turn generator
 	// replaces that with sessions that outlive a single user.
-	Session     string `json:"session" parquet:"session"`
-	Turn        int    `json:"turn" parquet:"turn"`
-	VirtualUser int    `json:"virtual_user" parquet:"virtual_user"`
+	Session string `json:"session" parquet:"session"`
+	Turn    int    `json:"turn" parquet:"turn"`
+	// VirtualUser is the slot of the workload's user space this request drew
+	// from. Under the closed-loop driver that is the virtual user that sent it;
+	// the open-loop driver has no virtual users, and each of its arrivals draws
+	// its own slot.
+	VirtualUser int `json:"virtual_user" parquet:"virtual_user"`
 	// Warmup marks a request the summary excludes. The row is kept rather than
 	// dropped: discarding it would make the record unable to show what was
 	// discarded or why.
 	Warmup bool `json:"warmup" parquet:"warmup"`
 
 	StartedAtNs int64 `json:"started_at_ns" parquet:"started_at_ns"`
+	// ScheduledAtNs is when the arrival schedule said this request was due.
+	// Zero under the closed-loop driver, which has no schedule: there the next
+	// request is due when the last one finished.
+	//
+	// It sits beside StartedAtNs rather than replacing it so the driver's own
+	// lateness is visible in the record. An open-loop driver that fell behind
+	// its schedule would be self-throttling exactly like a closed-loop one, and
+	// a row that recorded only when it was sent could not show that it had.
+	ScheduledAtNs int64 `json:"scheduled_at_ns" parquet:"scheduled_at_ns"`
 
 	// Replica and Decision are read back off the router's response headers, so
 	// the row says where the request actually went and why without the harness
@@ -74,6 +87,15 @@ type Result struct {
 
 	Outcome record.Outcome `json:"outcome" parquet:"outcome"`
 	Error   string         `json:"error,omitempty" parquet:"error"`
+}
+
+// ScheduleLag is how late this request was sent against the schedule that asked
+// for it. Zero when nothing scheduled it, which is every closed-loop row.
+func (r Result) ScheduleLag() time.Duration {
+	if r.ScheduledAtNs == 0 {
+		return 0
+	}
+	return time.Duration(r.StartedAtNs - r.ScheduledAtNs)
 }
 
 // EndedAt is when the last byte of this request arrived.
