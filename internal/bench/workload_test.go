@@ -1,6 +1,7 @@
 package bench_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/yuchia329/kvroute/internal/bench"
@@ -56,5 +57,31 @@ func TestCellWorkloadOffsetsSeparateRepetitionsAndLevelsAndNothingElse(t *testin
 	}
 	if bench.CellWorkloadOffset(16, 1) == bench.CellWorkloadOffset(8, 1) {
 		t.Error("two concurrency levels send the same bytes")
+	}
+}
+
+// The flag defaults in cmd/ are rendered from these values rather than spelled
+// out again. A second copy is how the package gets changed and the command
+// keeps measuring the old thing — which is exactly what happened once: the
+// characterization's second load level was raised to 32 in the package while
+// the flag default kept it at 16, and a full run measured the wrong level.
+func TestLevelsSurviveARoundTripThroughTheSpecTheFlagsTake(t *testing.T) {
+	for _, levels := range [][]int{bench.ConcurrencySweep, {1, 32}, {1}} {
+		spec := bench.FormatLevels(levels)
+		got, err := bench.ParseLevels(spec)
+		if err != nil {
+			t.Fatalf("parse %q: %v", spec, err)
+		}
+		if !slices.Equal(got, levels) {
+			t.Errorf("%v rendered to %q and read back as %v", levels, spec, got)
+		}
+	}
+}
+
+func TestParseLevelsRefusesASpecThatIsNotLoadLevels(t *testing.T) {
+	for _, spec := range []string{"", " , ", "0", "-4", "eight", "1,0"} {
+		if got, err := bench.ParseLevels(spec); err == nil {
+			t.Errorf("parsed %q as %v", spec, got)
+		}
 	}
 }

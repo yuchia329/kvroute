@@ -47,7 +47,7 @@ func run() error {
 		replicaSpecs = flag.String("replicas", "", "the same -replicas spec the router was given; each is asked for /health before the sweep starts")
 		dir          = flag.String("dir", "runs/concurrency", "where cells are written and resumed from")
 		policyName   = flag.String("policy", "round_robin", "the policy the router is running; recorded as the cell's label")
-		levels       = flag.String("concurrency", "1,4,8,16,32,64,128,256", "concurrency levels to sweep")
+		levels       = flag.String("concurrency", bench.FormatLevels(bench.ConcurrencySweep), "concurrency levels to sweep")
 		repetitions  = flag.Int("repetitions", 3, "repetitions per level; p99 is noisy at low sample counts")
 		duration     = flag.Duration("cell-duration", 60*time.Second, "how long each cell keeps starting new turns")
 		warmup       = flag.Duration("warmup", 10*time.Second, "slice at the start of each cell whose rows are recorded but excluded from the summary; a duration, so every concurrency level forfeits the same share of its window")
@@ -79,7 +79,7 @@ func run() error {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	concurrencies, err := parseLevels(*levels)
+	concurrencies, err := bench.ParseLevels(*levels)
 	if err != nil {
 		return err
 	}
@@ -187,25 +187,6 @@ func header(policy string, ttft, itl time.Duration) string {
 		slo = fmt.Sprintf("TTFT < %v, inter-token p50 < %v", ttft, itl)
 	}
 	return fmt.Sprintf("# Concurrency sweep — %s\n\nDriver: closed-loop (offered load is an outcome, so the tail here is\noptimistic; the headline goodput number comes from the open-loop driver).\n\nSLO: %s\n\n", policy, slo)
-}
-
-func parseLevels(spec string) ([]int, error) {
-	var levels []int
-	for field := range strings.SplitSeq(spec, ",") {
-		field = strings.TrimSpace(field)
-		if field == "" {
-			continue
-		}
-		n, err := strconv.Atoi(field)
-		if err != nil || n <= 0 {
-			return nil, fmt.Errorf("bench: concurrency level %q is not a positive integer", field)
-		}
-		levels = append(levels, n)
-	}
-	if len(levels) == 0 {
-		return nil, fmt.Errorf("bench: no concurrency levels given")
-	}
-	return levels, nil
 }
 
 // replicaPIDs reads the fleet's supervisor pids off its pid files. The process

@@ -49,7 +49,10 @@ func run() error {
 		dir          = flag.String("dir", "runs/characterization", "where the rows and the record are written")
 		model        = flag.String("model", "", "the model the replicas serve; no default, it is pinned in ops/versions.env")
 
-		levels        = flag.String("levels", "1,16", "load levels each replica is driven at, on its own; the first must be 1, which is where the floor lives")
+		// No literal here: the levels and the reasoning for them live in
+		// internal/characterize, and a second copy in a flag default is how the
+		// package gets changed and the command keeps measuring the old thing.
+		levels        = flag.String("levels", bench.FormatLevels(characterize.DefaultLevels), "load levels each replica is driven at, on its own; the first must be 1, which is where the floor lives")
 		repetitions   = flag.Int("repetitions", 2, "how many times the whole pass runs; the replica order reverses on alternate passes so a drifting host cannot look like a slow replica")
 		probeDuration = flag.Duration("probe-duration", 30*time.Second, "how long each replica is driven at each level")
 		warmup        = flag.Duration("warmup", 5*time.Second, "slice at the start of each probe recorded but excluded from the summary")
@@ -107,7 +110,7 @@ func run() error {
 	if _, err := fleet.New(replicas); err != nil {
 		return err
 	}
-	loadLevels, err := parseLevels(*levels)
+	loadLevels, err := bench.ParseLevels(*levels)
 	if err != nil {
 		return err
 	}
@@ -202,25 +205,6 @@ func rerender(dir string) error {
 	}
 	fmt.Fprintf(os.Stderr, "characterize: re-rendered %s from %s\n", report, path)
 	return nil
-}
-
-func parseLevels(spec string) ([]int, error) {
-	var levels []int
-	for field := range strings.SplitSeq(spec, ",") {
-		field = strings.TrimSpace(field)
-		if field == "" {
-			continue
-		}
-		n, err := strconv.Atoi(field)
-		if err != nil || n <= 0 {
-			return nil, fmt.Errorf("characterize: load level %q is not a positive integer", field)
-		}
-		levels = append(levels, n)
-	}
-	if len(levels) == 0 {
-		return nil, fmt.Errorf("characterize: no load levels given")
-	}
-	return levels, nil
 }
 
 // replicaPIDs reads the fleet's supervisor pids off its pid files. The process

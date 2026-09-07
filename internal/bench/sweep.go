@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,41 @@ import (
 // ConcurrencySweep is the scaling axis: how each policy's latency degrades as
 // offered load rises.
 var ConcurrencySweep = []int{1, 4, 8, 16, 32, 64, 128, 256}
+
+// FormatLevels renders load levels into the comma-separated spec the commands
+// take, so a flag's default can be the package's own value rather than a second
+// copy of it that drifts.
+func FormatLevels(levels []int) string {
+	fields := make([]string, 0, len(levels))
+	for _, n := range levels {
+		fields = append(fields, strconv.Itoa(n))
+	}
+	return strings.Join(fields, ",")
+}
+
+// ParseLevels reads a comma-separated spec of load levels.
+//
+// Here rather than in each command because both take the same spec, and two
+// parsers for one format is two places for "0" or "-4" to be accepted by one
+// and rejected by the other.
+func ParseLevels(spec string) ([]int, error) {
+	var levels []int
+	for field := range strings.SplitSeq(spec, ",") {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		n, err := strconv.Atoi(field)
+		if err != nil || n <= 0 {
+			return nil, fmt.Errorf("bench: load level %q is not a positive integer", field)
+		}
+		levels = append(levels, n)
+	}
+	if len(levels) == 0 {
+		return nil, errors.New("bench: no load levels given")
+	}
+	return levels, nil
+}
 
 // ClosedLoopDriver names the driver in a cell record, so no table can be read
 // without knowing which one produced it. A closed-loop driver throttles itself
