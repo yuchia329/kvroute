@@ -108,7 +108,7 @@ func startRouter(t *testing.T, specs ...string) (string, *rowSink) {
 	r, err := router.New(router.Config{
 		Fleet:   f,
 		Policy:  policy.NewRoundRobin(),
-		Records: record.NewWriter(rows),
+		Records: record.NewWriter[record.Request](rows),
 	})
 	if err != nil {
 		t.Fatalf("new router: %v", err)

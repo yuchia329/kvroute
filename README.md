@@ -7,9 +7,11 @@ the consistent-hash session-affinity baseline any load balancer already gives yo
 measured comparison of routing policies, not a service. See [`idea.md`](idea.md) for the spec and
 [`CONTEXT.md`](CONTEXT.md) for the vocabulary.
 
-> **Status: the thinnest complete path is in place** — a request reaches a replica through the
-> router with SSE intact, and lands as a row in the record. The results table, the policies and
-> the pressure map are not built yet. This README gets replaced by a results-first one once there
+> **Status: the fleet and the harness are in place** — six replicas come up behind a preflight,
+> a closed-loop driver sweeps concurrency across them under round-robin, and every cell lands as
+> a row in the results table with its own contamination evidence. What is missing is the
+> comparison: three of the four policies, both pressure axes, and the multi-turn workload that
+> makes cache locality exist at all. This README gets replaced by a results-first one once there
 > are results.
 >
 > **Verified on the box, 2026-09-06.** One replica of the pinned engine came up on an RTX 3090,
@@ -36,20 +38,32 @@ sweeps.
 ## What runs today
 
 ```
-client ──► router (:8080) ──► replica (:8000)
-              │                   │
-              │                   └─ /v1/chat/completions (SSE), /metrics
-              └─ round-robin policy, per-request JSONL rows, own-overhead percentiles
+cmd/bench ──► router (:8080) ──► replica-0..5 (:8000..:8005, one GPU each)
+    │             │                   │
+    │             │                   └─ /v1/chat/completions (SSE), /metrics
+    │             └─ round-robin policy, per-request JSONL rows, own-overhead percentiles
+    └─ closed-loop driver, per-cell caching, nvidia-smi contamination sampling,
+       JSONL during the run → Parquet after
 ```
 
 - **`cmd/router`** — OpenAI-compatible `POST /v1/chat/completions` with SSE passed through
   untouched, one JSONL row per request, and its own accept-to-dispatch cost reported at
   `GET /router/stats`.
+- **`cmd/bench`** — the closed-loop driver and the concurrency sweep. Holds a fixed number of
+  virtual users at each of eight levels, counts dropped, failed and SLO-violating requests in
+  three separate columns, samples the GPUs throughout, and resumes from cached cells.
+- **`cmd/preflight`** — refuses to bring the fleet up while any GPU already holds memory. The
+  same probe backs the per-cell contamination check: one preflight, two jobs.
 - **`cmd/fakereplica`** — a programmable stand-in for a replica with configurable TTFT and
   inter-token latency, so everything above the replica HTTP boundary can be exercised without a
   GPU. `test/contract` holds it to the real engine's behaviour.
+- **`ops/fleet.sh`** — preflight, then all six replicas one at a time. Bring-up is sequential on
+  purpose: `/home` is a network filesystem and six simultaneous 5.4 GB model loads would put an
+  NFS thundering herd inside the first cell's timings.
 - **`ops/replica.sh`** — starts one vLLM replica as a bare process on the pinned engine version
-  with the AWQ backend forced, refusing to start if either has drifted.
+  with the AWQ backend forced, refusing to start if either has drifted. `ops/fleet.sh` holds no
+  engine settings of its own; a second copy of them is how two cells end up running different
+  kernels.
 
 ## Run it without a GPU
 
@@ -64,17 +78,27 @@ curl -N http://127.0.0.1:8080/v1/chat/completions \
 curl -s http://127.0.0.1:8080/router/stats   # router overhead p50/p99
 ```
 
-## Run it against a real replica
+## Run it against the real fleet
 
 ```sh
-make replica-up INDEX=0                                    # pinned vLLM, forced awq_marlin
+make linux                                                 # static binaries for the box; it has no Go
+make fleet-up                                              # preflight, then six replicas, staggered
 make contract CONTRACT_REPLICA=http://127.0.0.1:8000       # hold the fake to the engine
-make router-linux                                          # static binary for the box
+make run-router REPLICAS="$(ops/fleet.sh replicas)"
+make bench BENCH_ARGS="-cell-duration 60s -repetitions 3"
 ```
 
 `ops/versions.env` is the single source of truth for everything held constant between cells: the
-engine version, the model, the forced quantization backend, and the prefix-caching and
-chunked-prefill settings.
+engine version, the model, the forced quantization backend, the prefix-caching and chunked-prefill
+settings, the GPU-dirty threshold and the startup stagger.
+
+The sweep resumes. Interrupting it leaves whole cells behind, and re-running the same command
+loads them rather than recomputing them.
+
+**The SLO is deliberately unset until it has been measured.** `-slo-ttft` and `-slo-itl` default to
+zero, and a cell run without them records that no SLO was applied rather than reporting a goodput
+that was never checked against anything — the concurrency-1 cell is what the threshold gets derived
+from, so it necessarily runs before one exists.
 
 ## Design notes worth knowing before reading the code
 
@@ -89,7 +113,23 @@ chunked-prefill settings.
   per-request tail latency across hundreds of cells; every reported figure is recomputable from
   the JSONL rows.
 - **One test seam: the replica HTTP boundary.** Nothing else is faked, and the fake is kept honest
-  by a contract test that runs the same assertions against a live replica.
+  by a contract test that runs the same assertions against a live replica. The one exception is
+  `nvidia-smi`, which is faked at the command boundary so contamination handling can be tested on
+  a machine with no GPU.
+- **Dropped, failed and SLO-violating never share a column.** Under overload a replica rejects in
+  milliseconds; fold those into a latency distribution and an overloaded fleet looks *faster*.
+  Percentiles are computed over successful responses only, and a cell past the failure threshold
+  is flagged with a reason rather than silently averaged in.
+- **A cell that was not checked does not claim to be clean.** Cleanliness needs a successful GPU
+  sample with nothing foreign in it. "Nothing was found" and "nothing was looked for" must not read
+  the same, so a run with GPU sampling off produces cells that say so and are flagged.
+- **Our own replicas are not foreign processes, and our leftovers are.** The pid a pid file records
+  is vLLM's API server; the process holding the card is its engine child, so ownership is resolved
+  by walking the parent chain. A replica from an earlier run that was never brought down is
+  correctly foreign — it is ours, but the fleet this cell is measuring did not start it.
+- **JSONL during the run, Parquet after** — see [ADR-0002](docs/adr/0002-jsonl-during-parquet-after.md).
+  A crash leaves readable rows; the analysis reads columns. The JSONL is the system of record and
+  compaction never deletes it.
 
 ## Prior art
 

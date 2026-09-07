@@ -71,7 +71,13 @@ type Request struct {
 }
 
 // Writer appends rows as JSONL. It is safe for concurrent use.
-type Writer struct {
+//
+// It is generic over the row type because there is more than one kind of row.
+// The router writes what it observed of a request; the harness writes what the
+// client observed of the same request, and a cell summary alongside it. All of
+// them want the same durability property — one line, flushed — and a second
+// implementation of it would be a second place for a partial write to hide.
+type Writer[T any] struct {
 	mu  sync.Mutex
 	buf *bufio.Writer
 	c   io.Closer
@@ -79,27 +85,27 @@ type Writer struct {
 
 // Open appends rows to path, creating it if needed. An empty path discards
 // rows, so a router can run without a record file.
-func Open(path string) (*Writer, error) {
+func Open[T any](path string) (*Writer[T], error) {
 	if path == "" {
-		return NewWriter(io.Discard), nil
+		return NewWriter[T](io.Discard), nil
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("record: open %s: %w", path, err)
 	}
-	w := NewWriter(f)
+	w := NewWriter[T](f)
 	w.c = f
 	return w, nil
 }
 
 // NewWriter writes rows to w.
-func NewWriter(w io.Writer) *Writer {
-	return &Writer{buf: bufio.NewWriter(w)}
+func NewWriter[T any](w io.Writer) *Writer[T] {
+	return &Writer[T]{buf: bufio.NewWriter(w)}
 }
 
 // Write appends one row and flushes it, so a crash loses at most the row in
 // flight.
-func (w *Writer) Write(r Request) error {
+func (w *Writer[T]) Write(r T) error {
 	line, err := json.Marshal(r)
 	if err != nil {
 		return fmt.Errorf("record: marshal: %w", err)
@@ -113,7 +119,7 @@ func (w *Writer) Write(r Request) error {
 }
 
 // Close flushes and closes the underlying file.
-func (w *Writer) Close() error {
+func (w *Writer[T]) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if err := w.buf.Flush(); err != nil {

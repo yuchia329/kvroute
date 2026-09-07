@@ -177,3 +177,24 @@ _Avoid_: error, drop
 A request that completed successfully but missed the SLO. Neither dropped nor failed; it is the
 quantity goodput excludes.
 _Avoid_: miss, slow request
+
+**Cancelled request**:
+A request whose client went away before the response finished. No replica errored and the router
+placed it fine, so it is neither dropped nor failed: counting it as either would let a client's
+behaviour land in the fleet's failure column. A cell containing one is flagged, because a
+cancellation means the cell was interrupted rather than run to its end.
+_Avoid_: aborted, disconnected, timed out
+
+**Foreign process**:
+A process holding memory on one of the fleet's GPUs that the fleet did not start. Ownership is by
+ancestry, not by process id: the id recorded for a replica is its API server, and the process
+actually holding the card is that server's engine child. A replica left over from an earlier run
+is foreign — it is ours, but the fleet the cell is measuring did not start it. Seeing one is what
+makes a cell not clean.
+_Avoid_: other process, stray process, someone else's job
+
+**Preflight**:
+The check that refuses to bring the fleet up while any GPU already holds memory. It is the same
+probe that samples for foreign processes during a cell, differing only in that nothing is exempt:
+before the fleet exists, every process on a card is contamination whoever started it.
+_Avoid_: health check, precheck

@@ -79,8 +79,8 @@ func (r *Recorder) Summary() Summary {
 	if len(sorted) == 0 {
 		return s
 	}
-	s.P50 = quantile(sorted, 0.50)
-	s.P99 = quantile(sorted, 0.99)
+	s.P50 = Quantile(sorted, 0.50)
+	s.P99 = Quantile(sorted, 0.99)
 	s.Max = sorted[len(sorted)-1]
 	s.P50Us = float64(s.P50.Nanoseconds()) / 1000
 	s.P99Us = float64(s.P99.Nanoseconds()) / 1000
@@ -88,8 +88,16 @@ func (r *Recorder) Summary() Summary {
 	return s
 }
 
-// quantile is nearest-rank over a sorted slice.
-func quantile(sorted []time.Duration, q float64) time.Duration {
+// Quantile is nearest-rank over an already-sorted slice, and returns zero for
+// an empty one.
+//
+// Exported so that the benchmark harness and the router's own overhead
+// reporting share one definition of a percentile. Two definitions would be two
+// numbers that disagree by a rank in the README.
+func Quantile(sorted []time.Duration, q float64) time.Duration {
+	if len(sorted) == 0 {
+		return 0
+	}
 	rank := int(q*float64(len(sorted)) + 0.5)
 	if rank < 1 {
 		rank = 1

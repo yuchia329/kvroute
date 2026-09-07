@@ -9,6 +9,15 @@ REPLICAS ?= replica-0=http://127.0.0.1:8000
 POLICY  ?= round_robin
 RECORDS ?=
 
+# The concurrency sweep. RUN_DIR is where cells land and where an interrupted
+# sweep resumes from. SLO_TTFT and SLO_ITL are left unset on purpose until they
+# have been derived from the measured concurrency-1 floor: a cell run without
+# them records that no SLO was applied rather than reporting a goodput that was
+# never checked against anything.
+RUN_DIR   ?= runs/concurrency
+ROUTER    ?= http://127.0.0.1:8080
+BENCH_ARGS ?=
+
 # The live replica the contract test runs against. Point it at a replica of the
 # pinned engine version during bring-up.
 CONTRACT_REPLICA ?=
@@ -24,6 +33,12 @@ build: ## Build the router and the fake replica for this machine
 .PHONY: router-linux
 router-linux: ## Cross-compile a static router for the GPU box
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/router-linux-amd64 ./cmd/router
+
+.PHONY: linux
+linux: ## Cross-compile every command for the GPU box, which has no Go toolchain
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/router-linux-amd64 ./cmd/router
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/bench-linux-amd64 ./cmd/bench
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/preflight-linux-amd64 ./cmd/preflight
 
 .PHONY: test
 test: ## Run the full suite under the race detector
@@ -43,6 +58,26 @@ vet: ## Vet
 
 .PHONY: check
 check: fmt vet test ## Format, vet and test
+
+.PHONY: preflight
+preflight: ## Refuse to proceed if any GPU already holds memory
+	ops/fleet.sh preflight
+
+.PHONY: fleet-up
+fleet-up: ## Preflight, then bring up all six replicas one at a time
+	ops/fleet.sh up
+
+.PHONY: fleet-down
+fleet-down: ## Stop every replica
+	ops/fleet.sh down
+
+.PHONY: fleet-status
+fleet-status: ## Show which replicas are running
+	ops/fleet.sh status
+
+.PHONY: bench
+bench: build ## Sweep concurrency against the running fleet, resuming from RUN_DIR
+	$(BIN)/bench -router $(ROUTER) -dir $(RUN_DIR) -policy $(POLICY) $(BENCH_ARGS)
 
 .PHONY: replica-up
 replica-up: ## Start one vLLM replica on GPU INDEX with the pinned engine and forced backend

@@ -42,7 +42,7 @@ const ChatCompletionsPath = "/v1/chat/completions"
 type Config struct {
 	Fleet   *fleet.Fleet
 	Policy  policy.Policy
-	Records *record.Writer
+	Records *record.Writer[record.Request]
 
 	// Client dispatches to replicas. Defaults to one tuned for many concurrent
 	// streaming connections with response compression disabled, so that bodies
@@ -55,7 +55,7 @@ type Config struct {
 type Router struct {
 	fleet    *fleet.Fleet
 	policy   policy.Policy
-	records  *record.Writer
+	records  *record.Writer[record.Request]
 	client   *http.Client
 	log      *slog.Logger
 	overhead *stats.Recorder

@@ -58,7 +58,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	records, err := record.Open(*recordsPath)
+	records, err := record.Open[record.Request](*recordsPath)
 	if err != nil {
 		return err
 	}
