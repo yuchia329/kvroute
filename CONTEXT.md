@@ -124,7 +124,7 @@ concurrency-1 floor rather than chosen a priori.
 _Avoid_: target, budget, threshold (unqualified)
 
 **Cell**:
-One benchmark data point: a fixed (policy, concurrency or arrival rate, working set ratio,
+One benchmark data point: a fixed (policy, concurrency or arrival rate, working set ratio, skew,
 repetition). Cells are cached so a sweep can resume, and each carries its own contamination
 evidence.
 _Avoid_: run, trial, sample
@@ -148,19 +148,33 @@ a closed-loop driver throttles itself when the fleet slows and so understates th
 _Avoid_: rate driver, Poisson driver
 
 **Sweep**:
-A set of cells varying one axis. Three exist: concurrency, skew, and policy tunables.
-_Avoid_: benchmark, experiment (those mean the whole comparison)
+A set of cells varying one axis while everything else is held fixed. Two exist: concurrency and
+policy tunables. The pressure grid runs alongside them and is not a sweep, because it crosses two
+axes at once.
+_Avoid_: benchmark, experiment (those mean the whole comparison), pressure grid
+
+**Pressure grid**:
+The two-dimensional set of cells crossing working set ratio with skew at a single fixed
+concurrency. Two-dimensional because memory pressure and load imbalance are physically different
+and fire different branches of the spill rule, so neither stands in for the other.
+_Avoid_: pressure sweep, the grid, pressure map (that is the figure drawn from it)
+
+**Pressure map**:
+The figure drawn from the pressure grid: the goodput delta between two policies at each of its
+points, showing where cache-aware routing pays and where it does not.
+_Avoid_: heatmap, pressure grid (that is the set of cells it is drawn from)
 
 **Working set ratio**:
-Total session tokens offered divided by aggregate fleet KV capacity. The primary workload axis,
-because it determines whether the fleet can hold every session at once and therefore whether
-spill ever fires. Written WS.
+Total session tokens offered divided by aggregate fleet KV capacity. The axis of the pressure grid
+that creates memory pressure, because it determines whether the fleet can hold every session at
+once and therefore whether spill ever fires. Written WS.
 _Avoid_: load, pressure, session count
 
 **Skew**:
-The Zipf parameter governing how unevenly traffic concentrates on a subset of sessions. Held
-fixed during the main sweep so that working set ratio is the only workload variable, and varied
-only in a small side experiment.
+The Zipf parameter governing how unevenly traffic concentrates on a subset of sessions. The axis of
+the pressure grid that creates load imbalance rather than memory pressure, and the one the
+mechanism most likely lives on: session-sticky hashing is blind to load, so concentrated traffic is
+the clearest place prefix affinity with spill can beat it.
 _Avoid_: distribution, hotness, locality
 
 **Dropped request**:
