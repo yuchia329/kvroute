@@ -49,7 +49,11 @@ Write both, and be explicit about which is which.
    a filter that could be wrong.
 
 5. **A `Result` row is flat scalars.** No nested objects, no `time.Time` — timestamps are Unix
-   nanoseconds. The Parquet schema then falls out of the Go struct with no mapping layer, and every
+   nanoseconds. The router's own `record.Request` row predates this and keeps a `time.Time`, which
+   Parquet maps to a real `TIMESTAMP(NANOS)` column; that is fine and is left alone, because
+   changing it would change a JSONL format already written on the box. Its Parquet tags mirror its
+   JSON names exactly, so `request_id` joins to `request_id` across the two files rather than to
+   `RequestID`. The Parquet schema then falls out of the Go struct with no mapping layer, and every
    column is one a plotting tool can group by.
 
    A **`Cell`** is flat scalars *plus two repeated string columns*: `flag_reasons` and

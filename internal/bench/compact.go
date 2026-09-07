@@ -10,20 +10,28 @@ import (
 	"path/filepath"
 
 	"github.com/parquet-go/parquet-go"
+
+	"github.com/yuchia329/kvroute/internal/record"
 )
 
 // Names of the two compacted files a sweep produces.
 const (
 	RequestsParquet = "requests.parquet"
 	CellsParquet    = "cells.parquet"
+	RouterParquet   = "router.parquet"
+	// RouterRows is where the router is told to append its own rows, relative
+	// to the sweep directory. They join to the harness rows by request id.
+	RouterRows = "router.jsonl"
 )
 
 // Compaction reports what a compaction pass produced.
 type Compaction struct {
 	Requests     int    `json:"requests"`
 	Cells        int    `json:"cells"`
+	RouterRows   int    `json:"router_rows"`
 	RequestsPath string `json:"requests_path"`
 	CellsPath    string `json:"cells_path"`
+	RouterPath   string `json:"router_path,omitempty"`
 }
 
 // Compact rewrites a sweep's JSONL rows and cell records as Parquet.
@@ -60,6 +68,19 @@ func Compact(dir string) (Compaction, error) {
 	}
 	if result.Cells, err = compact[Cell](cellFiles, result.CellsPath); err != nil {
 		return Compaction{}, err
+	}
+
+	// The router writes its own rows: accept-to-dispatch overhead and its view
+	// of each outcome, keyed by the same request id the harness recorded. They
+	// are a second view of the same requests, so they are compacted too — a
+	// figure that needs both sides should not have to parse JSONL for one of
+	// them. Absent when the router was run without -records.
+	routerRows := filepath.Join(dir, RouterRows)
+	if _, err := os.Stat(routerRows); err == nil {
+		result.RouterPath = filepath.Join(dir, RouterParquet)
+		if result.RouterRows, err = compact[record.Request]([]string{routerRows}, result.RouterPath); err != nil {
+			return Compaction{}, err
+		}
 	}
 	return result, nil
 }

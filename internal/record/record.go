@@ -41,30 +41,33 @@ const (
 
 // Request is one row: everything observed about a single request through the
 // router.
+// The parquet tags mirror the json names exactly. Without them the compacted
+// columns would carry Go field names, and joining the router's rows to the
+// harness's on request id would mean matching request_id against RequestID.
 type Request struct {
-	RequestID string    `json:"request_id"`
-	StartedAt time.Time `json:"started_at"`
+	RequestID string    `json:"request_id" parquet:"request_id"`
+	StartedAt time.Time `json:"started_at" parquet:"started_at"`
 
-	Policy         string `json:"policy"`
-	Replica        string `json:"replica"`
-	DecisionReason string `json:"decision_reason"`
+	Policy         string `json:"policy" parquet:"policy"`
+	Replica        string `json:"replica" parquet:"replica"`
+	DecisionReason string `json:"decision_reason" parquet:"decision_reason"`
 
-	Model  string `json:"model"`
-	Stream bool   `json:"stream"`
+	Model  string `json:"model" parquet:"model"`
+	Stream bool   `json:"stream" parquet:"stream"`
 
 	// RouterOverheadNs is accept to upstream dispatch: the router's own cost,
 	// reported separately so it is never hidden inside TTFT.
-	RouterOverheadNs int64 `json:"router_overhead_ns"`
+	RouterOverheadNs int64 `json:"router_overhead_ns" parquet:"router_overhead_ns"`
 	// TTFTNs is client-observed time to first response byte. Zero when no byte
 	// ever reached the client.
-	TTFTNs int64 `json:"ttft_ns"`
+	TTFTNs int64 `json:"ttft_ns" parquet:"ttft_ns"`
 	// TotalNs is accept to last byte written to the client.
-	TotalNs int64 `json:"total_ns"`
+	TotalNs int64 `json:"total_ns" parquet:"total_ns"`
 
-	UpstreamStatus int     `json:"upstream_status"`
-	ResponseBytes  int64   `json:"response_bytes"`
-	Outcome        Outcome `json:"outcome"`
-	Error          string  `json:"error,omitempty"`
+	UpstreamStatus int     `json:"upstream_status" parquet:"upstream_status"`
+	ResponseBytes  int64   `json:"response_bytes" parquet:"response_bytes"`
+	Outcome        Outcome `json:"outcome" parquet:"outcome"`
+	Error          string  `json:"error,omitempty" parquet:"error"`
 }
 
 // Writer appends rows as JSONL. It is safe for concurrent use.
