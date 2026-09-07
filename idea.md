@@ -207,12 +207,20 @@ and ~1.5–2 GB of activations and CUDA graphs ≈ **14 GiB KV**:
 ÷ 2k per session  = ~344 resident sessions
 ```
 
-✅ **Measured 2026-09-06 on one replica: 119,408 tokens**, against the ~114,700 estimated above —
-within 4%. Rescale working set ratios off the measured number.
+✅ **Measured 2026-09-06 on all six replicas: 7,872 `num_gpu_blocks` × 16 = 125,952 tokens each,
+755,712 fleet-wide** — read off every replica's own `vllm:cache_config_info`, not extrapolated from
+one, and identical on all six. That is **9.8% above** the ~114,700 estimated above, and the gap is
+entirely in the one soft input: the estimate assumed ~14 GiB was left for KV after weights,
+activations and CUDA graphs, and the engine actually left 15.375 GiB. The per-token arithmetic is
+exact. See [the characterization](docs/measurements/2026-09-06-characterization/).
 
-⚠️ **That is the estimate; `num_gpu_blocks` is the truth.** Read it off vLLM at startup and
-compute `num_gpu_blocks × block_size × 128 KiB`. Every working set ratio in §6 scales off the
-measured number. Publish both, and the gap between them — it is a good interview story.
+A single replica reported **119,408 tokens** at first contact (ADR-0001) and every replica has
+reported 125,952 on every bring-up since. Both are `num_gpu_blocks × block_size`; they differ by 409
+blocks, which is 0.8 GiB of memory that was not free when the first replica ran its profiling pass.
+
+⚠️ **The estimate is the estimate; `num_gpu_blocks` is the truth**, and it is read at runtime rather
+than off the startup log: the log says it once and then it is gone, while the engine publishes it
+for as long as it is up. Every working set ratio in §6 scales off the measured number.
 
 ---
 
@@ -459,9 +467,10 @@ each policy's latency degrade as offered load rises.
 physically different things and act on different parts of the policy:
 
 **Axis 2 — working set ratio**: **WS ∈ {0.25, 1, 3, 8}** — offered session tokens over measured
-aggregate KV. Against a measured ~688k-token fleet capacity that is roughly 86 / 344 / 1,030 /
-2,750 sessions; rescale off the real `num_gpu_blocks`. WS creates **memory pressure**, which is
-what drives eviction and fires the `KV_HIGH_WATER` branch of the spill rule.
+aggregate KV. Against the **measured 755,712-token** fleet capacity (§2) that is **92 / 369 / 1,107
+/ 2,952** sessions of 2k. The 86 / 344 / 1,030 / 2,750 this said before was computed off the
+*estimate*, not off a measurement. WS creates **memory pressure**, which is what drives eviction and
+fires the `KV_HIGH_WATER` branch of the spill rule.
 
 **Axis 3 — skew**: **Zipf α ∈ {0.0, 1.0, 1.4}**, from near-uniform to heavily concentrated. Skew
 creates **load imbalance**, which is what fires the `LOAD_IMBALANCE_FACTOR` branch.

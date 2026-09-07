@@ -219,9 +219,11 @@ func CompareReplicas(rows []bench.Result, placements []Placement, topo gpu.Topol
 func compareLevel(concurrency int, rowsByReplica map[string][]bench.Result, placements []Placement, threads map[int]float64, tolerance float64) LevelComparison {
 	level := LevelComparison{Concurrency: concurrency, Symmetric: true}
 
+	// Negative until a replica shows two repetitions to compare: the noise floor
+	// is unknown, not zero.
+	level.RepeatSpread = -1
 	// Iterated over placements rather than over the map, so the table reads in
 	// replica order however the probes happened to be scheduled.
-	level.RepeatSpread = -1
 	for _, p := range placements {
 		rows, ok := rowsByReplica[p.ReplicaID]
 		if !ok {

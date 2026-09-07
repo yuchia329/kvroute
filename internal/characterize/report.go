@@ -19,7 +19,8 @@ func Report(c Characterization) string {
 	// Local rather than UTC: the record stores UTC, and the heading has to
 	// agree with the date on the directory it lands in.
 	fmt.Fprintf(&b, "# Characterization — %s\n\n", c.At.Local().Format("2006-01-02"))
-	fmt.Fprintf(&b, "Model `%s`, workload `%s`, %d replicas driven individually.\n\n", c.Model, c.Workload, len(c.Capacity.Replicas))
+	fmt.Fprintf(&b, "Model `%s`, workload `%s`, %s driven individually.\n\n",
+		c.Model, c.Workload, count(len(c.Capacity.Replicas), "replica", "replicas"))
 	if c.Flagged {
 		fmt.Fprintln(&b, "> ⚠️ **This characterization is flagged.** Every downstream figure scales off these")
 		fmt.Fprintln(&b, "> numbers, so read the reasons before using any of them.")
@@ -187,6 +188,14 @@ func symmetrySection(b *strings.Builder, c Characterization) {
 				hitRate(c, level.Concurrency, r.ReplicaID))
 		}
 		fmt.Fprintln(b)
+		// A level with a silent replica has no spread to report: the figures
+		// behind it are missing, not equal, and printing a percentage computed
+		// from a missing figure would be the exact confusion this guards.
+		if len(level.Silent) > 0 {
+			fmt.Fprintf(b, "**No comparison**: %v produced no successful response at this level, so there is nothing to compare the rest against.\n\n",
+				level.Silent)
+			continue
+		}
 		fmt.Fprintf(b, "TTFT p50 spread **%.1f%%** (%s slowest, %s fastest), inter-token spread **%.1f%%**",
 			level.TTFTSpread*100, level.Slowest, level.Fastest, level.ITLSpread*100)
 		if len(level.NUMA) > 1 {
@@ -220,6 +229,14 @@ func hitRate(c Characterization, concurrency int, replicaID string) string {
 		return "—"
 	}
 	return fmt.Sprintf("%.1f%%", pooled.HitRate()*100)
+}
+
+// count renders a number with the right one of two words after it.
+func count(n int, singular, plural string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %s", n, plural)
 }
 
 func passFail(ok bool, tolerance float64) string {

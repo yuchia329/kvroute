@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -68,9 +69,20 @@ func run() error {
 		interval   = flag.Duration("sample-interval", bench.DefaultSampleInterval, "how often to sample the GPUs")
 		pidGlob    = flag.String("replica-pids", "run/replica-*.pid", "glob of the fleet's pid files, used to tell our own processes from foreign ones")
 
+		render = flag.String("render", "", "re-render report.md from an existing run's characterization.json in this directory, without measuring anything")
+
 		logLevel = flag.String("log-level", "info", "log level: debug, info, warn or error")
 	)
 	flag.Parse()
+
+	// The report is a reading of the record, not the record itself, so it can
+	// be rebuilt at any time — the same relationship ADR-0002 gives Parquet and
+	// the JSONL rows. Without this, correcting a sentence in the report would
+	// mean forty minutes of GPU time or a report that no longer matches the
+	// code that claims to produce it.
+	if *render != "" {
+		return rerender(*render)
+	}
 
 	level := slog.LevelInfo
 	if err := level.UnmarshalText([]byte(*logLevel)); err != nil {
@@ -170,6 +182,25 @@ func run() error {
 	log.Info("characterization complete", "report", path,
 		"record", filepath.Join(*dir, "characterization.json"),
 		"symmetric", c.Symmetry.Symmetric, "flagged", c.Flagged)
+	return nil
+}
+
+// rerender rewrites a run's report from the record it already wrote.
+func rerender(dir string) error {
+	path := filepath.Join(dir, "characterization.json")
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("characterize: %w", err)
+	}
+	var c characterize.Characterization
+	if err := json.Unmarshal(contents, &c); err != nil {
+		return fmt.Errorf("characterize: %s is not a characterization record: %w", path, err)
+	}
+	report := filepath.Join(dir, "report.md")
+	if err := os.WriteFile(report, []byte(characterize.Report(c)), 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "characterize: re-rendered %s from %s\n", report, path)
 	return nil
 }
 
