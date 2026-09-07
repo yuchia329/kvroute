@@ -1,0 +1,89 @@
+// Package stats summarises a stream of durations as percentiles.
+//
+// It backs the router's own overhead reporting. The JSONL rows remain the
+// system of record; this exists so the router can answer "what did I add to the
+// request path" without an analysis pass.
+package stats
+
+import (
+	"slices"
+	"sync"
+	"time"
+)
+
+// DefaultCapacity bounds memory for a long run.
+const DefaultCapacity = 1 << 20
+
+// Recorder accumulates durations. It is safe for concurrent use.
+type Recorder struct {
+	mu       sync.Mutex
+	samples  []time.Duration
+	observed int64
+	capacity int
+}
+
+// Summary is a percentile view of what a Recorder has seen. Observed counts
+// every observation; Sampled counts the ones retained, which is fewer once the
+// capacity is reached.
+type Summary struct {
+	Observed int64         `json:"observed"`
+	Sampled  int           `json:"sampled"`
+	P50      time.Duration `json:"-"`
+	P99      time.Duration `json:"-"`
+	Max      time.Duration `json:"-"`
+	P50Us    float64       `json:"p50_us"`
+	P99Us    float64       `json:"p99_us"`
+	MaxUs    float64       `json:"max_us"`
+}
+
+// NewRecorder builds a recorder retaining at most capacity samples; a capacity
+// of zero or less uses DefaultCapacity.
+func NewRecorder(capacity int) *Recorder {
+	if capacity <= 0 {
+		capacity = DefaultCapacity
+	}
+	return &Recorder{capacity: capacity}
+}
+
+// Observe records one duration.
+func (r *Recorder) Observe(d time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.observed++
+	if len(r.samples) < r.capacity {
+		r.samples = append(r.samples, d)
+	}
+}
+
+// Summary computes percentiles over the retained samples by nearest rank.
+func (r *Recorder) Summary() Summary {
+	r.mu.Lock()
+	sorted := append([]time.Duration(nil), r.samples...)
+	observed := r.observed
+	r.mu.Unlock()
+
+	slices.Sort(sorted)
+	s := Summary{Observed: observed, Sampled: len(sorted)}
+	if len(sorted) == 0 {
+		return s
+	}
+	s.P50 = quantile(sorted, 0.50)
+	s.P99 = quantile(sorted, 0.99)
+	s.Max = sorted[len(sorted)-1]
+	s.P50Us = float64(s.P50.Nanoseconds()) / 1000
+	s.P99Us = float64(s.P99.Nanoseconds()) / 1000
+	s.MaxUs = float64(s.Max.Nanoseconds()) / 1000
+	return s
+}
+
+// quantile is nearest-rank over a sorted slice.
+func quantile(sorted []time.Duration, q float64) time.Duration {
+	rank := int(q*float64(len(sorted)) + 0.5)
+	if rank < 1 {
+		rank = 1
+	}
+	if rank > len(sorted) {
+		rank = len(sorted)
+	}
+	return sorted[rank-1]
+}
