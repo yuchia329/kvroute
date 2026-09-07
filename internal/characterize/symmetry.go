@@ -117,8 +117,21 @@ type LevelComparison struct {
 	// between the slowest and fastest node. It is reported separately because a
 	// spread that follows the node boundary has a cause and a fix, and one that
 	// does not is either noise or something else entirely.
+	//
+	// This, not the per-replica spread, is what CPU pinning answers. Pinning
+	// equalises what each node's replicas get; it does nothing for one slow
+	// card, which is a different problem with a different fix.
 	NUMA       []NUMALatency `json:"numa"`
 	NUMASpread float64       `json:"numa_spread"`
+	// NUMARepeatSpread and NUMAResolved are the same noise-floor test applied
+	// between nodes: how much a node's own mean moved across repetitions, and
+	// whether the gap between nodes clears it or is inside the tolerance.
+	NUMARepeatSpread float64 `json:"numa_repeat_spread"`
+	NUMAResolved     bool    `json:"numa_resolved"`
+	// NUMASymmetric is whether the nodes are within tolerance of each other.
+	// -1 spreads mean there is only one node and nothing to compare, in which
+	// case this is true and NUMAResolved is false.
+	NUMASymmetric bool `json:"numa_symmetric"`
 
 	// RepeatSpread is the largest gap any single replica showed against itself
 	// between its own repetitions. It is the level's noise floor: a difference
@@ -193,20 +206,23 @@ func CompareReplicas(rows []bench.Result, placements []Placement, topo gpu.Topol
 	}
 
 	s.Resolved = true
-	systematic := false
+	nodeDifference := false
 	for _, concurrency := range slices.Sorted(maps.Keys(grouped)) {
 		level := compareLevel(concurrency, grouped[concurrency], placements, threads, tolerance)
 		s.Levels = append(s.Levels, level)
 		if !level.Resolved {
 			s.Resolved = false
 		}
+		// Escalation follows the node comparison and not the replica one. CPU
+		// pinning equalises what each node's replicas get; it is no answer at
+		// all to a single slow card, which is a bad card or a bad slot.
+		if !level.NUMASymmetric && level.NUMAResolved {
+			nodeDifference = true
+		}
 		if level.Symmetric {
 			continue
 		}
 		s.Symmetric = false
-		if level.Resolved {
-			systematic = true
-		}
 		s.Findings = append(s.Findings, level.findings(tolerance)...)
 	}
 
@@ -217,13 +233,17 @@ func CompareReplicas(rows []bench.Result, placements []Placement, topo gpu.Topol
 	// Escalation follows only from a difference the measurement could actually
 	// resolve. Pinning CPUs because one probe's median landed high is a change
 	// to the engine configuration made on the strength of noise.
-	if systematic {
+	if nodeDifference {
 		s.Escalation = EscalationPinCPUs
 	}
 	return s
 }
 
 func compareLevel(concurrency int, rowsByReplica map[string][]bench.Result, placements []Placement, threads map[int]float64, tolerance float64) LevelComparison {
+	byReplica := map[string]Placement{}
+	for _, p := range placements {
+		byReplica[p.ReplicaID] = p
+	}
 	level := LevelComparison{Concurrency: concurrency, Symmetric: true}
 
 	// Negative until a replica shows two repetitions to compare: the noise floor
@@ -284,6 +304,10 @@ func compareLevel(concurrency int, rowsByReplica map[string][]bench.Result, plac
 		})
 	}
 	level.NUMASpread = spread(level.NUMA, func(n NUMALatency) int64 { return n.MeanTTFTNs })
+	level.NUMARepeatSpread = numaRepeatSpread(rowsByReplica, byReplica)
+	level.NUMASymmetric = level.NUMASpread < 0 || level.NUMASpread <= tolerance
+	level.NUMAResolved = level.NUMASpread >= 0 && level.NUMARepeatSpread >= 0 &&
+		(level.NUMASpread > level.NUMARepeatSpread || level.NUMARepeatSpread <= tolerance)
 
 	level.Symmetric = level.TTFTSpread <= tolerance && level.ITLSpread <= tolerance
 
@@ -307,6 +331,59 @@ func compareLevel(concurrency int, rowsByReplica map[string][]bench.Result, plac
 	level.Resolved = level.RepeatSpread >= 0 &&
 		(widest > level.RepeatSpread || level.RepeatSpread <= tolerance)
 	return level
+}
+
+// numaRepeatSpread is how far a node's mean TTFT p50 moved between repetitions,
+// taken over the worst-behaved node. It is the noise floor for the between-node
+// comparison, and it is not the same number as the per-replica one: averaging a
+// node's replicas cancels some of what makes an individual replica wobble, so a
+// node comparison can resolve a difference a replica comparison cannot.
+//
+// Negative when there is one node, or one repetition, and therefore nothing to
+// estimate it from.
+func numaRepeatSpread(rowsByReplica map[string][]bench.Result, byReplica map[string]Placement) float64 {
+	// node -> repetition -> the medians of that node's replicas
+	byNode := map[int]map[int][]int64{}
+	for replicaID, rows := range rowsByReplica {
+		placement, known := byReplica[replicaID]
+		if !known {
+			continue
+		}
+		byRepetition := map[int][]bench.Result{}
+		for _, row := range rows {
+			byRepetition[row.Repetition] = append(byRepetition[row.Repetition], row)
+		}
+		for repetition, batch := range byRepetition {
+			if byNode[placement.NUMANode] == nil {
+				byNode[placement.NUMANode] = map[int][]int64{}
+			}
+			p50 := bench.Summarize(batch, pooledOptions).TTFTP50Ns
+			byNode[placement.NUMANode][repetition] = append(byNode[placement.NUMANode][repetition], p50)
+		}
+	}
+	if len(byNode) < 2 {
+		return -1
+	}
+
+	worst := -1.0
+	for _, byRepetition := range byNode {
+		if len(byRepetition) < 2 {
+			return -1
+		}
+		var means []NUMALatency
+		for _, repetition := range slices.Sorted(maps.Keys(byRepetition)) {
+			medians := byRepetition[repetition]
+			total := int64(0)
+			for _, v := range medians {
+				total += v
+			}
+			means = append(means, NUMALatency{MeanTTFTNs: total / int64(len(medians))})
+		}
+		if own := spread(means, func(n NUMALatency) int64 { return n.MeanTTFTNs }); own > worst {
+			worst = own
+		}
+	}
+	return worst
 }
 
 // repeatSpread is how far one replica's TTFT p50 moved between its own
@@ -405,12 +482,15 @@ func describeNodes(nodes []NUMALatency) string {
 // spread is (max - min) / min over a per-replica figure, or -1 when there is no
 // spread to compute.
 //
-// Negative rather than zero for the missing case. A replica that produced no
-// successful response has no latency, and returning zero for it would report
-// the fleet as perfectly even on the strength of a replica nobody heard from —
-// which is the one shape of wrong answer this whole comparison exists to avoid.
+// Negative rather than zero for the missing cases, of which there are two and
+// both would otherwise read as "perfectly even". A replica that produced no
+// successful response has no latency to contribute, and returning zero for it
+// would report the fleet as even on the strength of a replica nobody heard
+// from. Fewer than two things is not a narrow spread either: a host with one
+// NUMA node has no between-node comparison to make, and must not manufacture
+// one out of comparing a node with itself.
 func spread[T any](items []T, of func(T) int64) float64 {
-	if len(items) == 0 {
+	if len(items) < 2 {
 		return -1
 	}
 	low, high := int64(0), int64(0)

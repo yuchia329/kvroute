@@ -66,8 +66,8 @@ func (f Family) SeriesNames() []string {
 // contract test starts checking for it.
 var Required = []Family{
 	{"vllm:kv_cache_usage_perc", Gauge, "KV-cache usage as a fraction of capacity. NOT gpu_cache_usage_perc."},
-	{"vllm:num_requests_running", Gauge, "Requests currently in model execution batches."},
-	{"vllm:num_requests_waiting", Gauge, "Requests waiting in the engine queue. Never call this inflight."},
+	{NumRequestsRunning, Gauge, "Requests currently in model execution batches. This is the engine's actual batch."},
+	{NumRequestsWaiting, Gauge, "Requests waiting in the engine queue. Never call this inflight."},
 	{PrefixCacheHits, Counter, "Prefix-cache block hits. Ground truth for the router's prefix match."},
 	{PrefixCacheQueries, Counter, "Prefix-cache block queries."},
 	{"vllm:prompt_tokens_total", Counter, "Prompt tokens processed."},
@@ -82,6 +82,20 @@ var Required = []Family{
 	{"vllm:kv_block_reuse_gap_seconds", Histogram, "Gap between reuses of a KV block."},
 	{CacheConfigInfo, Gauge, "The engine's cache configuration. Everything it says is in its labels; see Labels."},
 }
+
+// NumRequestsRunning and NumRequestsWaiting are the gauges that say what the
+// engine is actually doing, as opposed to what was asked of it.
+//
+// A driver holding 32 requests against a replica knows 32 are outstanding. It
+// does not know how many the engine put in a batch and how many are queued
+// behind them, and those are different questions: the first is offered load,
+// the second is what the hardware is doing with it. Being gauges rather than
+// counters, they have to be sampled through a measurement rather than
+// differenced across it.
+const (
+	NumRequestsRunning = "vllm:num_requests_running"
+	NumRequestsWaiting = "vllm:num_requests_waiting"
+)
 
 // PrefixCacheHits and PrefixCacheQueries are the counters that say how much of
 // a measurement's prompt work a replica answered out of its cache rather than

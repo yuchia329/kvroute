@@ -284,3 +284,91 @@ func TestARunRefusesAFleetThatIsNotUp(t *testing.T) {
 		t.Fatal("characterized a fleet that was not running")
 	}
 }
+
+// The whole point of the together schedule. §10's hypothesis is that four cards
+// sharing a NUMA node get a quarter of its threads each, and that ratio only
+// exists while all four are busy — so if these probes do not actually overlap,
+// the experiment measures the same thing the solo pass already did.
+func TestTheTogetherScheduleRunsEveryReplicaAtTheSameTime(t *testing.T) {
+	c, _ := runWithSchedule(t, characterize.ScheduleTogether, []int{2})
+
+	if len(c.Probes) != 6 {
+		t.Fatalf("ran %d probes, want one per replica", len(c.Probes))
+	}
+	// Every probe must overlap every other: one window, six replicas in it.
+	for i, a := range c.Probes {
+		if a.Schedule != characterize.ScheduleTogether {
+			t.Errorf("%s records schedule %q", a.ID, a.Schedule)
+		}
+		for _, b := range c.Probes[i+1:] {
+			if a.EndedAtNs <= b.StartedAtNs || b.EndedAtNs <= a.StartedAtNs {
+				t.Errorf("%s and %s did not overlap, so nothing was contended for", a.ID, b.ID)
+			}
+		}
+	}
+	if c.Schedule != characterize.ScheduleTogether {
+		t.Errorf("the record says schedule %q", c.Schedule)
+	}
+}
+
+// The solo schedule has to keep its guarantee, which is the opposite one.
+func TestTheSoloScheduleStillLeavesEveryOtherReplicaIdle(t *testing.T) {
+	c, _ := runWithSchedule(t, characterize.ScheduleSolo, []int{2})
+
+	for i, a := range c.Probes {
+		for _, b := range c.Probes[i+1:] {
+			if a.EndedAtNs > b.StartedAtNs && b.EndedAtNs > a.StartedAtNs {
+				t.Errorf("%s and %s overlapped, so neither had the host to itself", a.ID, b.ID)
+			}
+		}
+	}
+}
+
+// The measurement gap the first pass left: the driver knew how many requests it
+// held, and nothing recorded what the engine actually batched.
+func TestEveryProbeRecordsWhatTheEngineWasActuallyRunning(t *testing.T) {
+	c, _ := runWithSchedule(t, characterize.ScheduleTogether, []int{4})
+
+	for _, probe := range c.Probes {
+		if !probe.EngineLoad.Read {
+			t.Fatalf("%s recorded no engine load, so its batch is unknown", probe.ID)
+		}
+		if probe.EngineLoad.Samples == 0 {
+			t.Errorf("%s took no samples", probe.ID)
+		}
+		// The fake serves everything it accepts, so its running count tracks
+		// what the driver offered. A real engine splits running from waiting at
+		// its batch size, which is the number this exists to capture.
+		if probe.EngineLoad.MaxRunning <= 0 {
+			t.Errorf("%s never saw the replica running anything, over %d samples",
+				probe.ID, probe.EngineLoad.Samples)
+		}
+		if probe.EngineLoad.MaxRunning > float64(probe.Concurrency) {
+			t.Errorf("%s saw %.0f running, more than the %d the driver held",
+				probe.ID, probe.EngineLoad.MaxRunning, probe.Concurrency)
+		}
+	}
+}
+
+func runWithSchedule(t *testing.T, schedule characterize.Schedule, levels []int) (characterize.Characterization, string) {
+	t.Helper()
+	dir := t.TempDir()
+	c, err := characterize.Run(context.Background(), characterize.Config{
+		Dir:                  dir,
+		Replicas:             sixFakes(t, nil),
+		Model:                testModel,
+		Schedule:             schedule,
+		Levels:               levels,
+		Repetitions:          1,
+		ProbeDuration:        250 * time.Millisecond,
+		EngineSampleInterval: 10 * time.Millisecond,
+		ReplicaWarmup:        1,
+		Workload:             bench.NewFixedWorkload(bench.FixedWorkload{Model: testModel, PromptBytes: 64, OutputTokens: 3}),
+		Prober:               gpu.NewProber(gputest.Runner(gputest.SixIdleDevices, gputest.NoComputeApps, "")),
+		Log:                  slog.New(slog.DiscardHandler),
+	})
+	if err != nil {
+		t.Fatalf("characterize: %v", err)
+	}
+	return c, dir
+}

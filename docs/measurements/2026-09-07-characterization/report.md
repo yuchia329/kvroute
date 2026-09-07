@@ -1,6 +1,6 @@
 # Characterization — 2026-09-07
 
-Model `hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4`, workload `fixed(prompt=2048B,output=64t)`, 6 replicas driven individually.
+Model `hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4`, workload `fixed(prompt=2048B,output=64t)`, 6 replicas driven one at a time, every other replica idle.
 
 > ⚠️ **This characterization is flagged.** Every downstream figure scales off these
 > numbers, so read the reasons before using any of them.
@@ -101,31 +101,45 @@ The multiple is a judgement and the floor is not, so the alternatives are publis
 
 ### Concurrency 1
 
-| replica | GPU | NUMA | reqs | TTFT p50 | TTFT p95 | ITL p50 | tput/s | prefix hits |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `replica-0` | 0 | 0 | 245 | 332ms | 343ms | 8ms | 0.20 | 1.3% |
-| `replica-1` | 1 | 0 | 247 | 329ms | 338ms | 8ms | 0.20 | 1.3% |
-| `replica-2` | 2 | 0 | 251 | 324ms | 334ms | 8ms | 0.21 | 1.3% |
-| `replica-3` | 3 | 0 | 251 | 330ms | 345ms | 8ms | 0.21 | 1.3% |
-| `replica-4` | 4 | 1 | 246 | 331ms | 341ms | 8ms | 0.20 | 1.3% |
-| `replica-5` | 5 | 1 | 247 | 327ms | 337ms | 8ms | 0.20 | 1.3% |
+| replica | GPU | NUMA | reqs | TTFT p50 | TTFT p95 | ITL p50 | tput/s | batch mean/max | queued max | prefix hits |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `replica-0` | 0 | 0 | 245 | 332ms | 343ms | 8ms | 0.20 | — | — | 1.3% |
+| `replica-1` | 1 | 0 | 247 | 329ms | 338ms | 8ms | 0.20 | — | — | 1.3% |
+| `replica-2` | 2 | 0 | 251 | 324ms | 334ms | 8ms | 0.21 | — | — | 1.3% |
+| `replica-3` | 3 | 0 | 251 | 330ms | 345ms | 8ms | 0.21 | — | — | 1.3% |
+| `replica-4` | 4 | 1 | 246 | 331ms | 341ms | 8ms | 0.20 | — | — | 1.3% |
+| `replica-5` | 5 | 1 | 247 | 327ms | 337ms | 8ms | 0.20 | — | — | 1.3% |
 
 TTFT p50 spread **2.3%** (replica-0 slowest, replica-2 fastest), inter-token spread **1.3%**, between NUMA nodes **0.0%** — inside the 8% tolerance.
+
+| NUMA node | replicas | threads per GPU | mean TTFT p50 | mean ITL p50 |
+|---:|---:|---:|---:|---:|
+| 0 | 4 | 12 | 329ms | 8ms |
+| 1 | 2 | 24 | 329ms | 8ms |
+
+Between nodes **0.0%** — inside the 8% tolerance. A node's own mean moves 1.0% between repetitions, so this settles it.
 
 A replica varies 2.8% against itself between repetitions — inside the 8% tolerance — so this rules an over-tolerance difference out even where it cannot resolve the 2.3% it sees.
 
 ### Concurrency 32
 
-| replica | GPU | NUMA | reqs | TTFT p50 | TTFT p95 | ITL p50 | tput/s | prefix hits |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `replica-0` | 0 | 0 | 529 | 1137ms | 2029ms | 51ms | 0.43 | 1.3% |
-| `replica-1` | 1 | 0 | 546 | 1172ms | 2001ms | 52ms | 0.44 | 1.3% |
-| `replica-2` | 2 | 0 | 549 | 1137ms | 2009ms | 51ms | 0.45 | 1.3% |
-| `replica-3` | 3 | 0 | 534 | 1236ms | 2019ms | 50ms | 0.43 | 1.3% |
-| `replica-4` | 4 | 1 | 533 | 1058ms | 1949ms | 53ms | 0.43 | 1.3% |
-| `replica-5` | 5 | 1 | 543 | 1292ms | 2027ms | 51ms | 0.44 | 1.3% |
+| replica | GPU | NUMA | reqs | TTFT p50 | TTFT p95 | ITL p50 | tput/s | batch mean/max | queued max | prefix hits |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `replica-0` | 0 | 0 | 529 | 1137ms | 2029ms | 51ms | 0.43 | — | — | 1.3% |
+| `replica-1` | 1 | 0 | 546 | 1172ms | 2001ms | 52ms | 0.44 | — | — | 1.3% |
+| `replica-2` | 2 | 0 | 549 | 1137ms | 2009ms | 51ms | 0.45 | — | — | 1.3% |
+| `replica-3` | 3 | 0 | 534 | 1236ms | 2019ms | 50ms | 0.43 | — | — | 1.3% |
+| `replica-4` | 4 | 1 | 533 | 1058ms | 1949ms | 53ms | 0.43 | — | — | 1.3% |
+| `replica-5` | 5 | 1 | 543 | 1292ms | 2027ms | 51ms | 0.44 | — | — | 1.3% |
 
 TTFT p50 spread **22.1%** (replica-5 slowest, replica-4 fastest), inter-token spread **5.4%**, between NUMA nodes **0.4%** — **outside the 8% tolerance**.
+
+| NUMA node | replicas | threads per GPU | mean TTFT p50 | mean ITL p50 |
+|---:|---:|---:|---:|---:|
+| 0 | 4 | 12 | 1171ms | 51ms |
+| 1 | 2 | 24 | 1175ms | 52ms |
+
+Between nodes **0.4%** — inside the 8% tolerance. **Not resolvable**: a node's own mean moves 8.2% between repetitions, wider than the 8% tolerance and more than the gap between nodes.
 
 **Not resolvable at this sample size**: one replica varies 36.3% against *itself* between repetitions, wider than the 8% tolerance and more than the 22.1% between replicas. Lengthen the probe or add repetitions rather than acting on it.
 

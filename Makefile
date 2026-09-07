@@ -35,6 +35,13 @@ CONTRACT_REPLICA ?=
 CHAR_DIR ?= runs/characterization
 CHAR_ARGS ?=
 
+# The contention experiment: all six replicas driven at once, compared by NUMA
+# node. Separate from CHAR_DIR because it is a different measurement of a
+# different thing — a solo latency and a contended one are not comparable, and
+# sharing a directory would invite averaging them.
+CONTENTION_DIR ?= runs/contention
+CONTENTION_ARGS ?=
+
 .PHONY: help
 help: ## List targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -104,6 +111,14 @@ characterize: build ## Measure KV capacity, the latency floor, the SLO and repli
 		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
 		$(CHAR_ARGS)
+
+.PHONY: contention
+contention: build ## Drive all six replicas at once and compare NUMA nodes
+	$(BIN)/characterize -dir $(CONTENTION_DIR) -schedule together \
+		-model "$$(ops/fleet.sh env MODEL)" \
+		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
+		-replicas "$$(ops/fleet.sh replicas)" \
+		$(CONTENTION_ARGS)
 
 .PHONY: replica-up
 replica-up: ## Start one vLLM replica on GPU INDEX with the pinned engine and forced backend

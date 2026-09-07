@@ -19,8 +19,12 @@ func Report(c Characterization) string {
 	// Local rather than UTC: the record stores UTC, and the heading has to
 	// agree with the date on the directory it lands in.
 	fmt.Fprintf(&b, "# Characterization — %s\n\n", c.At.Local().Format("2006-01-02"))
-	fmt.Fprintf(&b, "Model `%s`, workload `%s`, %s driven individually.\n\n",
-		c.Model, c.Workload, count(len(c.Capacity.Replicas), "replica", "replicas"))
+	how := "driven one at a time, every other replica idle"
+	if c.Schedule == ScheduleTogether {
+		how = "**driven all at once**, so each one's host-side work competed with the others'"
+	}
+	fmt.Fprintf(&b, "Model `%s`, workload `%s`, %s %s.\n\n",
+		c.Model, c.Workload, count(len(c.Capacity.Replicas), "replica", "replicas"), how)
 	if c.Flagged {
 		fmt.Fprintln(&b, "> ⚠️ **This characterization is flagged.** Every downstream figure scales off these")
 		fmt.Fprintln(&b, "> numbers, so read the reasons before using any of them.")
@@ -168,13 +172,14 @@ func symmetrySection(b *strings.Builder, c Characterization) {
 
 	for _, level := range s.Levels {
 		fmt.Fprintf(b, "### Concurrency %d\n\n", level.Concurrency)
-		fmt.Fprintln(b, "| replica | GPU | NUMA | reqs | TTFT p50 | TTFT p95 | ITL p50 | tput/s | prefix hits |")
-		fmt.Fprintln(b, "|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+		fmt.Fprintln(b, "| replica | GPU | NUMA | reqs | TTFT p50 | TTFT p95 | ITL p50 | tput/s | batch mean/max | queued max | prefix hits |")
+		fmt.Fprintln(b, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 		for _, r := range level.Replicas {
-			fmt.Fprintf(b, "| `%s` | %d | %d | %d | %s | %s | %s | %.2f | %s |\n",
+			load := poolEngineLoad(c, level.Concurrency, r.ReplicaID)
+			fmt.Fprintf(b, "| `%s` | %d | %d | %d | %s | %s | %s | %.2f | %s | %s | %s |\n",
 				r.ReplicaID, r.GPUIndex, r.NUMANode, r.Requests,
 				ms(r.TTFTP50Ns), ms(r.TTFTP95Ns), ms(r.ITLP50Ns), r.ThroughputRPS,
-				hitRate(c, level.Concurrency, r.ReplicaID))
+				batch(load), queued(load), hitRate(c, level.Concurrency, r.ReplicaID))
 		}
 		fmt.Fprintln(b)
 		// A level with a silent replica has no spread to report: the figures
@@ -191,6 +196,7 @@ func symmetrySection(b *strings.Builder, c Characterization) {
 			fmt.Fprintf(b, ", between NUMA nodes **%.1f%%**", level.NUMASpread*100)
 		}
 		fmt.Fprintf(b, " — %s.\n\n", passFail(level.Symmetric, s.Tolerance))
+		numaSection(b, level, s.Tolerance)
 		// The noise floor beside the difference, always: a spread reported
 		// without it cannot be told from the measurement's own scatter.
 		switch {
@@ -208,6 +214,77 @@ func symmetrySection(b *strings.Builder, c Characterization) {
 		}
 		fmt.Fprintln(b)
 	}
+}
+
+// numaSection is the between-node comparison, which is the one CPU pinning
+// answers. It is written out separately from the replica table because the two
+// have different fixes: a node difference is the host's shape, and a single
+// replica's is that card or that slot.
+func numaSection(b *strings.Builder, level LevelComparison, tolerance float64) {
+	if len(level.NUMA) < 2 {
+		fmt.Fprintln(b, "One NUMA node holds every card, so there is no between-node comparison to make.")
+		fmt.Fprintln(b)
+		return
+	}
+
+	fmt.Fprintln(b, "| NUMA node | replicas | threads per GPU | mean TTFT p50 | mean ITL p50 |")
+	fmt.Fprintln(b, "|---:|---:|---:|---:|---:|")
+	for _, n := range level.NUMA {
+		fmt.Fprintf(b, "| %d | %d | %.0f | %s | %s |\n",
+			n.Node, n.Replicas, n.ThreadsEach, ms(n.MeanTTFTNs), ms(n.MeanITLNs))
+	}
+	fmt.Fprintln(b)
+
+	fmt.Fprintf(b, "Between nodes **%.1f%%** — %s.", level.NUMASpread*100, passFail(level.NUMASymmetric, tolerance))
+	switch {
+	case level.NUMARepeatSpread < 0:
+		fmt.Fprintln(b, " One repetition, so nothing estimates this comparison's own noise.")
+	case level.NUMAResolved:
+		fmt.Fprintf(b, " A node's own mean moves %.1f%% between repetitions, so this settles it.\n", level.NUMARepeatSpread*100)
+	default:
+		fmt.Fprintf(b, " **Not resolvable**: a node's own mean moves %.1f%% between repetitions, wider than the %.0f%% tolerance and more than the gap between nodes.\n",
+			level.NUMARepeatSpread*100, tolerance*100)
+	}
+	fmt.Fprintln(b)
+}
+
+// batch and queued render what the engine said it was doing, as opposed to what
+// the driver offered it.
+func batch(load EngineLoad) string {
+	if !load.Read {
+		return "—"
+	}
+	return fmt.Sprintf("%.1f / %.0f", load.MeanRunning, load.MaxRunning)
+}
+
+func queued(load EngineLoad) string {
+	if !load.Read {
+		return "—"
+	}
+	return fmt.Sprintf("%.0f", load.MaxWaiting)
+}
+
+// poolEngineLoad averages one replica's engine load across a level's
+// repetitions, weighting each probe by how many samples it took.
+func poolEngineLoad(c Characterization, concurrency int, replicaID string) EngineLoad {
+	pooled := EngineLoad{}
+	for _, probe := range c.Probes {
+		if probe.Concurrency != concurrency || probe.ReplicaID != replicaID || !probe.EngineLoad.Read {
+			continue
+		}
+		load := probe.EngineLoad
+		pooled.MeanRunning += load.MeanRunning * float64(load.Samples)
+		pooled.MeanWaiting += load.MeanWaiting * float64(load.Samples)
+		pooled.Samples += load.Samples
+		pooled.MaxRunning = max(pooled.MaxRunning, load.MaxRunning)
+		pooled.MaxWaiting = max(pooled.MaxWaiting, load.MaxWaiting)
+		pooled.Read = true
+	}
+	if pooled.Samples > 0 {
+		pooled.MeanRunning /= float64(pooled.Samples)
+		pooled.MeanWaiting /= float64(pooled.Samples)
+	}
+	return pooled
 }
 
 // hitRate is how much of one replica's prompt work at one level came out of its

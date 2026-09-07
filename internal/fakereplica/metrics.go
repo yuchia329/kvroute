@@ -98,9 +98,13 @@ func (r *Replica) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	// real-looking 0% hit rate. A block-LRU cache arrives with the prefix-index
 	// work that first depends on these.
 	scalars := map[string]float64{
-		"vllm:kv_cache_usage_perc":        kvUtil,
-		"vllm:num_requests_running":       0,
-		"vllm:num_requests_waiting":       0,
+		"vllm:kv_cache_usage_perc": kvUtil,
+		// The fake serves every request it accepts immediately, so everything
+		// in flight is running and nothing is ever queued. A real engine splits
+		// the two at its batch size; the fake models no scheduler and says so
+		// by never reporting a queue rather than by inventing one.
+		vllmmetrics.NumRequestsRunning:    float64(c.running),
+		vllmmetrics.NumRequestsWaiting:    0,
 		"vllm:prefix_cache_hits_total":    0,
 		"vllm:prefix_cache_queries_total": 0,
 		"vllm:prompt_tokens_total":        float64(c.promptTokens),

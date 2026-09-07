@@ -85,6 +85,12 @@ type counters struct {
 	requests         int64
 	promptTokens     int64
 	completionTokens int64
+	// running is how many chat completions are in flight right now. It backs
+	// vllm:num_requests_running, which is the engine's actual batch — the one
+	// number that says what the replica is doing rather than what was asked of
+	// it. A fake that always reported zero would let a sampler for it look like
+	// it worked while measuring nothing.
+	running int64
 }
 
 // New builds a fake replica from cfg, filling in defaults.
@@ -200,6 +206,11 @@ func (r *Replica) handleChatCompletions(w http.ResponseWriter, req *http.Request
 		return
 	}
 
+	// Counted from here to the last byte written, which is what the engine's
+	// own gauge means: a request the replica is currently serving.
+	r.enter()
+	defer r.leave()
+
 	// The completion id is derived from the request rather than randomised, so
 	// that the same request produces byte-identical responses whether it was
 	// sent directly or through the router.
@@ -223,6 +234,20 @@ func (r *Replica) handleChatCompletions(w http.ResponseWriter, req *http.Request
 		return
 	}
 	r.blockingCompletion(w, req, c)
+}
+
+// enter and leave maintain the in-flight count behind
+// vllm:num_requests_running.
+func (r *Replica) enter() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.counters.running++
+}
+
+func (r *Replica) leave() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.counters.running--
 }
 
 // observe folds one completion into the counters and histograms /metrics

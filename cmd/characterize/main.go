@@ -53,7 +53,9 @@ func run() error {
 		// No literal here: the levels and the reasoning for them live in
 		// internal/characterize, and a second copy in a flag default is how the
 		// package gets changed and the command keeps measuring the old thing.
-		levels = flag.String("levels", bench.FormatLevels(characterize.DefaultLevels), "load levels each replica is driven at, on its own; the first must be 1, which is where the floor lives")
+		levels   = flag.String("levels", bench.FormatLevels(characterize.DefaultLevels), "load levels each replica is driven at; the first must be 1, which is where the floor lives")
+		schedule = flag.String("schedule", string(characterize.ScheduleSolo),
+			"solo drives one replica at a time with the rest idle, which isolates the card; together drives all of them at once, which is the only condition under which host-side contention exists")
 		// Three, not two. The repetitions are what estimate the measurement's
 		// own noise, and two of them give one comparison per replica — enough
 		// to notice a difference, thin to size one.
@@ -72,6 +74,8 @@ func run() error {
 		warmup        = flag.Duration("warmup", 25*time.Second, "slice at the start of each probe recorded but excluded from the summary")
 		replicaWarmup = flag.Int("replica-warmup", 3, "requests sent to each replica directly before the first probe, so no replica serves its first forward pass inside the floor")
 		settle        = flag.Duration("settle", 5*time.Second, "pause between probes")
+
+		engineInterval = flag.Duration("engine-sample-interval", characterize.DefaultEngineSampleInterval, "how often each probe asks its replica what it is running and what it has queued")
 
 		sloMultiple   = flag.Float64("slo-multiple", characterize.DefaultSLOMultiple, "the SLO is this many times the measured floor")
 		tolerance     = flag.Float64("tolerance", characterize.DefaultSymmetryTolerance, "how far replicas may differ before the fleet is not interchangeable")
@@ -128,6 +132,16 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	var runSchedule characterize.Schedule
+	switch characterize.Schedule(*schedule) {
+	case characterize.ScheduleSolo:
+		runSchedule = characterize.ScheduleSolo
+	case characterize.ScheduleTogether:
+		runSchedule = characterize.ScheduleTogether
+	default:
+		return fmt.Errorf("characterize: unknown -schedule %q: want %q or %q",
+			*schedule, characterize.ScheduleSolo, characterize.ScheduleTogether)
+	}
 	// The floor is what the SLO is derived from and it only exists at
 	// concurrency 1. A run without it would produce a symmetry verdict and an
 	// SLO of zero, and the zero would look like a decision.
@@ -158,18 +172,20 @@ func run() error {
 	defer stop()
 
 	c, runErr := characterize.Run(ctx, characterize.Config{
-		Dir:           *dir,
-		Replicas:      replicas,
-		Model:         *model,
-		Levels:        loadLevels,
-		Repetitions:   *repetitions,
-		ProbeDuration: *probeDuration,
-		Warmup:        *warmup,
-		ReplicaWarmup: *replicaWarmup,
-		Settle:        *settle,
-		SessionTokens: *sessionTokens,
-		SLOMultiple:   *sloMultiple,
-		Tolerance:     *tolerance,
+		Dir:                  *dir,
+		Replicas:             replicas,
+		Model:                *model,
+		Schedule:             runSchedule,
+		Levels:               loadLevels,
+		Repetitions:          *repetitions,
+		ProbeDuration:        *probeDuration,
+		Warmup:               *warmup,
+		ReplicaWarmup:        *replicaWarmup,
+		Settle:               *settle,
+		SessionTokens:        *sessionTokens,
+		EngineSampleInterval: *engineInterval,
+		SLOMultiple:          *sloMultiple,
+		Tolerance:            *tolerance,
 		Workload: bench.NewFixedWorkload(bench.FixedWorkload{
 			Model:        *model,
 			PromptBytes:  *promptBytes,

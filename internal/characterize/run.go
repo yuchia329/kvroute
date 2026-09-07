@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yuchia329/kvroute/internal/bench"
@@ -31,6 +32,29 @@ import (
 // only one that can test it at all.
 var DefaultLevels = []int{1, 32}
 
+// Schedule is whether a probe had the host to itself.
+//
+// It is the difference between two questions that look like one. Solo asks what
+// a replica does; together asks what a replica does while five others are doing
+// the same thing, which is the only condition under which host-side contention
+// exists at all.
+type Schedule string
+
+const (
+	// ScheduleSolo drives one replica at a time, every other replica idle. It
+	// is what idea.md §10 prescribes, and it isolates a replica from the fleet:
+	// what it finds is a property of the card and its slot.
+	ScheduleSolo Schedule = "solo"
+	// ScheduleTogether drives every replica at once under matched load.
+	//
+	// This is the schedule §10's own hypothesis needs and its method removes.
+	// The claim is that GPUs 0-3 get 12 host threads each against 4-5's 24, and
+	// that ratio only exists while all four cards on the crowded node are busy.
+	// Driven alone, a replica on either node has its whole node's threads, so a
+	// solo pass cannot produce the starvation it is looking for.
+	ScheduleTogether Schedule = "together"
+)
+
 // Config configures a characterization run.
 type Config struct {
 	// Dir is where the rows and the record land.
@@ -38,7 +62,10 @@ type Config struct {
 	Replicas []fleet.Replica
 	Model    string
 
-	// Levels are the load levels each replica is driven at, on its own.
+	// Schedule is whether replicas are driven one at a time or all at once.
+	// Defaults to ScheduleSolo.
+	Schedule Schedule
+	// Levels are the load levels each replica is driven at.
 	Levels []int
 	// Repetitions is how many times the whole pass is repeated. More than one
 	// is what makes the replica order alternate, which is what keeps a host
@@ -68,6 +95,10 @@ type Config struct {
 	// rather than the hardware. Zero uses MaxFloorPrefixHitRate.
 	MaxPrefixHitRate float64
 
+	// EngineSampleInterval is how often each probe asks its replica what it is
+	// running and what it has queued. Zero uses DefaultEngineSampleInterval.
+	EngineSampleInterval time.Duration
+
 	// Prober reads the host's GPUs, for the topology record and for each
 	// probe's contamination evidence. Nil records that neither was checked
 	// rather than claiming both were clean.
@@ -88,6 +119,11 @@ type Probe struct {
 	Placement `json:"placement"`
 	BaseURL   string `json:"base_url"`
 
+	// Schedule is what else was running. A probe's latency means one thing when
+	// the rest of the host was idle and another when it was not, so the two are
+	// never compared without it.
+	Schedule Schedule `json:"schedule"`
+
 	Concurrency int `json:"concurrency"`
 	Repetition  int `json:"repetition"`
 	// Order is this probe's position in the whole run. It is recorded because
@@ -103,12 +139,16 @@ type Probe struct {
 	// out of its cache. A probe that read the cache measured the cache, not the
 	// hardware, and it looks exactly like a fast replica if nobody checks.
 	PrefixCache PrefixCacheDelta `json:"prefix_cache"`
+	// EngineLoad is what the replica said it was actually running and queueing
+	// while this probe drove it, as opposed to what the driver offered.
+	EngineLoad EngineLoad `json:"engine_load"`
 
 	bench.Summary       `json:"summary"`
 	bench.Contamination `json:"contamination"`
 }
 
-// ProbeID is a probe's identity: replica, level, repetition.
+// ProbeID is a probe's identity: replica, level, repetition. The schedule is
+// not in it — a run has one schedule throughout, and it is on the record.
 func ProbeID(replicaID string, concurrency, repetition int) string {
 	return fmt.Sprintf("%s-c%d-r%d", replicaID, concurrency, repetition)
 }
@@ -119,6 +159,9 @@ type Characterization struct {
 	At       time.Time `json:"at"`
 	Model    string    `json:"model"`
 	Workload string    `json:"workload"`
+	// Schedule is how the probes were run, and it changes what every latency
+	// here means.
+	Schedule Schedule `json:"schedule"`
 
 	Capacity Capacity `json:"capacity"`
 	// SessionTokens is the divisor that turns fleet capacity into a resident
@@ -170,7 +213,7 @@ func Run(ctx context.Context, cfg Config) (Characterization, error) {
 		return Characterization{}, err
 	}
 
-	c := Characterization{At: time.Now().UTC(), Model: cfg.Model, Workload: cfg.Workload.Name()}
+	c := Characterization{At: time.Now().UTC(), Model: cfg.Model, Workload: cfg.Workload.Name(), Schedule: cfg.Schedule}
 
 	// Capacity and topology first, while the fleet is idle: both are static
 	// facts about how the fleet was built, and reading them before any load
@@ -231,13 +274,18 @@ func Run(ctx context.Context, cfg Config) (Characterization, error) {
 
 // drive runs every probe and returns them with every row they produced.
 //
-// The replica order alternates between repetitions. Driving one replica at a
-// time is what idea.md §10 asks for — six replicas under load at once would
-// measure the host's total CPU rather than each card's share of it — but a
-// sequential pass puts replica 0 at the start of every repetition and replica 5
-// at the end, so a host that drifts over the run would produce a latency
-// gradient that reads exactly like the NUMA asymmetry being looked for.
-// Reversing on alternate repetitions puts each replica at both ends.
+// Probes are grouped by what runs at the same time: one probe per group under
+// ScheduleSolo, every replica in one group under ScheduleTogether. Groups run
+// one after another either way, so the two schedules differ in a single place
+// rather than in two loops that could drift apart.
+//
+// Under ScheduleSolo the replica order alternates between repetitions. Driving
+// one replica at a time is what idea.md §10 asks for, but a sequential pass
+// puts replica 0 at the start of every repetition and replica 5 at the end, so
+// a host that drifts over the run would produce a latency gradient that reads
+// exactly like the NUMA asymmetry being looked for. Reversing on alternate
+// repetitions puts each replica at both ends. Under ScheduleTogether there is
+// no order to alternate: that is the point.
 func drive(ctx context.Context, cfg Config, placements []Placement) ([]Probe, []bench.Result, error) {
 	rowPath := filepath.Join(cfg.Dir, "probes.jsonl")
 	// Rows are appended, and this pass does not resume, so a second run in the
@@ -261,25 +309,60 @@ func drive(ctx context.Context, cfg Config, placements []Placement) ([]Probe, []
 
 	for _, concurrency := range cfg.Levels {
 		for repetition := 1; repetition <= cfg.Repetitions; repetition++ {
-			for _, p := range passOrder(placements, repetition) {
+			for _, group := range groups(cfg.Schedule, placements, repetition) {
 				if err := ctx.Err(); err != nil {
 					return probes, rows, err
 				}
 				if order > 0 && cfg.Settle > 0 {
 					time.Sleep(cfg.Settle)
 				}
-				order++
 
-				probe, probeRows, err := runProbe(ctx, cfg, p, concurrency, repetition, order, writer)
+				// One contamination watcher for the group, not one per probe:
+				// the probes in a group overlap and would otherwise have six
+				// samplers shelling out to nvidia-smi against the same cards,
+				// which is load the measurement did not intend to apply.
+				watcher := bench.Watch(ctx, cfg.Contamination)
+				groupProbes, groupRows, err := driveGroup(ctx, cfg, group, concurrency, repetition, &order, writer)
+				contamination := watcher.Stop()
 				if err != nil {
 					return probes, rows, err
 				}
-				probes = append(probes, probe)
-				rows = append(rows, probeRows...)
+				for i := range groupProbes {
+					groupProbes[i].Contamination = contamination
+					for _, reason := range contamination.Reasons() {
+						groupProbes[i].Flag(reason)
+					}
+					if reason := groupProbes[i].PrefixCache.reason(cfg.MaxPrefixHitRate); reason != "" {
+						groupProbes[i].Flag(reason)
+					}
+					cfg.Log.Info("probe complete", "probe", groupProbes[i].ID,
+						"ttft_p50", time.Duration(groupProbes[i].TTFTP50Ns),
+						"itl_p50", time.Duration(groupProbes[i].ITLP50Ns),
+						"requests", groupProbes[i].Requests,
+						"batch_mean", fmt.Sprintf("%.1f", groupProbes[i].EngineLoad.MeanRunning),
+						"queued_max", fmt.Sprintf("%.0f", groupProbes[i].EngineLoad.MaxWaiting),
+						"prefix_hit_rate", fmt.Sprintf("%.1f%%", groupProbes[i].PrefixCache.HitRate()*100),
+						"clean", groupProbes[i].Clean, "flagged", groupProbes[i].Flagged)
+				}
+				probes = append(probes, groupProbes...)
+				rows = append(rows, groupRows...)
 			}
 		}
 	}
 	return probes, rows, writer.Close()
+}
+
+// groups is the sets of replicas that are driven at the same time.
+func groups(schedule Schedule, placements []Placement, repetition int) [][]Placement {
+	if schedule == ScheduleTogether {
+		return [][]Placement{placements}
+	}
+	ordered := passOrder(placements, repetition)
+	out := make([][]Placement, 0, len(ordered))
+	for _, p := range ordered {
+		out = append(out, []Placement{p})
+	}
+	return out
 }
 
 // passOrder reverses the replica order on even repetitions, so no replica is
@@ -295,6 +378,43 @@ func passOrder(placements []Placement, repetition int) []Placement {
 	return reversed
 }
 
+// driveGroup runs one group's probes at the same time and waits for all of
+// them. A group of one is the solo case and costs nothing extra.
+func driveGroup(ctx context.Context, cfg Config, group []Placement, concurrency, repetition int, order *int, writer *record.Writer[bench.Result]) ([]Probe, []bench.Result, error) {
+	probes := make([]Probe, len(group))
+	collected := make([][]bench.Result, len(group))
+	errs := make([]error, len(group))
+
+	if len(group) > 1 {
+		cfg.Log.Info("probing replicas together", "replicas", len(group),
+			"concurrency", concurrency, "repetition", repetition, "duration", cfg.ProbeDuration)
+	}
+
+	var wg sync.WaitGroup
+	for i, p := range group {
+		// Assigned before launching, so every probe in the run has its own
+		// slice of the workload's user space whether or not it shares a start
+		// time with another.
+		*order++
+		at := *order
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			probes[i], collected[i], errs[i] = runProbe(ctx, cfg, p, concurrency, repetition, at, writer)
+		}()
+	}
+	wg.Wait()
+
+	if err := errors.Join(errs...); err != nil {
+		return nil, nil, err
+	}
+	var rows []bench.Result
+	for _, got := range collected {
+		rows = append(rows, got...)
+	}
+	return probes, rows, nil
+}
+
 func runProbe(ctx context.Context, cfg Config, p Placement, concurrency, repetition, order int, rows *record.Writer[bench.Result]) (Probe, []bench.Result, error) {
 	var replica fleet.Replica
 	for _, r := range cfg.Replicas {
@@ -302,17 +422,18 @@ func runProbe(ctx context.Context, cfg Config, p Placement, concurrency, repetit
 			replica = r
 		}
 	}
-	base := replica.BaseURL
 	id := ProbeID(p.ReplicaID, concurrency, repetition)
 
-	cfg.Log.Info("probing replica", "probe", id, "gpu", p.GPUIndex, "numa", p.NUMANode,
-		"concurrency", concurrency, "duration", cfg.ProbeDuration)
+	if cfg.Schedule == ScheduleSolo {
+		cfg.Log.Info("probing replica", "probe", id, "gpu", p.GPUIndex, "numa", p.NUMANode,
+			"concurrency", concurrency, "duration", cfg.ProbeDuration)
+	}
 	started := time.Now()
 	before := readPrefixCounters(ctx, nil, replica)
-	watcher := bench.Watch(ctx, cfg.Contamination)
+	engine := watchEngineLoad(ctx, nil, replica, cfg.EngineSampleInterval)
 
 	results, err := bench.RunClosedLoop(ctx, bench.DriverConfig{
-		Target:        base,
+		Target:        replica.BaseURL,
 		DirectReplica: p.ReplicaID,
 		Concurrency:   concurrency,
 		Duration:      cfg.ProbeDuration,
@@ -330,7 +451,7 @@ func runProbe(ctx context.Context, cfg Config, p Placement, concurrency, repetit
 		Labels: bench.Labels{CellID: id, Repetition: repetition},
 		Log:    cfg.Log,
 	})
-	contamination := watcher.Stop()
+	load := engine.Stop()
 	ended := time.Now()
 	if err != nil {
 		return Probe{}, nil, fmt.Errorf("characterize: probe %s: %w", id, err)
@@ -338,28 +459,19 @@ func runProbe(ctx context.Context, cfg Config, p Placement, concurrency, repetit
 	prefixCache := readPrefixCounters(ctx, nil, replica).since(before)
 
 	probe := Probe{
-		ID:            id,
-		Placement:     p,
-		BaseURL:       base,
-		Concurrency:   concurrency,
-		Repetition:    repetition,
-		Order:         order,
-		StartedAtNs:   started.UnixNano(),
-		EndedAtNs:     ended.UnixNano(),
-		PrefixCache:   prefixCache,
-		Summary:       bench.Summarize(results, bench.SummaryOptions{}),
-		Contamination: contamination,
+		ID:          id,
+		Placement:   p,
+		BaseURL:     replica.BaseURL,
+		Schedule:    cfg.Schedule,
+		Concurrency: concurrency,
+		Repetition:  repetition,
+		Order:       order,
+		StartedAtNs: started.UnixNano(),
+		EndedAtNs:   ended.UnixNano(),
+		PrefixCache: prefixCache,
+		EngineLoad:  load,
+		Summary:     bench.Summarize(results, bench.SummaryOptions{}),
 	}
-	for _, reason := range probe.Contamination.Reasons() {
-		probe.Flag(reason)
-	}
-	if reason := prefixCache.reason(cfg.MaxPrefixHitRate); reason != "" {
-		probe.Flag(reason)
-	}
-	cfg.Log.Info("probe complete", "probe", id,
-		"ttft_p50", time.Duration(probe.TTFTP50Ns), "itl_p50", time.Duration(probe.ITLP50Ns),
-		"requests", probe.Requests, "prefix_hit_rate", fmt.Sprintf("%.1f%%", prefixCache.HitRate()*100),
-		"clean", probe.Clean, "flagged", probe.Flagged)
 	return probe, results, nil
 }
 
@@ -510,6 +622,9 @@ func (c *Characterization) flag(reason string) {
 }
 
 func (cfg Config) withDefaults() Config {
+	if cfg.Schedule == "" {
+		cfg.Schedule = ScheduleSolo
+	}
 	if len(cfg.Levels) == 0 {
 		cfg.Levels = DefaultLevels
 	}

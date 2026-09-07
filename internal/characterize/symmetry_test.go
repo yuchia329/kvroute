@@ -15,7 +15,12 @@ import (
 
 func hostTopology(t *testing.T) gpu.Topology {
 	t.Helper()
-	topo, err := gpu.NewProber(gputest.Runner("", "", "")).Topology(context.Background())
+	return topologyFrom(t, gputest.SixGPUTopology)
+}
+
+func topologyFrom(t *testing.T, canned string) gpu.Topology {
+	t.Helper()
+	topo, err := gpu.NewProber(gputest.RunnerWithTopology("", "", "", canned)).Topology(context.Background())
 	if err != nil {
 		t.Fatalf("topology: %v", err)
 	}
@@ -359,5 +364,102 @@ func TestASpreadAndItsNoiseBothInsideToleranceSettleTheQuestion(t *testing.T) {
 	if s.Levels[0].RepeatSpread > characterize.DefaultSymmetryTolerance {
 		t.Fatalf("this fixture's noise floor %.3f is not inside the tolerance, so it does not test what it claims",
 			s.Levels[0].RepeatSpread)
+	}
+}
+
+// CPU pinning equalises what each NUMA node's replicas get. It is no answer to
+// one slow card, so a difference that does not follow the node boundary must
+// not recommend it — that would be changing the pinned engine configuration
+// every later cell depends on, to fix something else entirely.
+func TestOneSlowCardDoesNotRecommendCPUPinning(t *testing.T) {
+	var rows []bench.Result
+	for i, id := range sixReplicaIDs() {
+		ttft := 320 * time.Millisecond
+		if i == 2 { // one card on NUMA 0, while 0, 1 and 3 stay fast
+			ttft = 420 * time.Millisecond
+		}
+		for repetition := 1; repetition <= 3; repetition++ {
+			rows = append(rows, repeated(replicaRows(id, 1, 30, ttft, 8*time.Millisecond), repetition)...)
+		}
+	}
+
+	s := characterize.CompareReplicas(rows, characterize.Placements(sixReplicaIDs(), hostTopology(t)),
+		hostTopology(t), characterize.DefaultSymmetryTolerance)
+
+	if s.Symmetric {
+		t.Fatal("a card 31% slower than the rest was not reported")
+	}
+	if s.Escalation != characterize.EscalationNone {
+		t.Errorf("escalation = %s, want none: pinning CPUs does not fix one slow card", s.Escalation)
+	}
+	// The node means differ — one of node 0's four replicas is slow — but by
+	// far less than the replica spread, and that is the number pinning acts on.
+	level := s.Levels[0]
+	if level.NUMASpread >= level.TTFTSpread {
+		t.Errorf("NUMA spread %.3f is not below the replica spread %.3f, so this fixture does not test what it claims",
+			level.NUMASpread, level.TTFTSpread)
+	}
+}
+
+// The difference §10 predicts, in the shape it would actually arrive: every
+// replica on the crowded node slower than every replica on the other, agreed on
+// by every repetition. That is what pinning answers.
+func TestADifferenceThatFollowsTheNodeBoundaryRecommendsPinning(t *testing.T) {
+	var rows []bench.Result
+	for i, id := range sixReplicaIDs() {
+		ttft := 320 * time.Millisecond
+		if i < 4 { // GPUs 0-3 are NUMA 0, and share their node's cores four ways
+			ttft = 400 * time.Millisecond
+		}
+		for repetition := 1; repetition <= 3; repetition++ {
+			rows = append(rows, repeated(replicaRows(id, 32, 30, ttft, 13*time.Millisecond), repetition)...)
+		}
+	}
+
+	s := characterize.CompareReplicas(rows, characterize.Placements(sixReplicaIDs(), hostTopology(t)),
+		hostTopology(t), characterize.DefaultSymmetryTolerance)
+
+	if s.Escalation != characterize.EscalationPinCPUs {
+		t.Fatalf("escalation = %s, want pin_cpus: node 0's replicas are 25%% slower than node 1's", s.Escalation)
+	}
+	level := s.Levels[0]
+	if !level.NUMAResolved {
+		t.Error("a node difference every repetition agreed on was reported as unresolvable")
+	}
+	if level.NUMASymmetric {
+		t.Error("a 25% gap between nodes read as symmetric")
+	}
+	if level.NUMARepeatSpread < 0 {
+		t.Error("three repetitions gave no estimate of the between-node noise")
+	}
+}
+
+// A host with one NUMA node has no between-node comparison to make, and must
+// not manufacture one.
+func TestAHostWithOneNUMANodeMakesNoNodeComparison(t *testing.T) {
+	canned := "\tGPU0\tGPU1\tCPU Affinity\tNUMA Affinity\n" +
+		"GPU0\t X \tPIX\t0-47\t0\n" +
+		"GPU1\tPIX\t X \t0-47\t0\n"
+	topo := topologyFrom(t, canned)
+	ids := []string{"replica-0", "replica-1"}
+
+	var rows []bench.Result
+	for _, id := range ids {
+		for repetition := 1; repetition <= 2; repetition++ {
+			rows = append(rows, repeated(replicaRows(id, 1, 20, 320*time.Millisecond, 8*time.Millisecond), repetition)...)
+		}
+	}
+
+	s := characterize.CompareReplicas(rows, characterize.Placements(ids, topo), topo, characterize.DefaultSymmetryTolerance)
+
+	level := s.Levels[0]
+	if level.NUMASpread >= 0 {
+		t.Errorf("NUMA spread = %.3f on a single-node host, want it recorded as absent", level.NUMASpread)
+	}
+	if level.NUMAResolved {
+		t.Error("a single-node host claimed to have resolved a between-node comparison")
+	}
+	if s.Escalation != characterize.EscalationNone {
+		t.Errorf("escalation = %s, want none", s.Escalation)
 	}
 }

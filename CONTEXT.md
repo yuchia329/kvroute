@@ -147,12 +147,20 @@ and a symmetry verdict about a fleet in another do not describe the same fleet.
 _Avoid_: baselining, calibration, warm-up
 
 **Probe**:
-One replica driven on its own at one load level, with no router in front of it. Deliberately not a
-cell: a cell is a point of the policy comparison and carries a policy, and a probe has none, which
-is exactly what lets it say something about a replica rather than about a routing decision. Its
-rows share the harness row schema, so a probe's identity lands in the row's `cell_id` column — the
+One replica driven at one load level, with no router in front of it. Deliberately not a cell: a
+cell is a point of the policy comparison and carries a policy, and a probe has none, which is
+exactly what lets it say something about a replica rather than about a routing decision. Its rows
+share the harness row schema, so a probe's identity lands in the row's `cell_id` column — the
 column is named for the commoner case and a probe row is told apart by carrying no policy.
 _Avoid_: cell, baseline run, trial
+
+**Schedule**:
+Whether a probe had the host to itself. **Solo** drives one replica while every other is idle, which
+isolates the card and its slot. **Together** drives all six at once, which is the only condition in
+which host-side contention exists at all — four cards sharing a NUMA node only compete for its cores
+while all four are busy. The two answer different questions and a latency from one is never compared
+against a latency from the other.
+_Avoid_: mode, parallel, isolated
 
 **Cell**:
 One benchmark data point: a fixed (policy, concurrency or arrival rate, working set ratio, skew,

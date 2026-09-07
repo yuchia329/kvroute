@@ -2,6 +2,7 @@
   "at": "2026-09-07T07:50:38.074573819Z",
   "model": "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
   "workload": "fixed(prompt=2048B,output=64t)",
+  "schedule": "",
   "capacity": {
     "replicas": [
       {
@@ -488,6 +489,9 @@
           }
         ],
         "numa_spread": 0.0004338312052453638,
+        "numa_repeat_spread": 0.010124496152278438,
+        "numa_resolved": true,
+        "numa_symmetric": true,
         "repeat_spread": 0.028105872178257815,
         "resolved": true,
         "symmetric": true
@@ -715,6 +719,9 @@
           }
         ],
         "numa_spread": 0.0037686206765480896,
+        "numa_repeat_spread": 0.08220702513022253,
+        "numa_resolved": false,
+        "numa_symmetric": true,
         "repeat_spread": 0.36316639840040077,
         "resolved": false,
         "symmetric": false
@@ -737,6 +744,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8000",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 1,
       "order": 1,
@@ -746,6 +754,14 @@
         "hits": 1904,
         "queries": 147635,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 83,
@@ -788,6 +804,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8001",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 1,
       "order": 2,
@@ -797,6 +814,14 @@
         "hits": 1920,
         "queries": 147816,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 82,
@@ -839,6 +864,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8002",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 1,
       "order": 3,
@@ -848,6 +874,14 @@
         "hits": 1952,
         "queries": 150395,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 84,
@@ -890,6 +924,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8003",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 1,
       "order": 4,
@@ -899,6 +934,14 @@
         "hits": 1904,
         "queries": 148044,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 83,
@@ -941,6 +984,7 @@
         "numa_node": 1
       },
       "base_url": "http://127.0.0.1:8004",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 1,
       "order": 5,
@@ -950,6 +994,14 @@
         "hits": 1888,
         "queries": 149027,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 82,
@@ -992,6 +1044,7 @@
         "numa_node": 1
       },
       "base_url": "http://127.0.0.1:8005",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 1,
       "order": 6,
@@ -1001,6 +1054,14 @@
         "hits": 1888,
         "queries": 149236,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 83,
@@ -1043,6 +1104,7 @@
         "numa_node": 1
       },
       "base_url": "http://127.0.0.1:8005",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 2,
       "order": 7,
@@ -1052,6 +1114,14 @@
         "hits": 1920,
         "queries": 147955,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 81,
@@ -1094,6 +1164,7 @@
         "numa_node": 1
       },
       "base_url": "http://127.0.0.1:8004",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 2,
       "order": 8,
@@ -1103,6 +1174,14 @@
         "hits": 1888,
         "queries": 150660,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 83,
@@ -1145,6 +1224,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8003",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 2,
       "order": 9,
@@ -1154,6 +1234,14 @@
         "hits": 1936,
         "queries": 149321,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 82,
@@ -1196,6 +1284,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8002",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 2,
       "order": 10,
@@ -1205,6 +1294,14 @@
         "hits": 1952,
         "queries": 150744,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 84,
@@ -1247,6 +1344,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8001",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 2,
       "order": 11,
@@ -1256,6 +1354,14 @@
         "hits": 1968,
         "queries": 150327,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 84,
@@ -1298,6 +1404,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8000",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 2,
       "order": 12,
@@ -1307,6 +1414,14 @@
         "hits": 2000,
         "queries": 149167,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 83,
@@ -1349,6 +1464,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8000",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 3,
       "order": 13,
@@ -1358,6 +1474,14 @@
         "hits": 1808,
         "queries": 141408,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 79,
@@ -1400,6 +1524,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8001",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 3,
       "order": 14,
@@ -1409,6 +1534,14 @@
         "hits": 1904,
         "queries": 146387,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 81,
@@ -1451,6 +1584,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8002",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 3,
       "order": 15,
@@ -1460,6 +1594,14 @@
         "hits": 1936,
         "queries": 149132,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 83,
@@ -1502,6 +1644,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8003",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 3,
       "order": 16,
@@ -1511,6 +1654,14 @@
         "hits": 1968,
         "queries": 152932,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 86,
@@ -1553,6 +1704,7 @@
         "numa_node": 1
       },
       "base_url": "http://127.0.0.1:8004",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 3,
       "order": 17,
@@ -1562,6 +1714,14 @@
         "hits": 1888,
         "queries": 146716,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 81,
@@ -1604,6 +1764,7 @@
         "numa_node": 1
       },
       "base_url": "http://127.0.0.1:8005",
+      "schedule": "",
       "concurrency": 1,
       "repetition": 3,
       "order": 18,
@@ -1613,6 +1774,14 @@
         "hits": 1952,
         "queries": 149506,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 83,
@@ -1655,6 +1824,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8000",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 1,
       "order": 19,
@@ -1664,6 +1834,14 @@
         "hits": 4272,
         "queries": 330617,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 179,
@@ -1706,6 +1884,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8001",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 1,
       "order": 20,
@@ -1715,6 +1894,14 @@
         "hits": 4352,
         "queries": 331674,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 180,
@@ -1760,6 +1947,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8002",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 1,
       "order": 21,
@@ -1769,6 +1957,14 @@
         "hits": 4256,
         "queries": 333272,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 183,
@@ -1811,6 +2007,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8003",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 1,
       "order": 22,
@@ -1820,6 +2017,14 @@
         "hits": 4256,
         "queries": 329863,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 179,
@@ -1865,6 +2070,7 @@
         "numa_node": 1
       },
       "base_url": "http://127.0.0.1:8004",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 1,
       "order": 23,
@@ -1874,6 +2080,14 @@
         "hits": 4240,
         "queries": 329173,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 178,
@@ -1916,6 +2130,7 @@
         "numa_node": 1
       },
       "base_url": "http://127.0.0.1:8005",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 1,
       "order": 24,
@@ -1925,6 +2140,14 @@
         "hits": 4320,
         "queries": 334590,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 183,
@@ -1970,6 +2193,7 @@
         "numa_node": 1
       },
       "base_url": "http://127.0.0.1:8005",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 2,
       "order": 25,
@@ -1979,6 +2203,14 @@
         "hits": 4288,
         "queries": 325590,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 178,
@@ -2024,6 +2256,7 @@
         "numa_node": 1
       },
       "base_url": "http://127.0.0.1:8004",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 2,
       "order": 26,
@@ -2033,6 +2266,14 @@
         "hits": 4288,
         "queries": 326898,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 176,
@@ -2075,6 +2316,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8003",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 2,
       "order": 27,
@@ -2084,6 +2326,14 @@
         "hits": 4192,
         "queries": 326950,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 178,
@@ -2126,6 +2376,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8002",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 2,
       "order": 28,
@@ -2135,6 +2386,14 @@
         "hits": 4432,
         "queries": 338122,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 185,
@@ -2177,6 +2436,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8001",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 2,
       "order": 29,
@@ -2186,6 +2446,14 @@
         "hits": 4320,
         "queries": 334160,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 184,
@@ -2228,6 +2496,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8000",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 2,
       "order": 30,
@@ -2237,6 +2506,14 @@
         "hits": 4272,
         "queries": 327960,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 177,
@@ -2279,6 +2556,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8000",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 3,
       "order": 31,
@@ -2288,6 +2566,14 @@
         "hits": 4080,
         "queries": 315001,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 173,
@@ -2330,6 +2616,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8001",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 3,
       "order": 32,
@@ -2339,6 +2626,14 @@
         "hits": 4368,
         "queries": 330530,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 182,
@@ -2381,6 +2676,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8002",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 3,
       "order": 33,
@@ -2390,6 +2686,14 @@
         "hits": 4384,
         "queries": 335301,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 181,
@@ -2432,6 +2736,7 @@
         "numa_node": 0
       },
       "base_url": "http://127.0.0.1:8003",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 3,
       "order": 34,
@@ -2441,6 +2746,14 @@
         "hits": 4336,
         "queries": 327719,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 177,
@@ -2483,6 +2796,7 @@
         "numa_node": 1
       },
       "base_url": "http://127.0.0.1:8004",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 3,
       "order": 35,
@@ -2492,6 +2806,14 @@
         "hits": 4304,
         "queries": 329881,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 179,
@@ -2534,6 +2856,7 @@
         "numa_node": 1
       },
       "base_url": "http://127.0.0.1:8005",
+      "schedule": "",
       "concurrency": 32,
       "repetition": 3,
       "order": 36,
@@ -2543,6 +2866,14 @@
         "hits": 4384,
         "queries": 335947,
         "read": true
+      },
+      "engine_load": {
+        "samples": 0,
+        "mean_running": 0,
+        "max_running": 0,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": false
       },
       "summary": {
         "requests": 182,
