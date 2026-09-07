@@ -133,7 +133,12 @@ func RunSweep(ctx context.Context, cfg SweepConfig) ([]Cell, error) {
 	if err := checkFleet(ctx, cfg); err != nil {
 		return nil, err
 	}
-	if err := warmFleet(ctx, cfg); err != nil {
+	if err := WarmReplicas(ctx, WarmConfig{
+		Replicas: cfg.Replicas,
+		Requests: cfg.FleetWarmup,
+		Workload: cfg.Workload,
+		Log:      cfg.Log,
+	}); err != nil {
 		return nil, err
 	}
 
@@ -203,30 +208,6 @@ func (cfg SweepConfig) summaryOptions() SummaryOptions {
 	}
 }
 
-// warmFleet sends a few requests to each replica directly, before the first
-// cell, so that every replica has done a real forward pass before any measured
-// request reaches it.
-//
-// Directly, not through the router, because the router decides where a request
-// goes and the harness does not get a say. Warming through it at concurrency 1
-// under round-robin sends the first five requests to replicas 0..4 and leaves
-// replica 5 to serve the first *measured* request cold — the warm-up would
-// manufacture the very cold start it exists to prevent, in the cell that
-// defines the latency floor.
-//
-// This is a handful of requests once per sweep, not per cell: what it covers —
-// lazy allocation and first-execution kernel paths that survive /health —
-// happens once per process. Per-cell transients are what SweepConfig.Warmup is
-// for.
-func warmFleet(ctx context.Context, cfg SweepConfig) error {
-	return WarmReplicas(ctx, WarmConfig{
-		Replicas: cfg.Replicas,
-		Requests: cfg.FleetWarmup,
-		Workload: cfg.Workload,
-		Log:      cfg.Log,
-	})
-}
-
 // WarmConfig configures the direct warm-up.
 type WarmConfig struct {
 	// Replicas are the base URLs to warm. Empty skips the warm-up.
@@ -237,13 +218,26 @@ type WarmConfig struct {
 	Log      *slog.Logger
 }
 
-// WarmReplicas forces a real forward pass on every replica.
+// WarmReplicas sends a few requests to each replica directly, before the first
+// measurement, so that every replica has done a real forward pass before any
+// measured request reaches it.
 //
-// Exported because the characterization pass needs it for the same reason the
-// sweep does, and more sharply: the concurrency-1 measurement it takes is the
-// latency floor every SLO is derived from, so a cold first forward pass landing
-// inside it would put a one-off compile in the threshold every later cell is
-// judged against.
+// Directly, not through the router, because the router decides where a request
+// goes and the harness does not get a say. Warming through it at concurrency 1
+// under round-robin sends the first five requests to replicas 0..4 and leaves
+// replica 5 to serve the first *measured* request cold — the warm-up would
+// manufacture the very cold start it exists to prevent, in the cell that
+// defines the latency floor.
+//
+// This is a handful of requests once per run, not per cell: what it covers —
+// lazy allocation and first-execution kernel paths that survive /health —
+// happens once per process. Per-cell transients are what SweepConfig.Warmup is
+// for.
+//
+// The characterization pass needs it for the same reason and more sharply: the
+// concurrency-1 measurement it takes is the latency floor every SLO is derived
+// from, so a cold first forward pass landing inside it would put a one-off
+// compile into the threshold every later cell is judged against.
 func WarmReplicas(ctx context.Context, cfg WarmConfig) error {
 	if cfg.Requests <= 0 || len(cfg.Replicas) == 0 {
 		return nil

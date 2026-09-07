@@ -126,10 +126,15 @@ type LevelComparison struct {
 	// between replicas. Negative when there was only one repetition and there
 	// is therefore nothing to estimate it from.
 	RepeatSpread float64 `json:"repeat_spread"`
-	// Resolved is false when the spread between replicas is no larger than that
-	// noise floor. An unresolved level says nothing either way: it has not
-	// found the replicas equal, and it has not found them different.
+	// Resolved is false when the comparison could not tell a real difference
+	// from noise — because the spread is inside the noise floor, because there
+	// was only one repetition to estimate that floor from, or because a replica
+	// produced nothing to compare. An unresolved level says nothing either way:
+	// it has not found the replicas equal, and it has not found them different.
 	Resolved bool `json:"resolved"`
+	// Silent names the replicas that produced no successful response at this
+	// level. They are the reason a comparison can be missing rather than even.
+	Silent []string `json:"silent,omitempty"`
 
 	Symmetric bool `json:"symmetric"`
 }
@@ -251,6 +256,13 @@ func compareLevel(concurrency int, rowsByReplica map[string][]bench.Result, plac
 	level.Fastest, level.Slowest = fastest.ReplicaID, slowest.ReplicaID
 	level.TTFTSpread = spread(level.Replicas, func(r ReplicaLatency) int64 { return r.TTFTP50Ns })
 	level.ITLSpread = spread(level.Replicas, func(r ReplicaLatency) int64 { return r.ITLP50Ns })
+	// A replica that answered nothing leaves the comparison with a hole in it.
+	// Neither symmetric nor asymmetric: unmeasured.
+	if level.TTFTSpread < 0 || level.ITLSpread < 0 {
+		level.Symmetric, level.Resolved = false, false
+		level.Silent = silentReplicas(level.Replicas)
+		return level
+	}
 
 	for _, node := range slices.Sorted(maps.Keys(byNode)) {
 		group := byNode[node]
@@ -265,11 +277,15 @@ func compareLevel(concurrency int, rowsByReplica map[string][]bench.Result, plac
 	level.NUMASpread = spread(level.NUMA, func(n NUMALatency) int64 { return n.MeanTTFTNs })
 
 	level.Symmetric = level.TTFTSpread <= tolerance && level.ITLSpread <= tolerance
-	// A difference smaller than a replica's own variation between repetitions
-	// is not a difference between replicas. Measured at concurrency 16 on this
-	// fleet: 30% between replicas, and up to 44% for one replica against
-	// itself.
-	level.Resolved = level.RepeatSpread < 0 || max(level.TTFTSpread, level.ITLSpread) > level.RepeatSpread
+	// A difference smaller than a replica's own variation between repetitions is
+	// not a difference between replicas. Measured at concurrency 16 on this
+	// fleet: 30% between replicas, and up to 44% for one replica against itself.
+	//
+	// One repetition gives no estimate of that noise at all, so it resolves
+	// nothing — not even a spread that looks large. Treating "no estimate" as
+	// "the estimate is zero" would make a single-repetition run the most
+	// confident one there is, which is backwards.
+	level.Resolved = level.RepeatSpread >= 0 && max(level.TTFTSpread, level.ITLSpread) > level.RepeatSpread
 	return level
 }
 
@@ -299,11 +315,26 @@ func repeatSpread(rows []bench.Result) float64 {
 // findings says which dimension broke the tolerance and by how much, and
 // whether the difference follows the host's NUMA boundary — which is what
 // decides whether pinning is the fix or whether something else is going on.
+// silentReplicas names the replicas that produced no successful response.
+func silentReplicas(replicas []ReplicaLatency) []string {
+	var out []string
+	for _, r := range replicas {
+		if r.Successes == 0 || r.TTFTP50Ns <= 0 || r.ITLP50Ns <= 0 {
+			out = append(out, r.ReplicaID)
+		}
+	}
+	return out
+}
+
 func (l LevelComparison) findings(tolerance float64) []string {
 	var out []string
 	if len(l.Replicas) < 2 {
 		return []string{fmt.Sprintf("at concurrency %d only %d replica was driven, so nothing was compared and symmetry at that level is unproven",
 			l.Concurrency, len(l.Replicas))}
+	}
+	if len(l.Silent) > 0 {
+		return []string{fmt.Sprintf("at concurrency %d, %v produced no successful response, so there is nothing to compare the rest against",
+			l.Concurrency, l.Silent)}
 	}
 	if l.TTFTSpread > tolerance {
 		out = append(out, fmt.Sprintf("at concurrency %d, TTFT p50 spread %.1f%% over the %.1f%% tolerance: %s at %v against %s at %v",
@@ -318,7 +349,14 @@ func (l LevelComparison) findings(tolerance float64) []string {
 		out = append(out, fmt.Sprintf("at concurrency %d the difference follows the NUMA boundary: %.1f%% between nodes, %s",
 			l.Concurrency, l.NUMASpread*100, describeNodes(l.NUMA)))
 	}
-	if !l.Resolved {
+	switch {
+	case len(l.Silent) > 0:
+		out = append(out, fmt.Sprintf("at concurrency %d, %v produced no successful response, so there is nothing to compare the rest against",
+			l.Concurrency, l.Silent))
+	case l.RepeatSpread < 0:
+		out = append(out, fmt.Sprintf("at concurrency %d there was one repetition, so nothing estimates the measurement's own noise and the spread cannot be told from it. Add repetitions before acting on it",
+			l.Concurrency))
+	case !l.Resolved:
 		out = append(out, fmt.Sprintf("at concurrency %d that spread is not resolvable: one replica varies %.1f%% against itself between repetitions, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it",
 			l.Concurrency, l.RepeatSpread*100))
 	}
@@ -343,20 +381,29 @@ func describeNodes(nodes []NUMALatency) string {
 	return strings.Join(parts, "; ")
 }
 
-// spread is (max - min) / min over a per-replica figure.
+// spread is (max - min) / min over a per-replica figure, or -1 when there is no
+// spread to compute.
+//
+// Negative rather than zero for the missing case. A replica that produced no
+// successful response has no latency, and returning zero for it would report
+// the fleet as perfectly even on the strength of a replica nobody heard from —
+// which is the one shape of wrong answer this whole comparison exists to avoid.
 func spread[T any](items []T, of func(T) int64) float64 {
+	if len(items) == 0 {
+		return -1
+	}
 	low, high := int64(0), int64(0)
 	for i, item := range items {
 		v := of(item)
+		if v <= 0 {
+			return -1
+		}
 		if i == 0 || v < low {
 			low = v
 		}
 		if v > high {
 			high = v
 		}
-	}
-	if low <= 0 {
-		return 0
 	}
 	return float64(high-low) / float64(low)
 }

@@ -68,8 +68,8 @@ var Required = []Family{
 	{"vllm:kv_cache_usage_perc", Gauge, "KV-cache usage as a fraction of capacity. NOT gpu_cache_usage_perc."},
 	{"vllm:num_requests_running", Gauge, "Requests currently in model execution batches."},
 	{"vllm:num_requests_waiting", Gauge, "Requests waiting in the engine queue. Never call this inflight."},
-	{"vllm:prefix_cache_hits_total", Counter, "Prefix-cache block hits. Ground truth for the router's prefix match."},
-	{"vllm:prefix_cache_queries_total", Counter, "Prefix-cache block queries."},
+	{PrefixCacheHits, Counter, "Prefix-cache block hits. Ground truth for the router's prefix match."},
+	{PrefixCacheQueries, Counter, "Prefix-cache block queries."},
 	{"vllm:prompt_tokens_total", Counter, "Prompt tokens processed."},
 	{"vllm:prompt_tokens_cached_total", Counter, "Prompt tokens served from cache. Redundant prefill is prompt_tokens minus this."},
 	{"vllm:request_prefill_kv_computed_tokens", Histogram, "Prefill tokens actually computed. Ground truth for belief divergence."},
@@ -82,6 +82,19 @@ var Required = []Family{
 	{"vllm:kv_block_reuse_gap_seconds", Histogram, "Gap between reuses of a KV block."},
 	{CacheConfigInfo, Gauge, "The engine's cache configuration. Everything it says is in its labels; see Labels."},
 }
+
+// PrefixCacheHits and PrefixCacheQueries are the counters that say how much of
+// a measurement's prompt work a replica answered out of its cache rather than
+// prefilling.
+//
+// Named here rather than spelled inline at the one place that reads them, for
+// the reason the whole package exists: a dependency on a metric belongs in
+// Required, where the contract test asserts it against a live replica, so a
+// version drift fails loudly instead of silently reporting a hit rate of zero.
+const (
+	PrefixCacheHits    = "vllm:prefix_cache_hits_total"
+	PrefixCacheQueries = "vllm:prefix_cache_queries_total"
+)
 
 // CacheConfigInfo is the series carrying a replica's KV cache geometry.
 //

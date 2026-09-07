@@ -46,12 +46,14 @@ func capacitySection(b *strings.Builder, c Characterization) {
 	fmt.Fprintln(b, "| replica | GPU | num_gpu_blocks | block size | tokens | KV bytes |")
 	fmt.Fprintln(b, "|---|---:|---:|---:|---:|---:|")
 	for i, r := range capacity.Replicas {
-		gpu := i
-		if node, ok := placementOf(c, r.ReplicaID); ok {
-			gpu = node
+		// Falls back to the replica's position when no probe named its card,
+		// which is the order ops/fleet.sh emits the fleet in.
+		gpuIndex := i
+		if index, known := gpuIndexOf(c, r.ReplicaID); known {
+			gpuIndex = index
 		}
 		fmt.Fprintf(b, "| `%s` | %d | %s | %d | %s | %s |\n",
-			r.ReplicaID, gpu, commas(r.NumGPUBlocks), r.BlockSize, commas(r.Tokens), gib(r.Bytes))
+			r.ReplicaID, gpuIndex, commas(r.NumGPUBlocks), r.BlockSize, commas(r.Tokens), gib(r.Bytes))
 	}
 	fmt.Fprintf(b, "| **fleet** | | **%s** | | **%s** | **%s** |\n\n",
 		commas(sumBlocks(capacity)), commas(capacity.Tokens), gib(capacity.Bytes))
@@ -61,7 +63,7 @@ func capacitySection(b *strings.Builder, c Characterization) {
 		uniform = "**the replicas disagree**, so the aggregate hides a difference between cards"
 	}
 	fmt.Fprintf(b, "%s. At %s per token, that is %s of KV per replica.\n\n",
-		capitalize(uniform), bytes(capacity.BytesPerToken), gib(capacity.ImpliedKVBytesPerReplica))
+		capitalize(uniform), kib(capacity.BytesPerToken), gib(capacity.ImpliedKVBytesPerReplica))
 
 	fmt.Fprintln(b, "### Against the figure computed by hand")
 	fmt.Fprintln(b)
@@ -80,7 +82,7 @@ func capacitySection(b *strings.Builder, c Characterization) {
 		"weights, activations and CUDA graphs, and the engine actually left %s — the whole gap is that assumption, "+
 		"not the per-token arithmetic.\n\n",
 		capacity.Estimate.Geometry.Layers, capacity.Estimate.Geometry.KVHeads, capacity.Estimate.Geometry.HeadDim,
-		capacity.Estimate.Geometry.BytesPerElement, bytes(capacity.BytesPerToken),
+		capacity.Estimate.Geometry.BytesPerElement, kib(capacity.BytesPerToken),
 		gib(capacity.Estimate.KVBudgetBytes), gib(capacity.ImpliedKVBytesPerReplica))
 
 	fmt.Fprintln(b, "### Working set ratios rescaled off the measured total")
@@ -211,18 +213,10 @@ func symmetrySection(b *strings.Builder, c Characterization) {
 // prefix cache, pooled over that level's repetitions. A latency table without
 // it cannot be read: a replica that answered from cache looks like a fast one.
 func hitRate(c Characterization, concurrency int, replicaID string) string {
-	pooled := PrefixCacheDelta{Read: true}
-	for _, probe := range c.Probes {
-		if probe.Concurrency != concurrency || probe.ReplicaID != replicaID {
-			continue
-		}
-		if !probe.PrefixCache.Read {
-			return "—"
-		}
-		pooled.Hits += probe.PrefixCache.Hits
-		pooled.Queries += probe.PrefixCache.Queries
-	}
-	if pooled.Queries <= 0 {
+	pooled := PoolPrefixCache(c.Probes, func(p Probe) bool {
+		return p.Concurrency == concurrency && p.ReplicaID == replicaID
+	})
+	if !pooled.Read || pooled.Queries <= 0 {
 		return "—"
 	}
 	return fmt.Sprintf("%.1f%%", pooled.HitRate()*100)
@@ -235,7 +229,8 @@ func passFail(ok bool, tolerance float64) string {
 	return fmt.Sprintf("**outside the %.0f%% tolerance**", tolerance*100)
 }
 
-func placementOf(c Characterization, replicaID string) (int, bool) {
+// gpuIndexOf is the card a replica ran on, as the probes recorded it.
+func gpuIndexOf(c Characterization, replicaID string) (int, bool) {
 	for _, probe := range c.Probes {
 		if probe.ReplicaID == replicaID {
 			return probe.GPUIndex, true
@@ -274,7 +269,9 @@ func gib(b int64) string {
 	return fmt.Sprintf("%.2f GiB", float64(b)/float64(GiB))
 }
 
-func bytes(b int64) string {
+// kib renders a byte count in KiB, falling back to bytes when it is not a whole
+// number of them.
+func kib(b int64) string {
 	if b%1024 == 0 {
 		return fmt.Sprintf("%d KiB", b/1024)
 	}

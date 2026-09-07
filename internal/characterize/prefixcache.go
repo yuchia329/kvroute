@@ -45,6 +45,32 @@ func (d PrefixCacheDelta) HitRate() float64 {
 	return d.Hits / d.Queries
 }
 
+// PoolPrefixCache adds up the prefix-cache evidence of the probes that match,
+// so a figure computed over several probes carries the evidence of all of them.
+//
+// One unread probe makes the whole pool unread. A hit rate averaged over probes
+// where some were checked and some were not would be a number nobody could say
+// what was behind.
+func PoolPrefixCache(probes []Probe, matches func(Probe) bool) PrefixCacheDelta {
+	pooled := PrefixCacheDelta{Read: true}
+	seen := 0
+	for _, probe := range probes {
+		if !matches(probe) {
+			continue
+		}
+		seen++
+		if !probe.PrefixCache.Read {
+			return PrefixCacheDelta{}
+		}
+		pooled.Hits += probe.PrefixCache.Hits
+		pooled.Queries += probe.PrefixCache.Queries
+	}
+	if seen == 0 {
+		return PrefixCacheDelta{}
+	}
+	return pooled
+}
+
 // prefixCounters is one reading of a replica's prefix-cache counters.
 type prefixCounters struct {
 	hits    float64
@@ -63,8 +89,8 @@ func readPrefixCounters(ctx context.Context, client *http.Client, r fleet.Replic
 	if err != nil {
 		return prefixCounters{}
 	}
-	hits, hitsOK := vllmmetrics.Value(body, "vllm:prefix_cache_hits_total")
-	queries, queriesOK := vllmmetrics.Value(body, "vllm:prefix_cache_queries_total")
+	hits, hitsOK := vllmmetrics.Value(body, vllmmetrics.PrefixCacheHits)
+	queries, queriesOK := vllmmetrics.Value(body, vllmmetrics.PrefixCacheQueries)
 	if !hitsOK || !queriesOK {
 		return prefixCounters{}
 	}

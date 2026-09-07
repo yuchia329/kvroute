@@ -149,7 +149,9 @@ _Avoid_: baselining, calibration, warm-up
 **Probe**:
 One replica driven on its own at one load level, with no router in front of it. Deliberately not a
 cell: a cell is a point of the policy comparison and carries a policy, and a probe has none, which
-is exactly what lets it say something about a replica rather than about a routing decision.
+is exactly what lets it say something about a replica rather than about a routing decision. Its
+rows share the harness row schema, so a probe's identity lands in the row's `cell_id` column — the
+column is named for the commoner case and a probe row is told apart by carrying no policy.
 _Avoid_: cell, baseline run, trial
 
 **Cell**:

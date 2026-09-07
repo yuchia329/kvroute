@@ -277,4 +277,49 @@ func TestASingleRepetitionHasNoNoiseFloorAndSaysSoByNotClaimingOne(t *testing.T)
 	if s.Symmetric {
 		t.Error("a 25% difference was not reported")
 	}
+	// No estimate of the noise is not an estimate of zero. Treating it as one
+	// would make the run with the least evidence the most confident, and it
+	// would pin CPUs off a single probe's median.
+	if s.Resolved {
+		t.Error("a single repetition claimed it could tell the difference from noise")
+	}
+	if s.Escalation != characterize.EscalationNone {
+		t.Errorf("escalation = %s, want none: nothing estimates this measurement's noise", s.Escalation)
+	}
+}
+
+// A replica that answered nothing leaves a hole in the comparison. Reporting
+// the remaining five as evenly matched would be a symmetry verdict built on the
+// absence of the replica most likely to be the problem.
+func TestAReplicaThatAnsweredNothingIsNotAPerfectlyEvenFleet(t *testing.T) {
+	var rows []bench.Result
+	for i, id := range sixReplicaIDs() {
+		for repetition := 1; repetition <= 2; repetition++ {
+			batch := replicaRows(id, 1, 20, 320*time.Millisecond, 8*time.Millisecond)
+			if i == 2 {
+				// Dispatched, never answered: no latency to contribute.
+				for j := range batch {
+					batch[j].Outcome = record.OutcomeDropped
+					batch[j].TTFTNs, batch[j].ITLP50Ns = 0, 0
+				}
+			}
+			rows = append(rows, repeated(batch, repetition)...)
+		}
+	}
+
+	s := characterize.CompareReplicas(rows, characterize.Placements(sixReplicaIDs(), hostTopology(t)),
+		hostTopology(t), characterize.DefaultSymmetryTolerance)
+
+	if s.Symmetric {
+		t.Fatal("a fleet with a silent replica reported itself interchangeable")
+	}
+	if s.Resolved {
+		t.Error("a comparison with a hole in it claimed to have resolved something")
+	}
+	if s.Escalation != characterize.EscalationNone {
+		t.Errorf("escalation = %s, want none: the fix for a replica that answers nothing is not CPU pinning", s.Escalation)
+	}
+	if got := s.Levels[0].Silent; len(got) != 1 || got[0] != "replica-2" {
+		t.Errorf("silent replicas = %v, want [replica-2]", got)
+	}
 }

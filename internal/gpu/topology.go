@@ -1,9 +1,11 @@
 package gpu
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -73,6 +75,10 @@ func (t Topology) NUMAGroups() []NUMAGroup {
 	for i := range groups {
 		groups[i].ThreadsPerGPU = float64(groups[i].CPUThreads) / float64(len(groups[i].GPUs))
 	}
+	// In node order, not in the order the cards happened to be listed: the
+	// groups are read side by side in a table, and a host whose GPU 0 hangs off
+	// node 1 would otherwise render them backwards.
+	slices.SortFunc(groups, func(a, b NUMAGroup) int { return cmp.Compare(a.Node, b.Node) })
 	return groups
 }
 

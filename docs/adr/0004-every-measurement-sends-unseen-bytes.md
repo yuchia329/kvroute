@@ -60,6 +60,11 @@ first block on every request, and far below anything that could move the median.
   it has not been done.
 - Partitioning by axis means a full sweep touches a much larger span of the workload's user space.
   Nothing depends on that span being small.
+- **Cells cached before this change were run on different bytes.** A cell's cache key is its id,
+  which has not changed, so a resumed sweep will happily load an old cell beside a new one that
+  sent different prompts. Any sweep directory that predates this must be deleted rather than
+  resumed. Only the two 20-second bring-up cells are affected in practice, and they are kept as a
+  reference measurement rather than resumed.
 - The three counters this rests on — `vllm:prefix_cache_hits_total` and
   `vllm:prefix_cache_queries_total`, plus the `vllm:cache_config_info` labels — are declared in
   `internal/vllmmetrics` and asserted against every live replica by `test/contract`, so a version

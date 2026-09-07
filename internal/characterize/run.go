@@ -20,12 +20,16 @@ import (
 // DefaultLevels are the two load levels each replica is driven at.
 //
 // One, because that is where the hardware floor lives and where the SLO comes
-// from. Sixteen, because an asymmetry in host-side CPU work does not show at
-// concurrency one — there is no queue, no batch and nothing to be starved of —
-// and this is enough load on a single replica to make the engine batch without
-// pushing it past its knee, where the measurement would be about saturation
-// rather than about the host.
-var DefaultLevels = []int{1, 16}
+// from.
+//
+// Thirty-two, because that is where idea.md §10 puts the risk. It locates the
+// NUMA starvation at a *fleet* concurrency of 128–256, which across six
+// replicas is 21–43 requests each, and a probe drives one replica: sixteen
+// would be a fleet at 96, below the range the concern is stated for. An
+// asymmetry in host-side CPU work cannot show at concurrency one either, where
+// there is no queue and no batch to be starved of, so the second level is the
+// only one that can test it at all.
+var DefaultLevels = []int{1, 32}
 
 // Config configures a characterization run.
 type Config struct {
@@ -184,6 +188,11 @@ func Run(ctx context.Context, cfg Config) (Characterization, error) {
 		if c.Topology, err = cfg.Prober.Topology(ctx); err != nil {
 			return Characterization{}, err
 		}
+		// Verbatim beside the record, so the parse above can be checked against
+		// what the driver actually said without decoding JSON to find it.
+		if err := os.WriteFile(filepath.Join(cfg.Dir, "topology.txt"), []byte(c.Topology.Printable()), 0o644); err != nil {
+			return Characterization{}, fmt.Errorf("characterize: write topology: %w", err)
+		}
 		for _, group := range c.Topology.NUMAGroups() {
 			cfg.Log.Info("NUMA placement", "node", group.Node, "gpus", group.GPUs,
 				"threads_per_gpu", group.ThreadsPerGPU)
@@ -213,7 +222,8 @@ func Run(ctx context.Context, cfg Config) (Characterization, error) {
 	// comparison; the SLO follows from the floor. Measuring them separately
 	// would derive an SLO from a fleet in one state and judge symmetry on a
 	// fleet in another.
-	c.Floor = NewFloor(rowsAt(rows, 1), len(cfg.Replicas), floorPrefixCache(probes), cfg.MaxPrefixHitRate)
+	c.Floor = NewFloor(rowsAt(rows, 1), len(cfg.Replicas),
+		PoolPrefixCache(probes, func(p Probe) bool { return p.Concurrency == 1 }), cfg.MaxPrefixHitRate)
 	if usable, why := c.Floor.Usable(); !usable {
 		c.flag("the latency floor is not usable, so the SLO derived from it is not either: " + why)
 	}
@@ -406,29 +416,6 @@ func flaggedProbes(probes []Probe) []string {
 			len(ids), len(probes), reason, strings.Join(named, ", "), suffix))
 	}
 	return out
-}
-
-// floorPrefixCache pools the prefix-cache evidence of the probes the floor is
-// taken from, so the floor can refuse to be used if it was measured against a
-// cache rather than against the hardware.
-func floorPrefixCache(probes []Probe) PrefixCacheDelta {
-	pooled := PrefixCacheDelta{Read: true}
-	seen := 0
-	for _, probe := range probes {
-		if probe.Concurrency != 1 {
-			continue
-		}
-		seen++
-		if !probe.PrefixCache.Read {
-			return PrefixCacheDelta{}
-		}
-		pooled.Hits += probe.PrefixCache.Hits
-		pooled.Queries += probe.PrefixCache.Queries
-	}
-	if seen == 0 || pooled.Queries <= 0 {
-		return PrefixCacheDelta{}
-	}
-	return pooled
 }
 
 // rowsAt returns the rows taken at one load level.
