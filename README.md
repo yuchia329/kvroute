@@ -14,26 +14,35 @@ measured comparison of routing policies, not a service. See [`idea.md`](idea.md)
 > makes cache locality exist at all. This README gets replaced by a results-first one once there
 > are results.
 >
-> **Verified on the box, 2026-09-06.** One replica of the pinned engine came up on an RTX 3090,
-> the contract test passed against it, and a real streamed completion went through the router.
-> See [ADR-0001](docs/adr/0001-engine-pin-and-forced-kernel-selection.md) for what that first
-> contact corrected.
+> **Verified on the box, 2026-09-06.** All six replicas came up under `ops/fleet.sh` behind the
+> preflight, a sweep ran across them through the router, and every cell came back `clean`. The
+> numbers below are from that run. See
+> [ADR-0001](docs/adr/0001-engine-pin-and-forced-kernel-selection.md) for what first contact
+> corrected.
 
 ## First measurements
 
-Single replica, `Meta-Llama-3.1-8B-Instruct-AWQ-INT4`, one RTX 3090. Not a benchmark — these are
-bring-up numbers from ten requests, recorded so later figures have a reference point.
+Six replicas, `Meta-Llama-3.1-8B-Instruct-AWQ-INT4`, one per RTX 3090, brought up under
+`ops/fleet.sh` on 2026-09-06. Not a benchmark — two 20-second cells at concurrency 1 and 8, on a
+workload with no shared prefixes, recorded so later figures have a reference point.
 
 | Quantity | Measured | Note |
 |---|---|---|
-| Router overhead p50 / p99 | **94 µs / 516 µs** | against the < 1 ms p99 Phase 1 gate |
-| KV cache capacity | **119,408 tokens** | vs ~114,700 estimated by hand in `idea.md` §2, within 4% |
-| Engine init | 37.5 s | of which 18.2 s compilation |
-| Model load | 5.39 GiB | vs ~5.5 GB estimated |
+| Router overhead p50 / p99 | **135 µs / 318 µs** | 280 requests. Against the < 1 ms p99 Phase 1 gate — passes, though the max of 1.34 ms includes first-connection setup |
+| TTFT p50 / p99 at concurrency 1 | **320 ms / 330 ms** | the hardware floor the SLO gets derived from in #10 |
+| Inter-token latency p50 | **7.6 ms** | |
+| KV cache capacity | **125,952 tokens per replica**, identical on all six | **755,712 fleet-wide.** See the discrepancy below |
+| Model load | 4.7–5.2 s per replica | sequential bring-up, no NFS thundering herd |
+| Contamination | 11 samples per cell, 0 foreign processes, `clean: true` | the ownership check works: the process holding each card is *not* the pid in the pid file |
 
-The p99 is the max of ten samples and includes first-connection setup; it is a sanity check that
-the router is not adding milliseconds, not a characterization. Real percentiles come from the
-sweeps.
+⚠️ **The capacity figure moved and has not been explained.** [ADR-0001](docs/adr/0001-engine-pin-and-forced-kernel-selection.md)
+recorded **119,408 tokens** from a single replica during the first bring-up; all six now report
+**125,952**, a 5.5% increase, with identical engine settings. Six agreeing replicas is the stronger
+measurement, but the gap is unexplained and every working set ratio scales off this number.
+Reconciling it against `num_gpu_blocks` is an acceptance criterion of #10 and is not done here.
+
+Concurrency 8 barely moved TTFT (328 ms p50) — six replicas are nowhere near saturation at that
+load, which is the whole reason the sweep runs to 256.
 
 ## What runs today
 

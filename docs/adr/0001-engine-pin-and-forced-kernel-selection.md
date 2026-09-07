@@ -64,6 +64,12 @@ The venv resolved to `vllm 0.28.0` on `torch 2.13.0+cu130`, matching `idea.md` �
 capacity on one replica was **119,408 tokens**, against `idea.md` §2's hand estimate of ~114,700 —
 within 4%.
 
+> **Superseded, 2026-09-06.** A six-replica bring-up under `ops/fleet.sh` reported **125,952
+> tokens on every replica** with these same settings — 5.5% above the figure recorded here. Six
+> agreeing replicas is the stronger measurement, but the gap is unexplained. It does not affect
+> this ADR's decision, which is about which kernel runs; it does affect every working set ratio,
+> and reconciling it against `num_gpu_blocks` is an acceptance criterion of #10.
+
 Two corrections the live replica forced on `idea.md` §4.6, both caught by the contract test rather
 than in a later sweep:
 
