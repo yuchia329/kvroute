@@ -7,11 +7,21 @@ import (
 	"strings"
 )
 
-// Turn is one request a workload wants sent: the session it belongs to and the
-// body to POST.
+// Turn is one request a workload wants sent: the session it belongs to, how far
+// into that session it is, and the body to POST.
 type Turn struct {
 	Session string
-	Body    []byte
+	// Index is the turn's position within its session, counted from zero.
+	//
+	// It is the workload's to report rather than the driver's to count. A
+	// driver counts the turns one virtual user has sent, which is the same
+	// number only while a user holds one conversation forever; a generator that
+	// draws a fresh session every few turns makes the two diverge, and the
+	// recorded index would then say a request carried a hundred turns of
+	// history when it carried two. Prefix depth is what a row is read for, so
+	// the number has to be the session's.
+	Index int
+	Body  []byte
 }
 
 // Workload produces the turns a driver sends.
@@ -127,7 +137,7 @@ func (f *Fixed) Next(user, turn int) Turn {
 		// that can make it unmarshalable.
 		panic("bench: fixed workload produced an unmarshalable body: " + err.Error())
 	}
-	return Turn{Session: session, Body: body}
+	return Turn{Session: session, Index: turn, Body: body}
 }
 
 // filler builds a prompt of roughly the configured size, seeded on the virtual

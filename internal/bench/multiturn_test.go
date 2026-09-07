@@ -1,13 +1,17 @@
 package bench_test
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yuchia329/kvroute/internal/bench"
 	"github.com/yuchia329/kvroute/internal/characterize"
+	"github.com/yuchia329/kvroute/internal/fakereplica"
 )
 
 // measuredFleetCapacity is what the characterization gates read off all six
@@ -586,6 +590,76 @@ func TestTheGeneratorRefusesAPressureThatIsNotANumber(t *testing.T) {
 		tweak(&cfg)
 		if w, err := bench.NewMultiTurn(cfg); err == nil {
 			t.Errorf("%s: built a generator anyway (%s)", name, w.Name())
+		}
+	}
+}
+
+// A row's turn is read as prefix depth: how much history the replica was asked
+// to hold behind this request. The driver counts the turns one virtual user has
+// sent, which is the same number only while a user holds one conversation
+// forever — so with a generator that draws a fresh session every few turns, the
+// number has to come from the workload or it says a request carried a hundred
+// turns of history when it carried two.
+func TestARowsTurnIsItsPositionInItsSessionAndNotTheDriversCount(t *testing.T) {
+	target, _, _ := fleetUnderTest(t, fakereplica.Config{OutputTokens: 2})
+
+	cfg := multiTurnConfig()
+	cfg.Sessions = 12
+	cfg.PromptTokens = 32
+	cfg.OutputTokens = 4
+	w := newMultiTurn(t, cfg)
+
+	rows, err := bench.RunClosedLoop(context.Background(), bench.DriverConfig{
+		Target:      target,
+		Concurrency: 2,
+		Duration:    600 * time.Millisecond,
+		Workload:    w,
+		Log:         slog.New(slog.DiscardHandler),
+	})
+	if err != nil {
+		t.Fatalf("run the cell: %v", err)
+	}
+	if len(rows) < 3*cfg.TurnsPerSession {
+		t.Fatalf("the cell sent %d requests, too few to run past one session", len(rows))
+	}
+
+	// Every row sits inside a session, and the sessions turn over rather than
+	// one running for the whole cell.
+	perSession := map[string]map[int]bool{}
+	for _, row := range rows {
+		if row.Turn < 0 || row.Turn >= cfg.TurnsPerSession {
+			t.Fatalf("a row records turn %d of a %d-turn session, so it is the driver's count", row.Turn, cfg.TurnsPerSession)
+		}
+		if perSession[row.Session] == nil {
+			perSession[row.Session] = map[int]bool{}
+		}
+		perSession[row.Session][row.Turn] = true
+	}
+	if len(perSession) < 2 {
+		t.Fatalf("the whole cell ran inside %d session(s), so nothing turned over", len(perSession))
+	}
+
+	// And a session that ran its course shows every one of its turns, which is
+	// what makes the index readable as prefix depth.
+	complete := 0
+	for _, turns := range perSession {
+		if len(turns) == cfg.TurnsPerSession {
+			complete++
+		}
+	}
+	if complete == 0 {
+		t.Error("no session recorded a full run of turns")
+	}
+}
+
+// The fixed workload has one endless session per virtual user, so its index is
+// the driver's count. That is a different workload rather than a different
+// convention, and the record has to be readable across both.
+func TestTheFixedWorkloadStillReportsTheDriversTurn(t *testing.T) {
+	f := bench.NewFixedWorkload(bench.FixedWorkload{Model: testModel, PromptBytes: 32, OutputTokens: 2})
+	for _, turn := range []int{0, 1, 7, 99} {
+		if got := f.Next(3, turn).Index; got != turn {
+			t.Errorf("turn %d reported index %d", turn, got)
 		}
 	}
 }

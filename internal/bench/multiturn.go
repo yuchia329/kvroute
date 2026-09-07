@@ -352,7 +352,7 @@ func (m *MultiTurn) Next(user, turn int) Turn {
 		// unmarshalable.
 		panic("bench: multi-turn generator produced an unmarshalable body: " + err.Error())
 	}
-	return Turn{Session: fmt.Sprintf("sess-%d-%d", epoch, session), Body: body}
+	return Turn{Session: fmt.Sprintf("sess-%d-%d", epoch, session), Index: index, Body: body}
 }
 
 func message(role, content string) map[string]string {

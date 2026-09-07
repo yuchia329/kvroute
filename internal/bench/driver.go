@@ -253,7 +253,7 @@ func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int, warmUntil, 
 	row := Result{
 		Labels:      cfg.Labels,
 		Session:     next.Session,
-		Turn:        turn,
+		Turn:        next.Index,
 		VirtualUser: user,
 		// Judged on when the request started: a request that began inside the
 		// warm-up window is a warm-up request however long it took to finish.
