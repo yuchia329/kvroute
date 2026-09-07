@@ -41,6 +41,12 @@ recorded **119,408 tokens** from a single replica during the first bring-up; all
 measurement, but the gap is unexplained and every working set ratio scales off this number.
 Reconciling it against `num_gpu_blocks` is an acceptance criterion of #10 and is not done here.
 
+The rows behind every figure above are kept in
+[`docs/measurements/2026-09-06-fleet-bringup/`](docs/measurements/2026-09-06-fleet-bringup/) —
+per-request JSONL, the compacted Parquet, and each replica's own startup log. Sweep output is
+gitignored because a full pass is hundreds of megabytes; a reference run the README cites is not,
+because a figure whose rows have been deleted is an assertion rather than a measurement.
+
 Concurrency 8 barely moved TTFT (328 ms p50) — six replicas are nowhere near saturation at that
 load, which is the whole reason the sweep runs to 256.
 

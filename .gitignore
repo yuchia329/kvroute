@@ -2,3 +2,9 @@ bin/
 run/
 *.jsonl
 runs/
+
+# Sweep output is ignored above because a full pass is hundreds of megabytes
+# across ~220 cells. Reference measurements cited by the README are different in
+# kind and are kept, so every published figure stays recomputable from the rows
+# it came from rather than being an assertion.
+!docs/measurements/**

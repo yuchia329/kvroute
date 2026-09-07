@@ -1,0 +1,42 @@
+{
+  "id": "round_robin-c1-r1",
+  "policy": "round_robin",
+  "concurrency": 1,
+  "repetition": 1,
+  "driver": "closed_loop",
+  "workload": "fixed(prompt=2048B,output=32t)",
+  "started_at_ns": 1788757006552958403,
+  "ended_at_ns": 1788757026943291629,
+  "summary": {
+    "requests": 30,
+    "warmup": 8,
+    "successes": 30,
+    "failed": 0,
+    "dropped": 0,
+    "cancelled": 0,
+    "slo_violations": 0,
+    "window_ns": 16203951112,
+    "throughput_rps": 1.8514003030892385,
+    "goodput_rps": 0,
+    "ttft_p50_ns": 320176299,
+    "ttft_p95_ns": 329098136,
+    "ttft_p99_ns": 330175576,
+    "total_p50_ns": 551991157,
+    "total_p99_ns": 567083575,
+    "itl_p50_ns": 7616005,
+    "itl_p95_ns": 7730105,
+    "slo_applied": false,
+    "slo_ttft_ns": 0,
+    "slo_itl_ns": 0,
+    "warmup_drift": 0.004210751129465814,
+    "failure_rate": 0,
+    "failure_threshold": 0.01,
+    "flagged": false
+  },
+  "contamination": {
+    "gpu_samples": 11,
+    "probe_errors": 0,
+    "max_foreign_gpu_mem_mib": 0,
+    "clean": true
+  }
+}
