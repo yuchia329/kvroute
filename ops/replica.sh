@@ -77,6 +77,7 @@ up() {
     --host 0.0.0.0
     --port "$port"
     --quantization "$QUANTIZATION"
+    --linear-backend "$LINEAR_BACKEND"
     --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION"
     --max-num-seqs "$MAX_NUM_SEQS"
     --block-size "$BLOCK_SIZE"
@@ -91,9 +92,14 @@ up() {
   if [[ "$ENABLE_CHUNKED_PREFILL" == "1" ]]; then
     args+=(--enable-chunked-prefill)
   fi
+  if [[ "$KV_CACHE_METRICS" == "1" ]]; then
+    args+=(--kv-cache-metrics)
+  fi
 
-  echo "starting $id on GPU $index, port $port, vLLM $VLLM_VERSION, quantization $QUANTIZATION"
-  CUDA_VISIBLE_DEVICES="$index" nohup "$VENV/bin/vllm" "${args[@]}" >"$log" 2>&1 &
+  echo "starting $id on GPU $index, port $port, vLLM $VLLM_VERSION, quantization $QUANTIZATION, linear backend $LINEAR_BACKEND"
+  CUDA_VISIBLE_DEVICES="$index" \
+  VLLM_USE_FLASHINFER_SAMPLER="$VLLM_USE_FLASHINFER_SAMPLER" \
+    nohup "$VENV/bin/vllm" "${args[@]}" >"$log" 2>&1 &
   echo $! >"$pid"
 
   local deadline=$(( SECONDS + STARTUP_TIMEOUT_SECONDS ))

@@ -372,12 +372,16 @@ func writeError(w http.ResponseWriter, status int, typ, message string) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	// The engine nests its error under an "error" key. The router forwards an
+	// upstream error body verbatim, so the fake has to produce the real shape
+	// or every test above the seam is asserting against fiction.
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"object":  "error",
-		"message": message,
-		"type":    typ,
-		"param":   nil,
-		"code":    status,
+		"error": map[string]any{
+			"message": message,
+			"type":    typ,
+			"param":   nil,
+			"code":    status,
+		},
 	})
 }
 

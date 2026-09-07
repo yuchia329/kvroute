@@ -252,12 +252,29 @@ func runContract(t *testing.T, baseURL, model string) {
 			t.Errorf("status = %d, want a 4xx", resp.StatusCode)
 		}
 		body := readAll(t, resp.Body)
-		var got map[string]any
+		// The engine nests the error, and the router forwards this body to the
+		// client untouched, so the shape is part of the contract.
+		var got struct {
+			Error *struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+				Code    int    `json:"code"`
+			} `json:"error"`
+		}
 		if err := json.Unmarshal(body, &got); err != nil {
 			t.Fatalf("error body %q is not JSON: %v", body, err)
 		}
-		if _, ok := got["message"]; !ok {
-			t.Errorf("error body carries no message: %s", body)
+		if got.Error == nil {
+			t.Fatalf("error body is not nested under an \"error\" key: %s", body)
+		}
+		if got.Error.Message == "" {
+			t.Errorf("error carries no message: %s", body)
+		}
+		if got.Error.Type == "" {
+			t.Errorf("error carries no type: %s", body)
+		}
+		if got.Error.Code != resp.StatusCode {
+			t.Errorf("error code %d disagrees with HTTP status %d", got.Error.Code, resp.StatusCode)
 		}
 	})
 

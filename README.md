@@ -12,13 +12,26 @@ measured comparison of routing policies, not a service. See [`idea.md`](idea.md)
 > the pressure map are not built yet. This README gets replaced by a results-first one once there
 > are results.
 >
-> **Not yet run against a GPU.** Everything above the replica HTTP boundary is tested and passing
-> against the fake. Nothing here has met a real vLLM replica: `ops/replica.sh` has never been
-> executed, the pinned engine version and the forced AWQ backend are transcribed from the spec
-> rather than confirmed on the box, and `TestLiveReplicaHonoursTheContract` has only ever skipped.
-> The metric names in `internal/vllmmetrics` are the spec's claim until that test runs. Expect the
-> first contact with the box to fail on one of those and fix it there — that is what the
-> assertions are for.
+> **Verified on the box, 2026-09-06.** One replica of the pinned engine came up on an RTX 3090,
+> the contract test passed against it, and a real streamed completion went through the router.
+> See [ADR-0001](docs/adr/0001-engine-pin-and-forced-kernel-selection.md) for what that first
+> contact corrected.
+
+## First measurements
+
+Single replica, `Meta-Llama-3.1-8B-Instruct-AWQ-INT4`, one RTX 3090. Not a benchmark — these are
+bring-up numbers from ten requests, recorded so later figures have a reference point.
+
+| Quantity | Measured | Note |
+|---|---|---|
+| Router overhead p50 / p99 | **94 µs / 516 µs** | against the < 1 ms p99 Phase 1 gate |
+| KV cache capacity | **119,408 tokens** | vs ~114,700 estimated by hand in `idea.md` §2, within 4% |
+| Engine init | 37.5 s | of which 18.2 s compilation |
+| Model load | 5.39 GiB | vs ~5.5 GB estimated |
+
+The p99 is the max of ten samples and includes first-connection setup; it is a sanity check that
+the router is not adding milliseconds, not a characterization. Real percentiles come from the
+sweeps.
 
 ## What runs today
 
@@ -52,8 +65,6 @@ curl -s http://127.0.0.1:8080/router/stats   # router overhead p50/p99
 ```
 
 ## Run it against a real replica
-
-Unrun so far, in this order:
 
 ```sh
 make replica-up INDEX=0                                    # pinned vLLM, forced awq_marlin

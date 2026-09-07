@@ -45,11 +45,17 @@ func (f Family) SeriesNames() []string {
 	return []string{f.Name}
 }
 
-// Required is every metric family this project depends on. The names are taken
-// from idea.md §4.6, which records them as read off vLLM 0.28.0 — but nothing
-// in this repo has yet confirmed them against a running engine. The contract
-// test is what does that, and until it has been run against a live replica
-// these names are the spec's claim, not a verified fact.
+// Required is every metric family this project depends on, verified against a
+// live vLLM 0.28.0 replica on 2026-09-06 by test/contract.
+//
+// The verification corrected idea.md §4.6 in two ways, which is the whole
+// reason the assertion exists:
+//
+//   - Every counter is exposed with a _total suffix. The spec recorded
+//     vllm:prompt_tokens; the engine serves vllm:prompt_tokens_total. Gauges
+//     and histograms are named as the spec had them.
+//   - The three KV residency families are not published by default. They need
+//     --kv-cache-metrics, which is off unless asked for; see ADR-0001.
 //
 // Adding a dependency on a new metric means adding it here, so that the
 // contract test starts checking for it.
@@ -57,12 +63,12 @@ var Required = []Family{
 	{"vllm:kv_cache_usage_perc", Gauge, "KV-cache usage as a fraction of capacity. NOT gpu_cache_usage_perc."},
 	{"vllm:num_requests_running", Gauge, "Requests currently in model execution batches."},
 	{"vllm:num_requests_waiting", Gauge, "Requests waiting in the engine queue. Never call this inflight."},
-	{"vllm:prefix_cache_hits", Counter, "Prefix-cache block hits. Ground truth for the router's prefix match."},
-	{"vllm:prefix_cache_queries", Counter, "Prefix-cache block queries."},
-	{"vllm:prompt_tokens", Counter, "Prompt tokens processed."},
-	{"vllm:prompt_tokens_cached", Counter, "Prompt tokens served from cache. Redundant prefill is prompt_tokens minus this."},
+	{"vllm:prefix_cache_hits_total", Counter, "Prefix-cache block hits. Ground truth for the router's prefix match."},
+	{"vllm:prefix_cache_queries_total", Counter, "Prefix-cache block queries."},
+	{"vllm:prompt_tokens_total", Counter, "Prompt tokens processed."},
+	{"vllm:prompt_tokens_cached_total", Counter, "Prompt tokens served from cache. Redundant prefill is prompt_tokens minus this."},
 	{"vllm:request_prefill_kv_computed_tokens", Histogram, "Prefill tokens actually computed. Ground truth for belief divergence."},
-	{"vllm:num_preemptions", Counter, "Engine preemptions. This is vLLM's own eviction, never the router's spill."},
+	{"vllm:num_preemptions_total", Counter, "Engine preemptions. This is vLLM's own eviction, never the router's spill."},
 	{"vllm:time_to_first_token_seconds", Histogram, "Server-side TTFT, differenced against client-observed TTFT to separate transport from inference."},
 	{"vllm:inter_token_latency_seconds", Histogram, "Server-side inter-token latency."},
 	{"vllm:e2e_request_latency_seconds", Histogram, "Server-side end-to-end request latency."},
