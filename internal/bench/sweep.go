@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/yuchia329/kvroute/internal/record"
@@ -66,6 +69,10 @@ type SweepConfig struct {
 	// land inside the next one's window.
 	Settle time.Duration
 
+	// Replicas are the base URLs of every replica the router fronts. Each is
+	// asked for /health before the first cell runs. Empty skips the check.
+	Replicas []string
+
 	SLO              SLO
 	FailureThreshold float64
 	Workload         Workload
@@ -102,6 +109,10 @@ func RunSweep(ctx context.Context, cfg SweepConfig) ([]Cell, error) {
 		cfg.Log = slog.Default()
 	}
 	cfg.Contamination.Log = cfg.Log
+
+	if err := checkFleet(ctx, cfg); err != nil {
+		return nil, err
+	}
 
 	cellDir := filepath.Join(cfg.Dir, "cells")
 	if err := os.MkdirAll(cellDir, 0o755); err != nil {
@@ -159,6 +170,51 @@ func RunSweep(ctx context.Context, cfg SweepConfig) ([]Cell, error) {
 		}
 	}
 	return cells, nil
+}
+
+// checkFleet refuses to start a sweep unless every replica answers /health.
+//
+// Nothing below this ejects a dead replica — health checking and ejection are
+// their own ticket — so round-robin would keep dispatching to it, the router
+// would fail to place one request in six, and the cell would fill with drops.
+// The sweep is hours long, so the difference between catching that here and
+// catching it in the results is a wasted night on a box that is only idle until
+// the 20th.
+func checkFleet(ctx context.Context, cfg SweepConfig) error {
+	if len(cfg.Replicas) == 0 {
+		cfg.Log.Warn("no replica URLs given, so the fleet was not checked before the sweep")
+		return nil
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	var down []string
+	for _, base := range cfg.Replicas {
+		if err := ping(ctx, client, base); err != nil {
+			down = append(down, fmt.Sprintf("%s (%v)", base, err))
+		}
+	}
+	if len(down) > 0 {
+		return fmt.Errorf("bench: %d of %d replicas did not answer /health, so the sweep would measure an incomplete fleet: %s",
+			len(down), len(cfg.Replicas), strings.Join(down, "; "))
+	}
+	cfg.Log.Info("fleet is up", "replicas", len(cfg.Replicas))
+	return nil
+}
+
+func ping(ctx context.Context, client *http.Client, base string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(base, "/")+"/health", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // runCell runs one cell and writes it to disk.

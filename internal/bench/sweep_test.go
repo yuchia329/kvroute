@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -322,5 +323,56 @@ func TestChangingTheSLORecomputesCachedCellsFromTheirRowsInsteadOfReRunningThem(
 	})
 	if !reloaded[0].SLOApplied || reloaded[0].SLOViolations != second[0].SLOViolations {
 		t.Errorf("the resummarised cell was not written back: %+v", reloaded[0].Summary)
+	}
+}
+
+func TestASweepRefusesToStartWhenAReplicaIsDown(t *testing.T) {
+	dir := t.TempDir()
+	// One replica up, one that nothing is listening on. Round-robin would send
+	// every second request into the dead one, the router could not place it, and
+	// the cell would fill with drops — after the hours it took to produce them.
+	live := fakereplica.New(fakereplica.Config{})
+	liveSrv := httptest.NewServer(live.Handler())
+	t.Cleanup(liveSrv.Close)
+	target := routerFor(t, "replica-0="+liveSrv.URL, "replica-1=http://127.0.0.1:1")
+
+	_, err := bench.RunSweep(context.Background(), bench.SweepConfig{
+		Dir: dir, Target: target, Policy: "round_robin",
+		Concurrencies: []int{1}, CellDuration: 20 * time.Millisecond,
+		Workload: bench.NewFixedWorkload(bench.FixedWorkload{Model: testModel, OutputTokens: 2}),
+		Replicas: []string{liveSrv.URL, "http://127.0.0.1:1"},
+		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+
+	if err == nil {
+		t.Fatal("the sweep started with a replica down")
+	}
+	if !strings.Contains(err.Error(), "127.0.0.1:1") {
+		t.Errorf("the error does not name the unreachable replica: %v", err)
+	}
+	// Nothing was run, so nothing was cached.
+	if entries, _ := filepath.Glob(filepath.Join(dir, "cells", "*.json")); len(entries) != 0 {
+		t.Errorf("a cell was written despite the fleet being incomplete: %v", entries)
+	}
+}
+
+func TestASweepRunsWhenEveryReplicaAnswers(t *testing.T) {
+	dir := t.TempDir()
+	live := fakereplica.New(fakereplica.Config{})
+	liveSrv := httptest.NewServer(live.Handler())
+	t.Cleanup(liveSrv.Close)
+
+	cells, err := bench.RunSweep(context.Background(), bench.SweepConfig{
+		Dir: dir, Target: routerFor(t, "replica-0="+liveSrv.URL), Policy: "round_robin",
+		Concurrencies: []int{1}, CellDuration: 20 * time.Millisecond,
+		Workload: bench.NewFixedWorkload(bench.FixedWorkload{Model: testModel, OutputTokens: 2}),
+		Replicas: []string{liveSrv.URL},
+		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("run sweep: %v", err)
+	}
+	if len(cells) != 1 {
+		t.Fatalf("produced %d cells, want 1", len(cells))
 	}
 }

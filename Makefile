@@ -7,7 +7,6 @@ INDEX   ?= 0
 LISTEN  ?= :8080
 REPLICAS ?= replica-0=http://127.0.0.1:8000
 POLICY  ?= round_robin
-RECORDS ?=
 
 # The concurrency sweep. RUN_DIR is where cells land and where an interrupted
 # sweep resumes from. SLO_TTFT and SLO_ITL are left unset on purpose until they
@@ -17,6 +16,12 @@ RECORDS ?=
 RUN_DIR   ?= runs/concurrency
 ROUTER    ?= http://127.0.0.1:8080
 BENCH_ARGS ?=
+
+# The router's own per-request rows. They carry accept-to-dispatch overhead and
+# the router's view of each outcome, and join to the harness rows by request id,
+# so they are kept by default rather than discarded: a sweep that threw them away
+# could not report router overhead per request or, later, belief divergence.
+RECORDS ?= $(RUN_DIR)/router.jsonl
 
 # The live replica the contract test runs against. Point it at a replica of the
 # pinned engine version during bring-up.
@@ -80,6 +85,7 @@ bench: build ## Sweep concurrency against the running fleet, resuming from RUN_D
 	$(BIN)/bench -router $(ROUTER) -dir $(RUN_DIR) -policy $(POLICY) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
+		-replicas "$$(ops/fleet.sh replicas)" \
 		$(BENCH_ARGS)
 
 .PHONY: replica-up
@@ -95,7 +101,8 @@ replica-status: ## Show which replicas are running
 	ops/replica.sh status
 
 .PHONY: run-router
-run-router: build ## Run the router against REPLICAS
+run-router: build ## Run the router against REPLICAS, keeping its own rows in RECORDS
+	@mkdir -p $(dir $(RECORDS))
 	$(BIN)/router -listen $(LISTEN) -replicas $(REPLICAS) -policy $(POLICY) -records $(RECORDS)
 
 .PHONY: run-fake

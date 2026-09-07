@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/yuchia329/kvroute/internal/bench"
+	"github.com/yuchia329/kvroute/internal/fleet"
 	"github.com/yuchia329/kvroute/internal/gpu"
 )
 
@@ -40,14 +41,15 @@ func main() {
 
 func run() error {
 	var (
-		target      = flag.String("router", "http://127.0.0.1:8080", "the router to drive")
-		dir         = flag.String("dir", "runs/concurrency", "where cells are written and resumed from")
-		policyName  = flag.String("policy", "round_robin", "the policy the router is running; recorded as the cell's label")
-		levels      = flag.String("concurrency", "1,4,8,16,32,64,128,256", "concurrency levels to sweep")
-		repetitions = flag.Int("repetitions", 3, "repetitions per level; p99 is noisy at low sample counts")
-		duration    = flag.Duration("cell-duration", 60*time.Second, "how long each cell keeps starting new turns")
-		warmup      = flag.Int("warmup", 5, "requests per virtual user marked as warm-up and excluded from the summary")
-		settle      = flag.Duration("settle", 10*time.Second, "pause between cells, so one cell's tail stays out of the next one's window")
+		target       = flag.String("router", "http://127.0.0.1:8080", "the router to drive")
+		replicaSpecs = flag.String("replicas", "", "the same -replicas spec the router was given; each is asked for /health before the sweep starts")
+		dir          = flag.String("dir", "runs/concurrency", "where cells are written and resumed from")
+		policyName   = flag.String("policy", "round_robin", "the policy the router is running; recorded as the cell's label")
+		levels       = flag.String("concurrency", "1,4,8,16,32,64,128,256", "concurrency levels to sweep")
+		repetitions  = flag.Int("repetitions", 3, "repetitions per level; p99 is noisy at low sample counts")
+		duration     = flag.Duration("cell-duration", 60*time.Second, "how long each cell keeps starting new turns")
+		warmup       = flag.Int("warmup", 5, "requests per virtual user marked as warm-up and excluded from the summary")
+		settle       = flag.Duration("settle", 10*time.Second, "pause between cells, so one cell's tail stays out of the next one's window")
 
 		sloTTFT   = flag.Duration("slo-ttft", 0, "TTFT threshold; unset means no SLO was applied and goodput is not reported")
 		sloITL    = flag.Duration("slo-itl", 0, "inter-token latency threshold, evaluated against each request's median gap")
@@ -85,6 +87,20 @@ func run() error {
 		return fmt.Errorf("-model is required: pass \"$(ops/fleet.sh env MODEL)\", or run via make bench which does it for you")
 	}
 
+	// The same spec string the router takes, parsed by the same code, so the
+	// harness cannot be checking a different fleet from the one being driven.
+	replicas, err := fleet.ParseSpecs(strings.Split(*replicaSpecs, ","))
+	if err != nil {
+		return err
+	}
+	bases := make([]string, 0, len(replicas))
+	for _, r := range replicas {
+		bases = append(bases, r.BaseURL)
+	}
+	if len(bases) == 0 {
+		log.Warn("no -replicas given: the sweep will not check the fleet is up before it starts")
+	}
+
 	contamination := bench.ContaminationConfig{Interval: *interval}
 	if *sampleGPUs {
 		if *gpus <= 0 {
@@ -117,6 +133,7 @@ func run() error {
 		Dir:              *dir,
 		Target:           *target,
 		Policy:           *policyName,
+		Replicas:         bases,
 		Concurrencies:    concurrencies,
 		Repetitions:      *repetitions,
 		CellDuration:     *duration,
