@@ -236,7 +236,10 @@ _Avoid_: heatmap, pressure grid (that is the set of cells it is drawn from)
 **Working set ratio**:
 Total session tokens offered divided by aggregate fleet KV capacity. The axis of the pressure grid
 that creates memory pressure, because it determines whether the fleet can hold every session at
-once and therefore whether spill ever fires. Written WS.
+once and therefore whether spill ever fires. Written WS. It names the session pool a cell offers,
+which is the pressure a cell asks for rather than the pressure it applies: skew decides how much of
+that pool a cell of finite length actually draws from, and at the top of the skew axis that is a
+large discount. A cell records both.
 _Avoid_: load, pressure, session count
 
 **Skew**:
