@@ -249,30 +249,75 @@ func TestTheDriverLetsInFlightRequestsFinishInsteadOfCancellingThem(t *testing.T
 	}
 }
 
-func TestWarmupRequestsAreMarkedButStillRecorded(t *testing.T) {
-	target, _, _ := fleetUnderTest(t, fakereplica.Config{})
+func TestWarmupIsTheFirstSliceOfTheCellAndIsStillRecorded(t *testing.T) {
+	target, _, _ := fleetUnderTest(t, fakereplica.Config{TTFT: 10 * time.Millisecond})
 
 	results := drive(t, bench.DriverConfig{
 		Target:      target,
 		Concurrency: 1,
 		Duration:    300 * time.Millisecond,
-		Warmup:      2,
+		Warmup:      100 * time.Millisecond,
 	})
 
 	if len(results) < 3 {
-		t.Fatalf("got %d results, want more than the warm-up count", len(results))
+		t.Fatalf("got %d results, want several", len(results))
 	}
-	warm := 0
+	warm, measured := 0, 0
 	for _, r := range results {
 		if r.Warmup {
 			warm++
+		} else {
+			measured++
 		}
 	}
-	if warm != 2 {
-		t.Errorf("marked %d rows as warm-up, want 2", warm)
+	// The rows are kept, not dropped: the record has to be able to show what
+	// was set aside as well as what was kept.
+	if warm == 0 || measured == 0 {
+		t.Fatalf("split %d warm-up and %d measured rows, want some of each", warm, measured)
 	}
-	if results[0].Warmup != true || results[2].Warmup != false {
-		t.Error("warm-up marks are not the first requests each virtual user sent")
+	if !results[0].Warmup {
+		t.Error("the first request of the cell was not marked as warm-up")
+	}
+	if results[len(results)-1].Warmup {
+		t.Error("the last request of a 300ms cell was still marked warm-up after 100ms")
+	}
+}
+
+func TestWarmupCostsEveryConcurrencyLevelTheSameSliceOfItsWindow(t *testing.T) {
+	// The point of a duration: a count per virtual user costs
+	// count x per-request latency, so the saturated cells would forfeit the
+	// most. Here the same 80ms is discarded whether one user or eight are
+	// running, even though eight users send many more requests inside it.
+	target, _, _ := fleetUnderTest(t, fakereplica.Config{TTFT: 5 * time.Millisecond})
+
+	for _, concurrency := range []int{1, 8} {
+		results := drive(t, bench.DriverConfig{
+			Target:      target,
+			Concurrency: concurrency,
+			Duration:    240 * time.Millisecond,
+			Warmup:      80 * time.Millisecond,
+		})
+		for _, r := range results {
+			startedAt := time.Unix(0, r.StartedAtNs)
+			_ = startedAt
+		}
+		var lastWarm, firstMeasured time.Duration
+		base := results[0].StartedAtNs
+		for _, r := range results {
+			offset := time.Duration(r.StartedAtNs - base)
+			if r.Warmup && offset > lastWarm {
+				lastWarm = offset
+			}
+			if !r.Warmup && (firstMeasured == 0 || offset < firstMeasured) {
+				firstMeasured = offset
+			}
+		}
+		if lastWarm > 100*time.Millisecond {
+			t.Errorf("concurrency %d: a request %v into the cell was still marked warm-up against an 80ms window", concurrency, lastWarm)
+		}
+		if firstMeasured < 70*time.Millisecond {
+			t.Errorf("concurrency %d: measurement began %v in, before the 80ms warm-up was over", concurrency, firstMeasured)
+		}
 	}
 }
 

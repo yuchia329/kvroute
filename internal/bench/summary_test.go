@@ -1,6 +1,7 @@
 package bench_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -47,7 +48,7 @@ func TestDroppedFailedAndSLOViolationsAreCountedInThreeSeparateColumns(t *testin
 		outcome(start, record.OutcomeDropped),
 	}
 
-	got := bench.Summarize(results, slo, 0.01)
+	got := bench.Summarize(results, bench.SummaryOptions{SLO: slo, FailureThreshold: 0.01})
 
 	if got.Requests != 5 {
 		t.Errorf("counted %d requests, want 5", got.Requests)
@@ -69,7 +70,7 @@ func TestDroppedFailedAndSLOViolationsAreCountedInThreeSeparateColumns(t *testin
 func TestAnSLOViolationIsStillASuccessAndNeverAFailure(t *testing.T) {
 	start := time.Unix(1757000000, 0)
 
-	got := bench.Summarize([]bench.Result{success(start, 9*time.Second)}, slo, 0.01)
+	got := bench.Summarize([]bench.Result{success(start, 9*time.Second)}, bench.SummaryOptions{SLO: slo, FailureThreshold: 0.01})
 
 	if got.Successes != 1 {
 		t.Errorf("counted %d successes, want 1: a slow response still completed", got.Successes)
@@ -87,7 +88,7 @@ func TestAnInterTokenLatencyMissViolatesTheSLOOnItsOwn(t *testing.T) {
 	slowTokens := success(start, time.Second)
 	slowTokens.ITLP50Ns = (400 * time.Millisecond).Nanoseconds()
 
-	got := bench.Summarize([]bench.Result{slowTokens}, slo, 0.01)
+	got := bench.Summarize([]bench.Result{slowTokens}, bench.SummaryOptions{SLO: slo, FailureThreshold: 0.01})
 
 	if got.SLOViolations != 1 {
 		t.Errorf("a fast first token with 400ms between the rest passed the SLO; violations=%d", got.SLOViolations)
@@ -107,7 +108,7 @@ func TestPercentilesAreComputedOverSuccessfulResponsesOnly(t *testing.T) {
 		results = append(results, outcome(start, record.OutcomeFailed))
 	}
 
-	got := bench.Summarize(results, slo, 1.0)
+	got := bench.Summarize(results, bench.SummaryOptions{SLO: slo, FailureThreshold: 1.0})
 
 	if want := (2 * time.Second).Nanoseconds(); got.TTFTP50Ns != want {
 		t.Errorf("TTFT p50 is %dns, want %dns: failures reached the distribution", got.TTFTP50Ns, want)
@@ -122,7 +123,7 @@ func TestACellExceedingTheFailureThresholdIsFlagged(t *testing.T) {
 	}
 	results = append(results, outcome(start, record.OutcomeFailed), outcome(start, record.OutcomeDropped))
 
-	got := bench.Summarize(results, slo, 0.01)
+	got := bench.Summarize(results, bench.SummaryOptions{SLO: slo, FailureThreshold: 0.01})
 
 	if got.FailureRate != 0.02 {
 		t.Errorf("failure rate is %v, want 0.02", got.FailureRate)
@@ -142,7 +143,7 @@ func TestACellWithinTheFailureThresholdIsNotFlagged(t *testing.T) {
 		results = append(results, success(start, time.Second))
 	}
 
-	if got := bench.Summarize(results, slo, 0.01); got.Flagged {
+	if got := bench.Summarize(results, bench.SummaryOptions{SLO: slo, FailureThreshold: 0.01}); got.Flagged {
 		t.Errorf("a clean cell was flagged: %v", got.FlagReasons)
 	}
 }
@@ -152,7 +153,7 @@ func TestWarmupRequestsAreExcludedFromTheSummary(t *testing.T) {
 	warm := success(start, 30*time.Second)
 	warm.Warmup = true
 
-	got := bench.Summarize([]bench.Result{warm, success(start, time.Second)}, slo, 0.01)
+	got := bench.Summarize([]bench.Result{warm, success(start, time.Second)}, bench.SummaryOptions{SLO: slo, FailureThreshold: 0.01})
 
 	if got.Requests != 1 {
 		t.Errorf("summarised %d requests, want 1: the warm-up row was counted", got.Requests)
@@ -179,7 +180,7 @@ func TestGoodputCountsOnlyTheRequestsThatMetTheSLO(t *testing.T) {
 		success(start.Add(2*time.Second), time.Second),
 	}
 
-	got := bench.Summarize(results, slo, 0.01)
+	got := bench.Summarize(results, bench.SummaryOptions{SLO: slo, FailureThreshold: 0.01})
 
 	// The window runs from the first start to the last completion: 2s + 1s
 	// TTFT + 1s of tokens = 4s. Three of the four met the SLO.
@@ -200,7 +201,7 @@ func TestWithoutAnSLOTheCellRecordsThatNoneWasApplied(t *testing.T) {
 	// The concurrency-1 cell is what the SLO is derived from, so it necessarily
 	// runs before one exists. A zero in the violations column would read as
 	// "nothing violated" rather than "nothing was checked".
-	got := bench.Summarize([]bench.Result{success(start, 30*time.Second)}, bench.SLO{}, 0.01)
+	got := bench.Summarize([]bench.Result{success(start, 30*time.Second)}, bench.SummaryOptions{SLO: bench.SLO{}, FailureThreshold: 0.01})
 
 	if got.SLOApplied {
 		t.Error("a cell with no thresholds reported an SLO as applied")
@@ -220,7 +221,7 @@ func TestACancelledRequestIsNeitherASuccessNorAFailure(t *testing.T) {
 		outcome(start, record.OutcomeCancelled),
 	}
 
-	got := bench.Summarize(results, slo, 0.01)
+	got := bench.Summarize(results, bench.SummaryOptions{SLO: slo, FailureThreshold: 0.01})
 
 	if got.Cancelled != 1 {
 		t.Errorf("counted %d cancelled, want 1", got.Cancelled)
@@ -232,5 +233,69 @@ func TestACancelledRequestIsNeitherASuccessNorAFailure(t *testing.T) {
 	// end, so it is flagged rather than quietly averaged in.
 	if !got.Flagged {
 		t.Error("a cell containing a cancelled request was not flagged")
+	}
+}
+
+func TestACellStillSpeedingUpIsFlaggedAsUnderWarmed(t *testing.T) {
+	start := time.Unix(1757000000, 0)
+	// Twelve successes across a 12-second window. The first half answers in 4s,
+	// the second in 1s — the fleet was still warming when measurement began, so
+	// this cell's numbers are a transient, not its steady state.
+	var results []bench.Result
+	for i := range 12 {
+		ttft := time.Second
+		if i < 6 {
+			ttft = 4 * time.Second
+		}
+		r := success(start.Add(time.Duration(i)*time.Second), ttft)
+		r.TotalNs = ttft.Nanoseconds()
+		results = append(results, r)
+	}
+
+	got := bench.Summarize(results, bench.SummaryOptions{FailureThreshold: 0.01})
+
+	if got.WarmupDrift < 2.5 {
+		t.Errorf("drift is %.2f, want ~3.0 (4s against 1s)", got.WarmupDrift)
+	}
+	if !got.Flagged {
+		t.Fatal("a cell whose first half was 4x slower than its second was not flagged")
+	}
+	if !strings.Contains(strings.Join(got.FlagReasons, " "), "still warming up") {
+		t.Errorf("the flag does not say the cell was under-warmed: %v", got.FlagReasons)
+	}
+}
+
+func TestASteadyCellIsNotFlaggedAsUnderWarmed(t *testing.T) {
+	start := time.Unix(1757000000, 0)
+	var results []bench.Result
+	for i := range 12 {
+		r := success(start.Add(time.Duration(i)*time.Second), time.Second)
+		r.TotalNs = time.Second.Nanoseconds()
+		results = append(results, r)
+	}
+
+	got := bench.Summarize(results, bench.SummaryOptions{FailureThreshold: 0.01})
+
+	if got.Flagged {
+		t.Errorf("a steady cell was flagged: %v", got.FlagReasons)
+	}
+}
+
+func TestDriftIsNotJudgedOnTooFewRequestsToCompare(t *testing.T) {
+	start := time.Unix(1757000000, 0)
+	// Four requests, wildly uneven. At concurrency 1 a short cell produces
+	// exactly this, and two medians over two requests each is noise, not
+	// evidence that anything was cold.
+	results := []bench.Result{
+		success(start, 9*time.Second),
+		success(start.Add(time.Second), 9*time.Second),
+		success(start.Add(2*time.Second), time.Second),
+		success(start.Add(3*time.Second), time.Second),
+	}
+
+	got := bench.Summarize(results, bench.SummaryOptions{FailureThreshold: 0.01})
+
+	if got.WarmupDrift != 0 {
+		t.Errorf("drift is %.2f over 4 requests, want 0: too few to compare", got.WarmupDrift)
 	}
 }

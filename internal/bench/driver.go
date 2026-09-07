@@ -28,9 +28,15 @@ type DriverConfig struct {
 	// Duration is how long users keep starting new turns. A request already in
 	// flight when it expires is allowed to finish.
 	Duration time.Duration
-	// Warmup is how many of each virtual user's first requests are marked as
-	// warm-up. Their rows are kept and excluded from the summary.
-	Warmup int
+	// Warmup is how long at the start of the cell counts as warm-up. Rows
+	// started inside it are kept and excluded from the summary.
+	//
+	// A duration rather than a count per virtual user. A count costs
+	// count x per-request latency, and per-request latency grows with
+	// concurrency, so the saturated cells — the ones the sweep exists to
+	// measure — would forfeit the largest share of their window. A duration
+	// costs every level the same.
+	Warmup time.Duration
 
 	Workload Workload
 	// Rows, when set, receives every row as it completes, so a crashed cell
@@ -102,9 +108,14 @@ func RunClosedLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
+	if cfg.Warmup >= cfg.Duration && cfg.Duration > 0 {
+		return nil, fmt.Errorf("bench: warm-up %v leaves nothing of a %v cell to measure", cfg.Warmup, cfg.Duration)
+	}
 	cfg.Labels.Concurrency = cfg.Concurrency
 
-	deadline := time.Now().Add(cfg.Duration)
+	start := time.Now()
+	deadline := start.Add(cfg.Duration)
+	warmUntil := start.Add(cfg.Warmup)
 	collected := make([][]Result, cfg.Concurrency)
 
 	var wg sync.WaitGroup
@@ -112,7 +123,7 @@ func RunClosedLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			collected[user] = runVirtualUser(ctx, cfg, user, deadline)
+			collected[user] = runVirtualUser(ctx, cfg, user, deadline, warmUntil)
 		}()
 	}
 	wg.Wait()
@@ -130,13 +141,13 @@ func RunClosedLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 // runVirtualUser sends turns one at a time until the deadline. It checks the
 // deadline before starting a turn and never during one: cutting a response
 // short at the driver's own clock would put the driver in the failure column.
-func runVirtualUser(ctx context.Context, cfg DriverConfig, user int, deadline time.Time) []Result {
+func runVirtualUser(ctx context.Context, cfg DriverConfig, user int, deadline, warmUntil time.Time) []Result {
 	var rows []Result
 	for turn := 0; ; turn++ {
 		if turn > 0 && (time.Now().After(deadline) || ctx.Err() != nil) {
 			return rows
 		}
-		row := sendTurn(ctx, cfg, user, turn)
+		row := sendTurn(ctx, cfg, user, turn, warmUntil)
 		rows = append(rows, row)
 		if cfg.Rows != nil {
 			if err := cfg.Rows.Write(row); err != nil {
@@ -147,7 +158,7 @@ func runVirtualUser(ctx context.Context, cfg DriverConfig, user int, deadline ti
 }
 
 // sendTurn sends one request and observes what came back.
-func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int) Result {
+func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int, warmUntil time.Time) Result {
 	next := cfg.Workload.Next(user, turn)
 	started := time.Now()
 	row := Result{
@@ -155,7 +166,9 @@ func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int) Result {
 		Session:     next.Session,
 		Turn:        turn,
 		VirtualUser: user,
-		Warmup:      turn < cfg.Warmup,
+		// Judged on when the request started: a request that began inside the
+		// warm-up window is a warm-up request however long it took to finish.
+		Warmup:      started.Before(warmUntil),
 		StartedAtNs: started.UnixNano(),
 	}
 	finish := func(outcome record.Outcome, err error) Result {

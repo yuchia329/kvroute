@@ -3,6 +3,7 @@ package bench_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http/httptest"
@@ -374,5 +375,72 @@ func TestASweepRunsWhenEveryReplicaAnswers(t *testing.T) {
 	}
 	if len(cells) != 1 {
 		t.Fatalf("produced %d cells, want 1", len(cells))
+	}
+}
+
+func TestEveryReplicaIsWarmedBeforeTheFirstMeasuredRequest(t *testing.T) {
+	dir := t.TempDir()
+
+	// Six replicas, as on the box. Under round-robin at concurrency 1 a warm-up
+	// routed through the router would touch replicas 0..4 and leave replica 5
+	// to serve the first *measured* request cold — the warm-up manufacturing
+	// the cold start it exists to prevent, in the cell that defines the floor.
+	var specs []string
+	var bases []string
+	counters := make([]*inflight, 6)
+	for i := range 6 {
+		// Slow enough that the cell below sends exactly one request, so the
+		// only way every replica gets touched is the fleet warm-up.
+		replica := fakereplica.New(fakereplica.Config{TTFT: 20 * time.Millisecond})
+		counters[i] = &inflight{Handler: replica.Handler()}
+		srv := httptest.NewServer(counters[i])
+		t.Cleanup(srv.Close)
+		specs = append(specs, fmt.Sprintf("replica-%d=%s", i, srv.URL))
+		bases = append(bases, srv.URL)
+	}
+
+	if _, err := bench.RunSweep(context.Background(), bench.SweepConfig{
+		Dir: dir, Target: routerFor(t, specs...), Policy: "round_robin",
+		Replicas:      bases,
+		FleetWarmup:   2,
+		Concurrencies: []int{1},
+		CellDuration:  time.Millisecond,
+		Workload:      bench.NewFixedWorkload(bench.FixedWorkload{Model: testModel, OutputTokens: 2}),
+		Log:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}); err != nil {
+		t.Fatalf("run sweep: %v", err)
+	}
+
+	for i, counted := range counters {
+		if got := counted.total.Load(); got < 2 {
+			t.Errorf("replica %d served %d requests; it was never warmed", i, got)
+		}
+	}
+}
+
+func TestTheFleetWarmupFailsLoudlyWhenAReplicaCannotServe(t *testing.T) {
+	dir := t.TempDir()
+	live := fakereplica.New(fakereplica.Config{})
+	live.SetFailure(&fakereplica.Failure{Status: 500, Type: "InternalServerError", Message: "engine died"})
+	srv := httptest.NewServer(live.Handler())
+	t.Cleanup(srv.Close)
+
+	// /health still answers — vLLM's does even when generation is broken — so
+	// the health check passes and only an actual request finds the problem.
+	_, err := bench.RunSweep(context.Background(), bench.SweepConfig{
+		Dir: dir, Target: routerFor(t, "replica-0="+srv.URL), Policy: "round_robin",
+		Replicas:      []string{srv.URL},
+		FleetWarmup:   1,
+		Concurrencies: []int{1},
+		CellDuration:  20 * time.Millisecond,
+		Workload:      bench.NewFixedWorkload(bench.FixedWorkload{Model: testModel, OutputTokens: 2}),
+		Log:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+
+	if err == nil {
+		t.Fatal("the sweep ran against a replica that cannot generate")
+	}
+	if !strings.Contains(err.Error(), "warming the fleet") {
+		t.Errorf("the error does not say the warm-up failed: %v", err)
 	}
 }

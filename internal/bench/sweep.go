@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,9 +12,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yuchia329/kvroute/internal/record"
+	"github.com/yuchia329/kvroute/internal/router"
 )
 
 // ConcurrencySweep is the scaling axis: how each policy's latency degrades as
@@ -64,7 +67,13 @@ type SweepConfig struct {
 	Concurrencies []int
 	Repetitions   int
 	CellDuration  time.Duration
-	Warmup        int
+	// Warmup is the slice at the start of each cell whose rows are recorded but
+	// excluded from the summary.
+	Warmup time.Duration
+	// FleetWarmup is how many requests to send to each replica directly,
+	// before the first cell, to force its first real forward pass. Zero skips
+	// it.
+	FleetWarmup int
 	// Settle is how long to wait between cells, so one cell's tail does not
 	// land inside the next one's window.
 	Settle time.Duration
@@ -75,8 +84,11 @@ type SweepConfig struct {
 
 	SLO              SLO
 	FailureThreshold float64
-	Workload         Workload
-	Contamination    ContaminationConfig
+	// WarmupDriftThreshold flags a cell whose measured window was still
+	// speeding up. Zero uses DefaultWarmupDriftThreshold.
+	WarmupDriftThreshold float64
+	Workload             Workload
+	Contamination        ContaminationConfig
 
 	Log *slog.Logger
 }
@@ -111,6 +123,9 @@ func RunSweep(ctx context.Context, cfg SweepConfig) ([]Cell, error) {
 	cfg.Contamination.Log = cfg.Log
 
 	if err := checkFleet(ctx, cfg); err != nil {
+		return nil, err
+	}
+	if err := warmFleet(ctx, cfg); err != nil {
 		return nil, err
 	}
 
@@ -170,6 +185,84 @@ func RunSweep(ctx context.Context, cfg SweepConfig) ([]Cell, error) {
 		}
 	}
 	return cells, nil
+}
+
+func (cfg SweepConfig) summaryOptions() SummaryOptions {
+	return SummaryOptions{
+		SLO:                  cfg.SLO,
+		FailureThreshold:     cfg.FailureThreshold,
+		WarmupDriftThreshold: cfg.WarmupDriftThreshold,
+	}
+}
+
+// warmFleet sends a few requests to each replica directly, before the first
+// cell, so that every replica has done a real forward pass before any measured
+// request reaches it.
+//
+// Directly, not through the router, because the router decides where a request
+// goes and the harness does not get a say. Warming through it at concurrency 1
+// under round-robin sends the first five requests to replicas 0..4 and leaves
+// replica 5 to serve the first *measured* request cold — the warm-up would
+// manufacture the very cold start it exists to prevent, in the cell that
+// defines the latency floor.
+//
+// This is a handful of requests once per sweep, not per cell: what it covers —
+// lazy allocation and first-execution kernel paths that survive /health —
+// happens once per process. Per-cell transients are what SweepConfig.Warmup is
+// for.
+func warmFleet(ctx context.Context, cfg SweepConfig) error {
+	if cfg.FleetWarmup <= 0 || len(cfg.Replicas) == 0 {
+		return nil
+	}
+	client := &http.Client{Timeout: 5 * time.Minute}
+	errs := make([]error, len(cfg.Replicas))
+
+	var wg sync.WaitGroup
+	for i, base := range cfg.Replicas {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for n := range cfg.FleetWarmup {
+				// Turn index n keeps the bodies distinct, so the replica is not
+				// answering the same request from its own prefix cache every
+				// time and skipping the work being warmed.
+				if err := warmOnce(ctx, client, base, cfg.Workload.Next(i, n)); err != nil {
+					errs[i] = fmt.Errorf("%s: %w", base, err)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("bench: warming the fleet failed, so a replica cannot serve: %w", err)
+	}
+	cfg.Log.Info("fleet warmed", "replicas", len(cfg.Replicas), "requests_each", cfg.FleetWarmup)
+	return nil
+}
+
+func warmOnce(ctx context.Context, client *http.Client, base string, turn Turn) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		strings.TrimSuffix(base, "/")+router.ChatCompletionsPath, bytes.NewReader(turn.Body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	// Drained rather than discarded unread, so the warm-up pays the whole cost
+	// of a response the way a measured request will.
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // checkFleet refuses to start a sweep unless every replica answers /health.
@@ -274,7 +367,7 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, concurren
 		Workload:      cfg.Workload.Name(),
 		StartedAtNs:   started.UnixNano(),
 		EndedAtNs:     ended.UnixNano(),
-		Summary:       Summarize(results, cfg.SLO, cfg.FailureThreshold),
+		Summary:       Summarize(results, cfg.summaryOptions()),
 		Contamination: contamination,
 	}
 	flagContamination(&cell)
@@ -327,7 +420,7 @@ func resummarize(cellDir string, cached Cell, cfg SweepConfig) (Cell, error) {
 	if err != nil {
 		return Cell{}, err
 	}
-	cached.Summary = Summarize(rows, cfg.SLO, cfg.FailureThreshold)
+	cached.Summary = Summarize(rows, cfg.summaryOptions())
 	flagContamination(&cached)
 	if err := writeCell(cellDir, cached); err != nil {
 		return Cell{}, err

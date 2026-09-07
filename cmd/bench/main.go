@@ -34,7 +34,9 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "bench: %v\n", err)
+		// Not prefixed here: every error this returns already names itself,
+		// and prefixing again produced "bench: bench: ...".
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
@@ -48,12 +50,14 @@ func run() error {
 		levels       = flag.String("concurrency", "1,4,8,16,32,64,128,256", "concurrency levels to sweep")
 		repetitions  = flag.Int("repetitions", 3, "repetitions per level; p99 is noisy at low sample counts")
 		duration     = flag.Duration("cell-duration", 60*time.Second, "how long each cell keeps starting new turns")
-		warmup       = flag.Int("warmup", 5, "requests per virtual user marked as warm-up and excluded from the summary")
+		warmup       = flag.Duration("warmup", 10*time.Second, "slice at the start of each cell whose rows are recorded but excluded from the summary; a duration, so every concurrency level forfeits the same share of its window")
+		fleetWarmup  = flag.Int("fleet-warmup", 3, "requests sent to each replica directly before the first cell, so every replica has done a real forward pass")
 		settle       = flag.Duration("settle", 10*time.Second, "pause between cells, so one cell's tail stays out of the next one's window")
 
 		sloTTFT   = flag.Duration("slo-ttft", 0, "TTFT threshold; unset means no SLO was applied and goodput is not reported")
 		sloITL    = flag.Duration("slo-itl", 0, "inter-token latency threshold, evaluated against each request's median gap")
 		failureAt = flag.Float64("failure-threshold", bench.DefaultFailureThreshold, "failure rate above which a cell is flagged")
+		driftAt   = flag.Float64("warmup-drift-threshold", bench.DefaultWarmupDriftThreshold, "how much slower a cell's first measured half may be than its second before it is flagged as under-warmed; negative disables the check")
 
 		model        = flag.String("model", "", "the model the replicas serve; no default, it is pinned in ops/versions.env")
 		promptBytes  = flag.Int("prompt-bytes", 2048, "approximate prompt size per request")
@@ -71,7 +75,7 @@ func run() error {
 
 	level := slog.LevelInfo
 	if err := level.UnmarshalText([]byte(*logLevel)); err != nil {
-		return fmt.Errorf("unknown log level %q", *logLevel)
+		return fmt.Errorf("bench: unknown log level %q", *logLevel)
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
@@ -84,7 +88,7 @@ func run() error {
 	// second copy, and drift between them turns every request into a 4xx that
 	// the driver books as a replica failure.
 	if *model == "" {
-		return fmt.Errorf("-model is required: pass \"$(ops/fleet.sh env MODEL)\", or run via make bench which does it for you")
+		return fmt.Errorf("bench: -model is required: pass \"$(ops/fleet.sh env MODEL)\", or run via make bench which does it for you")
 	}
 
 	// The same spec string the router takes, parsed by the same code, so the
@@ -104,7 +108,7 @@ func run() error {
 	contamination := bench.ContaminationConfig{Interval: *interval}
 	if *sampleGPUs {
 		if *gpus <= 0 {
-			return fmt.Errorf("-gpus is required when sampling: pass \"$(ops/fleet.sh env REPLICA_COUNT)\", or run via make bench which does it for you")
+			return fmt.Errorf("bench: -gpus is required when sampling: pass \"$(ops/fleet.sh env REPLICA_COUNT)\", or run via make bench which does it for you")
 		}
 		contamination.Prober = gpu.New()
 		contamination.GPUs = gpu.Indexes(*gpus)
@@ -115,7 +119,7 @@ func run() error {
 			// Without the fleet's own pids every replica would be classified as
 			// a foreign process and every cell would be unclean, which is worse
 			// than not sampling: it looks like evidence.
-			return fmt.Errorf("no replica pid files matched %q. Start the fleet with ops/fleet.sh up, or pass -sample-gpus=false to run without contamination evidence", *pidGlob)
+			return fmt.Errorf("bench: no replica pid files matched %q. Start the fleet with ops/fleet.sh up, or pass -sample-gpus=false to run without contamination evidence", *pidGlob)
 		}
 		log.Info("sampling GPUs for contamination", "gpus", *gpus, "replica_pids", contamination.OwnPIDs, "interval", *interval)
 	} else {
@@ -130,17 +134,19 @@ func run() error {
 	defer stop()
 
 	cells, sweepErr := bench.RunSweep(ctx, bench.SweepConfig{
-		Dir:              *dir,
-		Target:           *target,
-		Policy:           *policyName,
-		Replicas:         bases,
-		Concurrencies:    concurrencies,
-		Repetitions:      *repetitions,
-		CellDuration:     *duration,
-		Warmup:           *warmup,
-		Settle:           *settle,
-		SLO:              bench.SLO{TTFT: *sloTTFT, ITL: *sloITL},
-		FailureThreshold: *failureAt,
+		Dir:                  *dir,
+		Target:               *target,
+		Policy:               *policyName,
+		Replicas:             bases,
+		Concurrencies:        concurrencies,
+		Repetitions:          *repetitions,
+		CellDuration:         *duration,
+		Warmup:               *warmup,
+		FleetWarmup:          *fleetWarmup,
+		Settle:               *settle,
+		SLO:                  bench.SLO{TTFT: *sloTTFT, ITL: *sloITL},
+		FailureThreshold:     *failureAt,
+		WarmupDriftThreshold: *driftAt,
 		Workload: bench.NewFixedWorkload(bench.FixedWorkload{
 			Model:        *model,
 			PromptBytes:  *promptBytes,
@@ -192,12 +198,12 @@ func parseLevels(spec string) ([]int, error) {
 		}
 		n, err := strconv.Atoi(field)
 		if err != nil || n <= 0 {
-			return nil, fmt.Errorf("concurrency level %q is not a positive integer", field)
+			return nil, fmt.Errorf("bench: concurrency level %q is not a positive integer", field)
 		}
 		levels = append(levels, n)
 	}
 	if len(levels) == 0 {
-		return nil, fmt.Errorf("no concurrency levels given")
+		return nil, fmt.Errorf("bench: no concurrency levels given")
 	}
 	return levels, nil
 }
@@ -208,17 +214,17 @@ func parseLevels(spec string) ([]int, error) {
 func replicaPIDs(glob string) ([]int, error) {
 	paths, err := filepath.Glob(glob)
 	if err != nil {
-		return nil, fmt.Errorf("bad pid file glob %q: %w", glob, err)
+		return nil, fmt.Errorf("bench: bad pid file glob %q: %w", glob, err)
 	}
 	var pids []int
 	for _, path := range paths {
 		contents, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", path, err)
+			return nil, fmt.Errorf("bench: read %s: %w", path, err)
 		}
 		pid, err := strconv.Atoi(strings.TrimSpace(string(contents)))
 		if err != nil {
-			return nil, fmt.Errorf("%s does not hold a pid: %w", path, err)
+			return nil, fmt.Errorf("bench: %s does not hold a pid: %w", path, err)
 		}
 		pids = append(pids, pid)
 	}

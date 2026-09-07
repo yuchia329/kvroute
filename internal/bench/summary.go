@@ -14,6 +14,42 @@ import (
 // averaging it in with cells that are would hide the fact.
 const DefaultFailureThreshold = 0.01
 
+// DefaultWarmupDriftThreshold is how much slower a cell's first measured half
+// may be than its second before the cell is flagged as still warming up.
+//
+// Generous on purpose. The point of the check is to catch a warm-up that was
+// plainly too short, not to police ordinary run-to-run wobble: a threshold that
+// fires on noise would flag every cell, and a flag that fires on every cell
+// stops being read.
+const DefaultWarmupDriftThreshold = 0.25
+
+// SummaryOptions are the thresholds a cell is judged against. They travel
+// together everywhere, so they are one type rather than three arguments.
+type SummaryOptions struct {
+	SLO SLO
+	// FailureThreshold is the dropped-plus-failed rate above which a cell is
+	// flagged. Zero uses DefaultFailureThreshold.
+	FailureThreshold float64
+	// WarmupDriftThreshold is the first-half-to-second-half slowdown above
+	// which a cell is flagged as under-warmed. Zero uses
+	// DefaultWarmupDriftThreshold; a negative value disables the check.
+	WarmupDriftThreshold float64
+}
+
+func (o SummaryOptions) failureThreshold() float64 {
+	if o.FailureThreshold == 0 {
+		return DefaultFailureThreshold
+	}
+	return o.FailureThreshold
+}
+
+func (o SummaryOptions) driftThreshold() float64 {
+	if o.WarmupDriftThreshold == 0 {
+		return DefaultWarmupDriftThreshold
+	}
+	return o.WarmupDriftThreshold
+}
+
 // Summary is the arithmetic over one cell's rows.
 //
 // Dropped, Failed and SLOViolations are three columns and stay three columns.
@@ -57,6 +93,15 @@ type Summary struct {
 	SLOTTFTNs  int64 `json:"slo_ttft_ns" parquet:"slo_ttft_ns"`
 	SLOITLNs   int64 `json:"slo_itl_ns" parquet:"slo_itl_ns"`
 
+	// WarmupDrift is how much slower the first half of the measured window was
+	// than the second, by TTFT p50: 0.30 means the first half was 30% slower.
+	//
+	// It exists so the warm-up length can be checked rather than trusted. A
+	// cell whose measured window is still speeding up is still warming up, and
+	// no constant chosen in advance can prove otherwise for every concurrency
+	// level. NaN-free: zero when there are too few successes to compare.
+	WarmupDrift float64 `json:"warmup_drift" parquet:"warmup_drift"`
+
 	// FailureRate is dropped plus failed over every measured request.
 	FailureRate      float64 `json:"failure_rate" parquet:"failure_rate"`
 	FailureThreshold float64 `json:"failure_threshold" parquet:"failure_threshold"`
@@ -70,12 +115,13 @@ type Summary struct {
 //
 // Warm-up rows are excluded from every count and every percentile but are still
 // reported, so the record shows what was set aside as well as what was kept.
-func Summarize(results []Result, slo SLO, failureThreshold float64) Summary {
+func Summarize(results []Result, opts SummaryOptions) Summary {
+	slo := opts.SLO
 	s := Summary{
 		SLOApplied:       slo.Applied(),
 		SLOTTFTNs:        slo.TTFT.Nanoseconds(),
 		SLOITLNs:         slo.ITL.Nanoseconds(),
-		FailureThreshold: failureThreshold,
+		FailureThreshold: opts.failureThreshold(),
 	}
 
 	var ttft, total, itl []time.Duration
@@ -144,19 +190,64 @@ func Summarize(results []Result, slo SLO, failureThreshold float64) Summary {
 	s.ITLP50Ns = stats.Quantile(itl, 0.50).Nanoseconds()
 	s.ITLP95Ns = stats.Quantile(itl, 0.95).Nanoseconds()
 
-	s.flag()
+	s.WarmupDrift = warmupDrift(results, first, last)
+	s.flag(opts.driftThreshold())
 	return s
+}
+
+// minHalfForDrift is how many successes each half needs before their medians
+// are worth comparing. Below this the comparison is noise.
+const minHalfForDrift = 5
+
+// warmupDrift compares TTFT p50 over the first half of the measured window
+// against the second. A cell that is still speeding up was not warm when the
+// measurement started.
+//
+// TTFT rather than total latency because it is what queueing and cold caches
+// move first, and it is not diluted by however many tokens each response
+// happened to generate.
+func warmupDrift(results []Result, first, last time.Time) float64 {
+	if first.IsZero() || !last.After(first) {
+		return 0
+	}
+	midpoint := first.Add(last.Sub(first) / 2)
+
+	var early, late []time.Duration
+	for _, r := range results {
+		if r.Warmup || r.Outcome != record.OutcomeSuccess {
+			continue
+		}
+		if time.Unix(0, r.StartedAtNs).Before(midpoint) {
+			early = append(early, time.Duration(r.TTFTNs))
+		} else {
+			late = append(late, time.Duration(r.TTFTNs))
+		}
+	}
+	if len(early) < minHalfForDrift || len(late) < minHalfForDrift {
+		return 0
+	}
+	slices.Sort(early)
+	slices.Sort(late)
+	lateP50 := stats.Quantile(late, 0.50)
+	if lateP50 <= 0 {
+		return 0
+	}
+	return float64(stats.Quantile(early, 0.50)-lateP50) / float64(lateP50)
 }
 
 // flag records every reason this cell should not be silently averaged in with
 // the others.
-func (s *Summary) flag() {
+func (s *Summary) flag(driftThreshold float64) {
 	if s.Requests == 0 {
 		s.add("cell produced no measured requests")
 	}
 	if s.FailureThreshold > 0 && s.FailureRate > s.FailureThreshold {
 		s.add(fmt.Sprintf("failure rate %.2f%% exceeds the %.2f%% threshold (%d dropped, %d failed of %d)",
 			s.FailureRate*100, s.FailureThreshold*100, s.Dropped, s.Failed, s.Requests))
+	}
+	if driftThreshold > 0 && s.WarmupDrift > driftThreshold {
+		s.add(fmt.Sprintf("still warming up: the first half of the measured window was %.0f%% slower than the second by TTFT p50, over a %.0f%% threshold. Lengthen the warm-up and re-run",
+			s.WarmupDrift*100, driftThreshold*100))
 	}
 	if s.Cancelled > 0 {
 		// The driver lets in-flight requests finish, so a cancellation means

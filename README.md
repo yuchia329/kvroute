@@ -49,9 +49,10 @@ cmd/bench ──► router (:8080) ──► replica-0..5 (:8000..:8005, one GPU
 - **`cmd/router`** — OpenAI-compatible `POST /v1/chat/completions` with SSE passed through
   untouched, one JSONL row per request, and its own accept-to-dispatch cost reported at
   `GET /router/stats`.
-- **`cmd/bench`** — the closed-loop driver and the concurrency sweep. Holds a fixed number of
-  virtual users at each of eight levels, counts dropped, failed and SLO-violating requests in
-  three separate columns, samples the GPUs throughout, and resumes from cached cells.
+- **`cmd/bench`** — the closed-loop driver and the concurrency sweep. Refuses to start unless every
+  replica answers `/health`, warms each one directly, then holds a fixed number of virtual users at
+  each of eight levels, counting dropped, failed and SLO-violating requests in three separate
+  columns. Samples the GPUs throughout and resumes from cached cells.
 - **`cmd/preflight`** — refuses to bring the fleet up while any GPU already holds memory. The
   same probe backs the per-cell contamination check: one preflight, two jobs.
 - **`cmd/fakereplica`** — a programmable stand-in for a replica with configurable TTFT and
@@ -127,6 +128,18 @@ from, so it necessarily runs before one exists.
   milliseconds; fold those into a latency distribution and an overloaded fleet looks *faster*.
   Percentiles are computed over successful responses only, and a cell past the failure threshold
   is flagged with a reason rather than silently averaged in.
+- **Warm-up is a duration, and it is checked rather than trusted.** Two different things are cold.
+  A replica's first real forward pass is cold once per process, so every replica is warmed
+  *directly at its own port* before the first cell — routing warm-up through the router would let
+  round-robin at concurrency 1 warm replicas 0–4 and leave replica 5 to serve the first *measured*
+  request cold, manufacturing the cold start it exists to prevent. Per-cell transients (connection
+  setup, the queue reaching steady depth) are covered by discarding the first `-warmup` **seconds**
+  of each cell rather than a count per virtual user: a count costs `count x per-request latency`,
+  and latency grows with concurrency, so the saturated cells would forfeit the largest share of
+  their window. Warm-up rows are kept, not deleted, which is what makes the last step possible —
+  each cell compares TTFT p50 over the first half of its measured window against the second and is
+  **flagged if it was still speeding up**, so a warm-up that was too short is caught rather than
+  assumed adequate.
 - **A cell that was not checked does not claim to be clean.** Cleanliness needs a successful GPU
   sample with nothing foreign in it. "Nothing was found" and "nothing was looked for" must not read
   the same, so a run with GPU sampling off produces cells that say so and are flagged.
