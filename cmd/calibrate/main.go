@@ -53,7 +53,7 @@ func run() error {
 	var (
 		replicaSpecs  = flag.String("replicas", "", "the fleet to calibrate against, as the router's own -replicas spec")
 		from          = flag.String("from", "", "a sweep directory to measure the prompt bytes-per-token ratio from; its cells carry the bytes offered and the tokens the engines reported")
-		bytesPerToken = flag.Float64("bytes-per-token", 0,
+		bytesPerToken = flag.Float64("prompt-bytes-per-token", 0,
 			"the prompt bytes-per-token ratio, when there is no sweep to measure it from. Prefer -from: a figure typed in by hand is the guess this command exists to avoid")
 		out     = flag.String("out", "runs/prefix-calibration.json", "where to write the calibration")
 		timeout = flag.Duration("timeout", 30*time.Second, "how long to spend scraping the fleet")
@@ -94,6 +94,7 @@ func run() error {
 		FleetTokens:         capacity.Tokens,
 		PromptBytesPerToken: ratio,
 		BlockIdle:           prefix.ScrapeBlockIdle(ctx, client, baseURLs),
+		BlockLifetime:       prefix.ScrapeBlockLifetime(ctx, client, baseURLs),
 	}
 	// Derived here rather than left for the router, so that a fleet that cannot
 	// support a calibration fails now — with the fleet in front of whoever ran
@@ -111,6 +112,9 @@ func run() error {
 	fmt.Printf("  prompt bytes per token        %.2f\n", measured.PromptBytesPerToken)
 	fmt.Printf("  %s p%.0f    %v\n", vllmmetrics.BlockIdleBeforeEvict, prefix.TTLQuantile*100, cfg.TTL)
 	fmt.Printf("  -> node cap %d, TTL %v\n", cfg.NodeCap, cfg.TTL)
+	if warning, disagrees := measured.CheckAgainstLifetime(cfg.TTL); disagrees {
+		fmt.Printf("  ⚠️  %s\n", warning)
+	}
 	fmt.Printf("  written to %s; start the router with -prefix-calibration %s\n", *out, *out)
 	return nil
 }
@@ -126,7 +130,7 @@ func run() error {
 func promptBytesPerToken(from string, given float64) (float64, error) {
 	if from == "" {
 		if given <= 0 {
-			return 0, fmt.Errorf("either -from or -bytes-per-token is required: the ratio converts every byte-denominated prefix figure into the engine's units, and it is measured rather than assumed")
+			return 0, fmt.Errorf("either -from or -prompt-bytes-per-token is required: the ratio converts every byte-denominated prefix figure into the engine's units, and it is measured rather than assumed")
 		}
 		return given, nil
 	}
@@ -147,7 +151,7 @@ func promptBytesPerToken(from string, given float64) (float64, error) {
 		bytes += cell.PromptBytes
 		readings = append(readings, cell.Prefill())
 	}
-	ratio, ok := prefix.MeasureBytesPerToken(bytes, vllmmetrics.PoolPrefill(readings))
+	ratio, ok := prefix.MeasurePromptBytesPerToken(bytes, vllmmetrics.PoolPrefill(readings))
 	if !ok {
 		return 0, fmt.Errorf("no cell in %s carries both the prompt bytes it offered and the prompt tokens the engines reported, so no ratio can be measured there", from)
 	}

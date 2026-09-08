@@ -77,7 +77,7 @@ var Required = []Family{
 	{"vllm:time_to_first_token_seconds", Histogram, "Server-side TTFT, differenced against client-observed TTFT to separate transport from inference."},
 	{"vllm:inter_token_latency_seconds", Histogram, "Server-side inter-token latency."},
 	{"vllm:e2e_request_latency_seconds", Histogram, "Server-side end-to-end request latency."},
-	{"vllm:kv_block_lifetime_seconds", Histogram, "How long a KV block lives, used to calibrate prefix-index TTL."},
+	{BlockLifetime, Histogram, "How long a KV block lives. Recorded beside the idle-before-evict tail the prefix-index TTL is taken from, as the sanity check on it."},
 	{BlockIdleBeforeEvict, Histogram, "How long a KV block sits idle before eviction. The prefix index's TTL is calibrated off its tail."},
 	{"vllm:kv_block_reuse_gap_seconds", Histogram, "Gap between reuses of a KV block."},
 	{CacheConfigInfo, Gauge, "The engine's cache configuration. Everything it says is in its labels; see Labels."},

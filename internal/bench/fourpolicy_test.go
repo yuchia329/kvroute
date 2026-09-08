@@ -123,7 +123,7 @@ func TestTheReportPublishesTheMeasuredBytesPerTokenRatio(t *testing.T) {
 	at8 := bench.ClosedLoopAt(8)
 	got := compare(t, fourPolicyCells(at8))
 
-	ratio, ok := got.BytesPerToken()
+	ratio, ok := got.PromptBytesPerToken()
 	if !ok {
 		t.Fatal("the comparison measured no bytes-per-token ratio")
 	}
@@ -178,10 +178,45 @@ func TestACellWithNoPrefillEvidenceReportsNoneRatherThanZero(t *testing.T) {
 	if p, ok := got.Rows[0].Prefill[policy.RoundRobinName]; ok && p.Read {
 		t.Errorf("an unscraped cell reported prefill: %v", p)
 	}
-	if _, ok := got.BytesPerToken(); ok {
+	if _, ok := got.PromptBytesPerToken(); ok {
 		t.Error("a ratio was measured over cells whose token counts were never read")
 	}
 	if report := got.Report(); !strings.Contains(report, "—") {
 		t.Errorf("the report prints no em dash for a figure it has no evidence for:\n%s", report)
+	}
+}
+
+// A policy that did not run at this load point is absent from the row's
+// readings, not zero. Redundant prefill is measured against the policy that
+// recomputed least, so a floor taken over whichever policies happened to have a
+// cell would quietly report every other policy's excess over an incomplete set —
+// and would do it without an em dash to say so.
+func TestRedundantPrefillNeedsEveryPolicyThatRanAtThisLoadPoint(t *testing.T) {
+	at8 := bench.ClosedLoopAt(8)
+	var kept []bench.Cell
+	for _, cell := range fourPolicyCells(at8) {
+		// Prefix affinity — the policy that recomputes least, and therefore the
+		// floor the column is measured from — never reached this load point.
+		if cell.Policy == policy.PrefixAffinityName {
+			continue
+		}
+		kept = append(kept, cell)
+	}
+	// It ran at a different load point, so the comparison still covers it.
+	kept = append(kept, prefilled(measured(policy.PrefixAffinityName, bench.ClosedLoopAt(16), 1, 12.0,
+		120*time.Millisecond, 400*time.Millisecond, 780, 1000), 1_000_000, 780_000, 3_800_000))
+
+	got := compare(t, kept)
+	var at8Row bench.ComparisonRow
+	for _, row := range got.Rows {
+		if row.Load == at8 {
+			at8Row = row
+		}
+	}
+	if _, ok := at8Row.Prefill[policy.PrefixAffinityName]; ok {
+		t.Fatal("the load point under test was supposed to be missing prefix affinity")
+	}
+	if excess, ok := at8Row.Redundant(policy.RoundRobinName); ok {
+		t.Errorf("redundant prefill of %v was reported against a floor that excluded a policy of the comparison", excess)
 	}
 }

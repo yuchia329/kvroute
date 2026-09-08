@@ -36,10 +36,14 @@ type Distribution struct {
 	Read bool `json:"read"`
 }
 
-// Observed reports whether this histogram says anything about a distribution. A
-// family that is exposed but empty is read and has nothing in it, which is what
-// a replica that has evicted no blocks yet publishes.
-func (h Distribution) Observed() bool { return h.Read && h.Count > 0 }
+// Evidenced reports whether this reading says anything about a distribution.
+//
+// A family that is exposed but empty is read and has nothing in it, which is
+// what a replica that has evicted no blocks yet publishes. Named as PrefixCache
+// and Prefill name the same predicate, because it is the same question asked of
+// a third reading and three names for it would invite a caller to assume they
+// differ.
+func (h Distribution) Evidenced() bool { return h.Read && h.Count > 0 }
 
 // Quantile returns the value at q, interpolated linearly inside the bucket it
 // falls in — the same estimator Prometheus itself uses, and subject to the same
@@ -50,7 +54,7 @@ func (h Distribution) Observed() bool { return h.Read && h.Count > 0 }
 // reports false. A TTL derived from a tail that ran off the end of the buckets
 // would be a number the exposition cannot support.
 func (h Distribution) Quantile(q float64) (float64, bool) {
-	if !h.Observed() || q <= 0 || q > 1 || len(h.Bounds) == 0 {
+	if !h.Evidenced() || q <= 0 || q > 1 || len(h.Bounds) == 0 {
 		return 0, false
 	}
 	rank := q * h.Count
@@ -191,6 +195,17 @@ func scrape(ctx context.Context, client *http.Client, metricsURL string) (string
 // cell, because turning it on later would change the engine configuration every
 // cell is supposed to share.
 const BlockIdleBeforeEvict = "vllm:kv_block_idle_before_evict_seconds"
+
+// BlockLifetime is how long a KV block lived from store to eviction.
+//
+// It is not what the TTL is derived from, and the distinction is the point: a
+// block's lifetime counts the whole time it existed, including the time it was
+// being reused, so a fleet serving one conversation heavily would show long
+// lifetimes while its idle gaps stayed short. Recorded beside the tail the TTL
+// does come from, because a TTL longer than blocks live at all would be a
+// calibration that passed its own check and still believed in blocks the engine
+// could never have been holding.
+const BlockLifetime = "vllm:kv_block_lifetime_seconds"
 
 // PoolDistributions adds several replicas' readings into one fleet-wide
 // distribution.

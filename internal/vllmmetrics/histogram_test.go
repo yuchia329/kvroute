@@ -24,7 +24,7 @@ vllm:kv_block_idle_before_evict_seconds_count{model_name="llama"} 100
 func TestAHistogramIsReadAsItsBucketsSumAndCount(t *testing.T) {
 	h := vllmmetrics.ReadHistogramFrom(idleExposition, "vllm:kv_block_idle_before_evict_seconds")
 
-	if !h.Observed() {
+	if !h.Evidenced() {
 		t.Fatalf("histogram not observed: %+v", h)
 	}
 	if h.Count != 100 || h.Sum != 1400 {
@@ -93,7 +93,7 @@ func TestAnAbsentFamilyIsUnreadRatherThanEmpty(t *testing.T) {
 	if !empty.Read {
 		t.Error("a family published with nothing in it read as absent")
 	}
-	if empty.Observed() {
+	if empty.Evidenced() {
 		t.Error("a family with no observations claims to have observed some")
 	}
 }

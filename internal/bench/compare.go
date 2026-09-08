@@ -59,8 +59,8 @@ type Comparison struct {
 
 // BytesPerToken is the ratio the comparison measured, and whether it measured
 // one at all.
-func (c Comparison) BytesPerToken() (float64, bool) {
-	return prefix.MeasureBytesPerToken(c.PromptBytes, c.Prefill)
+func (c Comparison) PromptBytesPerToken() (float64, bool) {
+	return prefix.MeasurePromptBytesPerToken(c.PromptBytes, c.Prefill)
 }
 
 // ComparisonRow is one point of the load axis, across policies.
@@ -83,9 +83,9 @@ type ComparisonRow struct {
 	//
 	// It is in the same table as the outcome deliberately. Anyscale found a
 	// load-aware router beat consistent hashing on p99 *despite* a lower prefix
-	// cache hit rate, and CacheRoute found sticky routing took the highest hit
-	// rate and the lowest capacity (idea.md §1). A table with goodput but no hit
-	// rate could not have found either result, and could not disagree with them.
+	// cache hit rate, and CacheRoute found sticky routing took the highest prefix
+	// cache hit rate and the lowest capacity (idea.md §1). A table with goodput
+	// but no such rate could not have found either result, nor disagree with them.
 	PrefixCache map[string]vllmmetrics.PrefixCache
 	// Prefill is the prompt-token work each policy left the fleet's GPUs to do.
 	//
@@ -95,6 +95,12 @@ type ComparisonRow struct {
 	// comparison between policies that CONTEXT.md reserves the term redundant
 	// prefill for.
 	Prefill map[string]vllmmetrics.Prefill
+	// policies is every policy the comparison covers, which is not the same as
+	// the keys of the maps above: a policy with no usable cell at this load
+	// point is absent from them. Redundant needs the difference, because a floor
+	// taken over whichever policies happened to have a cell is not the floor it
+	// claims to be.
+	policies []string
 }
 
 // Redundant is a policy's redundant prefill at this load point: the prompt
@@ -106,18 +112,24 @@ type ComparisonRow struct {
 // some replica was already holding — which is CONTEXT.md's definition, and the
 // measurement of the mechanism rather than of the outcome.
 //
-// It reports false unless every policy in the row was scraped. A row where one
-// policy's counters are missing has no floor to measure the others against, and
-// picking the lowest of what was read would credit a scrape failure as the best
-// result in the table.
+// It reports false unless every policy the comparison covers was measured here.
+// A row where one policy's counters are missing has no floor to measure the
+// others against, and picking the lowest of what was read would credit a scrape
+// failure — or a policy that never ran at this load point — as the best result
+// in the table.
+//
+// The check is against the comparison's own policy list rather than against the
+// readings present, because those are the same set only when nothing went
+// missing, and the case this guards is exactly the one where something did.
 func (r ComparisonRow) Redundant(name string) (float64, bool) {
 	mine, ok := r.Prefill[name]
 	if !ok || !mine.Read {
 		return 0, false
 	}
 	best := mine
-	for _, other := range r.Prefill {
-		if !other.Read {
+	for _, policy := range r.policies {
+		other, measured := r.Prefill[policy]
+		if !measured || !other.Read {
 			return 0, false
 		}
 		if other.Recomputed() < best.Recomputed() {
@@ -246,6 +258,7 @@ func Compare(cells []Cell) (Comparison, error) {
 			Latency:     map[string]PolicyLatency{},
 			PrefixCache: map[string]vllmmetrics.PrefixCache{},
 			Prefill:     map[string]vllmmetrics.Prefill{},
+			policies:    c.Policies,
 		}
 		for _, name := range c.Policies {
 			cells := usable[name][load]
@@ -668,7 +681,7 @@ func (c Comparison) Report() string {
 // it against the engine's own token counts. Without it, every byte figure this
 // project reports would be unfalsifiable.
 func (c Comparison) reportRatio(b *strings.Builder) {
-	ratio, ok := c.BytesPerToken()
+	ratio, ok := c.PromptBytesPerToken()
 	if !ok {
 		fmt.Fprintf(b, "Prompt bytes per token: — . The engines' prompt-token counters were not read over these\n")
 		fmt.Fprintf(b, "cells, so the prefix match figures in the rows cannot be converted into tokens.\n\n")
@@ -697,16 +710,16 @@ func (c Comparison) reportRatio(b *strings.Builder) {
 func (c Comparison) reportMechanism(b *strings.Builder) {
 	fmt.Fprintf(b, "\n## What produced it — TTFT percentiles, prefix cache hit rate and prefill work\n\n")
 	fmt.Fprintf(b, "The percentiles are each the median across a cell's repetitions of that repetition's own\n")
-	fmt.Fprintf(b, "percentile, pooled the way the goodput above is. The hit rate is vLLM's own counters,\n")
-	fmt.Fprintf(b, "summed across those repetitions rather than averaged, because a rate is a ratio of counts.\n")
-	fmt.Fprintf(b, "An em dash is no usable cell; a hit rate of — is a fleet whose counters were not read,\n")
-	fmt.Fprintf(b, "which is not the same as a cache that never hit.\n\n")
+	fmt.Fprintf(b, "percentile, pooled the way the goodput above is. The prefix cache hit rate is vLLM's own\n")
+	fmt.Fprintf(b, "counters, summed across those repetitions rather than averaged, because a rate is a ratio of counts.\n")
+	fmt.Fprintf(b, "An em dash is no usable cell; a prefix cache hit rate of — is a fleet whose counters were not\n")
+	fmt.Fprintf(b, "read, which is not the same as a cache that never hit.\n\n")
 	fmt.Fprintf(b, "The last two columns are the physical work. Prompt tokens recomputed is what the GPUs\n")
 	fmt.Fprintf(b, "actually prefilled; redundant prefill is what a policy computed over and above the policy\n")
 	fmt.Fprintf(b, "that computed least on the same bytes, which is the work cache-aware routing removed.\n")
 	fmt.Fprintf(b, "The policy that computed least is the floor the column is measured from and is marked\n")
-	fmt.Fprintf(b, "best. A hit rate and a token count can disagree, and idea.md §1 predicts two published\n")
-	fmt.Fprintf(b, "results where they did.\n\n")
+	fmt.Fprintf(b, "best. A prefix cache hit rate and a token count can disagree, and idea.md §1 predicts two\n")
+	fmt.Fprintf(b, "published results where they did.\n\n")
 
 	fmt.Fprintln(b, "| driver | load | policy | TTFT p50 | TTFT p99 | prefix cache hit rate | prompt tokens recomputed | redundant prefill |")
 	fmt.Fprintln(b, "|---|---:|---|---:|---:|---:|---:|---:|")

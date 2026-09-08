@@ -273,8 +273,8 @@ func (c Cell) Prefill() vllmmetrics.Prefill {
 // Per cell rather than as a constant, because it is a property of the workload's
 // prompts and the model's tokenizer together, and a run that changed either
 // would carry a ratio that no longer converts its own figures.
-func (c Cell) BytesPerToken() (float64, bool) {
-	return prefix.MeasureBytesPerToken(c.PromptBytes, c.Prefill())
+func (c Cell) PromptBytesPerToken() (float64, bool) {
+	return prefix.MeasurePromptBytesPerToken(c.PromptBytes, c.Prefill())
 }
 
 // arrivalPlanFor is the plan a cell of this load axis ran under. Only the

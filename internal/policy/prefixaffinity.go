@@ -81,7 +81,7 @@ func (p *PrefixAffinity) Choose(req Request, state fleet.State) (Choice, error) 
 // choose picks the replica, leaving the index untouched.
 func (p *PrefixAffinity) choose(chain prefix.Chain, state fleet.State) (Choice, error) {
 	for _, match := range p.index.Match(chain) {
-		candidate, present := candidateFor(state, match.Replica)
+		candidate, present := state.Candidate(match.Replica)
 		if !present {
 			// A replica the index believes in but the fleet no longer has. The
 			// next best match is a better answer than a drop, and than falling
@@ -111,15 +111,4 @@ func (p *PrefixAffinity) choose(chain prefix.Chain, state fleet.State) (Choice, 
 	}
 	choice.Reason = ReasonCold
 	return choice, nil
-}
-
-// candidateFor finds a replica in the fleet snapshot the decision is being made
-// against.
-func candidateFor(state fleet.State, id string) (fleet.Candidate, bool) {
-	for _, c := range state.Replicas {
-		if c.ID == id {
-			return c, true
-		}
-	}
-	return fleet.Candidate{}, false
 }

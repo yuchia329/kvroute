@@ -9,6 +9,19 @@ import (
 	"github.com/yuchia329/kvroute/internal/vllmmetrics"
 )
 
+// engineCounters is what one window read off the fleet: the two counter pairs
+// that say what the caches answered and what the GPUs had to compute.
+//
+// They travel together because they are read over one window and answer one
+// question between them. A prefix cache hit rate is a share of block queries and
+// a recomputed-prefill figure is a count of tokens, and a policy can move one
+// without moving the other — which is exactly the disagreement idea.md §1 says
+// two published results found, so the table has to be able to show it.
+type engineCounters struct {
+	Cache   vllmmetrics.PrefixCache
+	Prefill vllmmetrics.Prefill
+}
+
 // prefixCacheWindow watches what the fleet's prefix caches serve over a cell's
 // measured window.
 //
@@ -29,19 +42,6 @@ import (
 // warm-up measured in seconds. The window is therefore a few requests wide at
 // worst, and it is stated here rather than claimed away because the whole reason
 // this reading is delayed at all is to make the two columns describe one window.
-// engineCounters is what one window read off the fleet: the two counter pairs
-// that say what the caches answered and what the GPUs had to compute.
-//
-// They travel together because they are read over one window and answer one
-// question between them. A prefix cache hit rate is a share of block queries and
-// a recomputed-prefill figure is a count of tokens, and a policy can move one
-// without moving the other — which is exactly the disagreement idea.md §1 says
-// two published results found, so the table has to be able to show it.
-type engineCounters struct {
-	Cache   vllmmetrics.PrefixCache
-	Prefill vllmmetrics.Prefill
-}
-
 type prefixCacheWindow struct {
 	done   chan struct{}
 	before engineCounters

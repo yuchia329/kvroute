@@ -37,6 +37,42 @@ type Calibration struct {
 	// BlockIdle is the engine's own vllm:kv_block_idle_before_evict_seconds.
 	// The TTL is taken from its tail.
 	BlockIdle vllmmetrics.Distribution `json:"block_idle_before_evict"`
+	// BlockLifetime is vllm:kv_block_lifetime_seconds, recorded but not derived
+	// from.
+	//
+	// It is the check on the figure rather than its source. A TTL is a claim
+	// about how long a block sits unused before the engine drops it, which is
+	// what BlockIdle measures; a lifetime counts a block's whole existence
+	// including the time it was being reused, so deriving a TTL from it would
+	// believe longest exactly where a conversation was hottest. Kept because a
+	// TTL longer than blocks live at all is a calibration that passed its own
+	// check while believing in blocks the fleet could never have held, and
+	// nothing else in the file would show it.
+	BlockLifetime vllmmetrics.Distribution `json:"block_lifetime"`
+}
+
+// CheckAgainstLifetime reports whether the derived TTL is consistent with how
+// long the fleet's blocks actually live.
+//
+// A TTL past the median lifetime means the index goes on believing in blocks
+// most of which no longer exist by then, whatever the idle tail said. It is a
+// warning rather than a refusal: the two families measure different things and
+// can legitimately disagree, so this hands the reader the disagreement instead
+// of deciding it for them. No lifetime reading means no check, not a failure.
+func (c Calibration) CheckAgainstLifetime(ttl time.Duration) (string, bool) {
+	if !c.BlockLifetime.Evidenced() {
+		return "", false
+	}
+	median, located := c.BlockLifetime.Quantile(0.50)
+	if !located {
+		return "", false
+	}
+	lifetime := time.Duration(median * float64(time.Second))
+	if ttl <= lifetime {
+		return "", false
+	}
+	return fmt.Sprintf("the derived TTL of %v is longer than the median block lifetime of %v, so the index would believe in blocks most of which have already been evicted: check the idle-before-evict reading against the load the fleet was actually under",
+		ttl, lifetime), true
 }
 
 // TTLQuantile is the point of the idle-before-evict distribution the TTL is
@@ -106,7 +142,7 @@ func (c Calibration) TTL() (time.Duration, error) {
 			"The family needs --kv-cache-metrics, which ADR-0001 sets from the first cell — do not enable it now to obtain this reading, because changing the engine configuration mid-experiment invalidates every completed cell",
 			vllmmetrics.BlockIdleBeforeEvict)
 	}
-	if !c.BlockIdle.Observed() {
+	if !c.BlockIdle.Evidenced() {
 		return 0, fmt.Errorf("prefix: %s is published but empty, so no block has been evicted yet and there is no tail to calibrate against. Run the fleet under load past its KV capacity first",
 			vllmmetrics.BlockIdleBeforeEvict)
 	}
@@ -123,7 +159,7 @@ func (c Calibration) TTL() (time.Duration, error) {
 	return ttl, nil
 }
 
-// MeasureBytesPerToken is the prompt bytes-per-token ratio over a window: the
+// MeasurePromptBytesPerToken is the prompt bytes-per-token ratio over a window: the
 // prompt bytes the harness sent, over the prompt tokens the engines reported
 // processing.
 //
@@ -134,7 +170,7 @@ func (c Calibration) TTL() (time.Duration, error) {
 // from different places on purpose: the bytes are what the client sent, and the
 // tokens are what the engine says it processed, so the ratio measures the chat
 // template and the tokenizer together rather than either alone.
-func MeasureBytesPerToken(promptBytes int64, prefill vllmmetrics.Prefill) (float64, bool) {
+func MeasurePromptBytesPerToken(promptBytes int64, prefill vllmmetrics.Prefill) (float64, bool) {
 	if promptBytes <= 0 || !prefill.Read || prefill.PromptTokens <= 0 {
 		return 0, false
 	}

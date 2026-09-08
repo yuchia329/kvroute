@@ -25,13 +25,23 @@ import (
 // run and carried forward in a file rather than re-derived at each bring-up —
 // see Load.
 func ScrapeBlockIdle(ctx context.Context, client *http.Client, replicaBaseURLs []string) vllmmetrics.Distribution {
+	return scrapeResidency(ctx, client, replicaBaseURLs, vllmmetrics.BlockIdleBeforeEvict)
+}
+
+// ScrapeBlockLifetime reads the fleet's block-lifetime distribution, which is
+// recorded beside the idle tail as the check on it rather than derived from.
+func ScrapeBlockLifetime(ctx context.Context, client *http.Client, replicaBaseURLs []string) vllmmetrics.Distribution {
+	return scrapeResidency(ctx, client, replicaBaseURLs, vllmmetrics.BlockLifetime)
+}
+
+func scrapeResidency(ctx context.Context, client *http.Client, replicaBaseURLs []string, family string) vllmmetrics.Distribution {
 	if len(replicaBaseURLs) == 0 {
 		return vllmmetrics.Distribution{}
 	}
 	readings := make([]vllmmetrics.Distribution, 0, len(replicaBaseURLs))
 	for _, base := range replicaBaseURLs {
 		url := strings.TrimSuffix(base, "/") + "/metrics"
-		readings = append(readings, vllmmetrics.ReadHistogram(ctx, client, url, vllmmetrics.BlockIdleBeforeEvict))
+		readings = append(readings, vllmmetrics.ReadHistogram(ctx, client, url, family))
 	}
 	return vllmmetrics.PoolDistributions(readings)
 }

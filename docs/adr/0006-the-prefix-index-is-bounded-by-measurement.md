@@ -48,8 +48,16 @@ left out for thermal throttling.
 **3. The TTL is the p90 of idle-before-evict, not the p99.** Idle-before-evict is the right family
 because it measures the thing the TTL is a claim about — how long a block sits unused before the
 engine drops it — where block lifetime counts a block's whole life including the time it was being
-reused. The p90 rather than the p99 follows from the asymmetry above: the TTL should sit where
+reused. Deriving a TTL from lifetime would believe longest exactly where a conversation was
+hottest. The p90 rather than the p99 follows from the asymmetry above: the TTL should sit where
 most blocks are still resident, not where nearly all of them are gone.
+
+**3a. `vllm:kv_block_lifetime_seconds` is recorded beside it as the check, not the source.** A TTL
+longer than the median lifetime is a calibration that passed its own test while believing in
+blocks the fleet could never have been holding, and nothing else in the file would show it.
+`Calibration.CheckAgainstLifetime` reports that disagreement and `cmd/calibrate` prints it. It is
+a warning rather than a refusal: the two families measure different things and can legitimately
+disagree, so the reader is handed the disagreement instead of having it decided for them.
 
 **4. The router refuses to run prefix affinity without a calibration file.** `-prefix-calibration`
 is required for that policy and ignored by the others. `cmd/calibrate` writes the file, and the
@@ -73,8 +81,9 @@ later, which is the whole objection to an arbitrary constant.
 - The node cap is a *model* of the fleet, not a measurement of index accuracy. #17 calibrates it
   against observed belief divergence, which is the check this ADR cannot make: nothing here proves
   a fleet-sized index is the right size, only that it is a size derived from the fleet.
-- `vllm:kv_block_idle_before_evict_seconds` now has a consumer, so a version drift that renamed or
-  dropped it fails the contract test rather than silently producing an uncalibratable router.
+- `vllm:kv_block_idle_before_evict_seconds` and `vllm:kv_block_lifetime_seconds` now both have
+  consumers, so a version drift that renamed or dropped either fails the contract test rather than
+  silently producing an uncalibratable router.
 - The interpolated quantile is only as fine as the engine's bucket boundaries. A p90 that lands in
   the trailing `+Inf` bucket is refused rather than rounded down to the last finite bound, because
   a TTL taken from a bound the exposition cannot locate would be wrong in the dangerous direction.

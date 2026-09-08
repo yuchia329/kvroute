@@ -63,6 +63,24 @@ type State struct {
 	Replicas []Candidate
 }
 
+// Candidate finds one replica in this snapshot, and reports whether the fleet
+// still had it when the snapshot was taken.
+//
+// It lives on State rather than in the policy that wants it because the answer
+// is about the fleet's own membership. A policy holding a replica id from
+// somewhere other than this snapshot — a prefix index believes in replicas it
+// routed to minutes ago — has to ask whether the fleet still has it, and asking
+// by walking State's slice from another package would put the fleet's shape in
+// that package's code.
+func (s State) Candidate(id string) (Candidate, bool) {
+	for _, c := range s.Replicas {
+		if c.ID == id {
+			return c, true
+		}
+	}
+	return Candidate{}, false
+}
+
 // Fleet is the router's view of the replicas it fronts.
 type Fleet struct {
 	mu       sync.RWMutex
