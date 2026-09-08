@@ -406,3 +406,91 @@ func TestAComparisonWithNothingLeftInItSaysSo(t *testing.T) {
 		t.Errorf("a comparison with every cell excluded does not say so:\n%s", report)
 	}
 }
+
+// TestOneCellReadTwiceIsOneRepetitionNotTwo. A cell id is a cell's identity, and
+// two directories can hold the same record — the same directory named twice, a
+// copy of a run kept beside it, or a sweep that wrote both axes into one place and
+// is then read alongside one of them. Counting it twice would report a spread of
+// zero across "two" repetitions, which is a claim about reproducibility that one
+// measurement cannot make, and would let the delta call itself replicated.
+func TestOneCellReadTwiceIsOneRepetitionNotTwo(t *testing.T) {
+	at8 := bench.ClosedLoopAt(8)
+	one := cells(policy.RoundRobinName, at8, 8.0)
+	var cs []bench.Cell
+	cs = append(cs, one...)
+	cs = append(cs, one...)
+	cs = append(cs, cells(policy.LeastOutstandingName, at8, 9.0)...)
+
+	got := compare(t, cs)
+
+	pooled := got.Rows[0].Goodput[policy.RoundRobinName]
+	if pooled.Repetitions != 1 {
+		t.Errorf("one record read twice pooled as %d repetitions, want 1", pooled.Repetitions)
+	}
+	if strings.Contains(got.Report(), "8.00–8.00") {
+		t.Errorf("the report claims a spread across one measurement:\n%s", got.Report())
+	}
+}
+
+// TestTheSameExcludedCellIsNotListedTwice: the footnote is evidence, and evidence
+// repeated reads as two contaminated cells where there was one.
+func TestTheSameExcludedCellIsNotListedTwice(t *testing.T) {
+	at8 := bench.ClosedLoopAt(8)
+	dirty := cell(policy.RoundRobinName, at8, 1, 8.0)
+	dirty.Flagged = true
+	dirty.FlagReasons = []string{"a foreign process held 3,214 MiB on GPU 2"}
+
+	got := compare(t, []bench.Cell{dirty, dirty, cell(policy.LeastOutstandingName, at8, 1, 9.0)})
+
+	if n := strings.Count(got.Report(), "foreign process held 3,214 MiB"); n != 1 {
+		t.Errorf("the excluded cell is listed %d times, want once:\n%s", n, got.Report())
+	}
+}
+
+// TestTwoDifferentMeasurementsUnderOneCellIdAreRefused. This is the shape a stale
+// sweep directory arrives in: ADR-0004 partitioned the workload's user space by
+// axis, so a cell recorded before that sent different bytes under the same id, and
+// the ADR says such a directory must be deleted rather than read. Picking one of
+// them silently would publish an arbitrary choice between two measurements.
+func TestTwoDifferentMeasurementsUnderOneCellIdAreRefused(t *testing.T) {
+	at8 := bench.ClosedLoopAt(8)
+	first := cell(policy.RoundRobinName, at8, 1, 8.0)
+	first.StartedAtNs = 1_000
+	stale := first
+	stale.StartedAtNs = 2_000
+	stale.GoodputRPS = 25.0
+
+	_, err := bench.Compare([]bench.Cell{first, stale, cell(policy.LeastOutstandingName, at8, 1, 9.0)})
+	if err == nil {
+		t.Fatal("two different measurements under one cell id were merged without complaint")
+	}
+	if !strings.Contains(err.Error(), first.ID) {
+		t.Errorf("err = %v, want it to name the cell id in conflict", err)
+	}
+}
+
+// TestWhenTwoCopiesOfOneCellDisagreeAboutBeingUsableTheStricterStands. Two records
+// of one measurement can differ in their verdict without differing in their figures
+// — one resummarised against a threshold the other was not. Deciding which to trust
+// by the order the directories were named would be a coin flip over a published
+// median.
+func TestWhenTwoCopiesOfOneCellDisagreeAboutBeingUsableTheStricterStands(t *testing.T) {
+	at8 := bench.ClosedLoopAt(8)
+	pooled := cell(policy.RoundRobinName, at8, 1, 8.0)
+	flagged := pooled
+	flagged.Flagged = true
+	flagged.FlagReasons = []string{"failure rate 12.00% exceeds the 1.00% threshold"}
+	other := cells(policy.LeastOutstandingName, at8, 9.0)
+
+	// Whichever order the two copies arrive in, the cell is excluded.
+	for _, order := range [][]bench.Cell{{pooled, flagged}, {flagged, pooled}} {
+		got := compare(t, append(order, other...))
+
+		if _, ok := got.Rows[0].Goodput[policy.RoundRobinName]; ok {
+			t.Errorf("a cell one copy calls broken was pooled anyway")
+		}
+		if !strings.Contains(got.Report(), "failure rate 12.00%") {
+			t.Errorf("the exclusion is not reported:\n%s", got.Report())
+		}
+	}
+}

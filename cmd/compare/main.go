@@ -16,6 +16,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/yuchia329/kvroute/internal/bench"
 )
@@ -79,6 +80,14 @@ func run() error {
 
 	if *out == "" {
 		return nil
+	}
+	// The report is already on stdout, so a failure here loses nothing — but after
+	// a comparison that took a night of GPU time to earn, it should not fail over a
+	// directory that does not exist yet.
+	if dir := filepath.Dir(*out); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("compare: create %s: %w", dir, err)
+		}
 	}
 	if err := os.WriteFile(*out, []byte(report), 0o644); err != nil {
 		return fmt.Errorf("compare: write %s: %w", *out, err)

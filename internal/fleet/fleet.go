@@ -71,6 +71,13 @@ type Fleet struct {
 	// position. Atomics rather than a counter under mu, because every request
 	// takes two of these on its hot path and the routing decision above them is
 	// measured in microseconds.
+	//
+	// All three are fixed at New: nothing here removes or adds a replica, so a
+	// position is stable for the life of the fleet and Dispatch can resolve one
+	// under a read lock and then count against it without holding anything. Ejection
+	// changes that — a Dispatch in flight holds a position, so whatever introduces it
+	// has to keep a departed replica's counter alive until its requests have drained
+	// rather than compacting these slices under it.
 	inflight []atomic.Int64
 	index    map[string]int
 }

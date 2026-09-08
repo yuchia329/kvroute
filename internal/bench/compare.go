@@ -20,9 +20,13 @@ import (
 //
 // It is the deliverable's shape: the project's claim is comparative, so the unit
 // that gets published is not a policy's cells but the difference between two
-// policies' cells. Everything that would make such a difference meaningless is
-// therefore refused here rather than rendered — a different SLO on either side, a
-// different workload, or a policy that only ran at some of the load points.
+// policies' cells. What would make such a difference meaningless is refused here
+// rather than rendered: a different SLO on either side, a different workload, or two
+// different measurements claiming one cell id.
+//
+// A policy that did not reach some load point is not in that list. That is a gap in
+// the table, printed as one, because a policy that never ran at 256 users did not
+// score nothing there.
 type Comparison struct {
 	// SLO is the threshold every cell was judged against. Goodput is defined by
 	// it, so a comparison across two of them is not a comparison.
@@ -92,23 +96,26 @@ func Compare(cells []Cell) (Comparison, error) {
 		return Comparison{}, fmt.Errorf("bench: no cells to compare")
 	}
 
-	c := Comparison{}
 	if err := checkComparable(cells); err != nil {
 		return Comparison{}, err
 	}
-	c.SLO = SLO{
-		TTFT: time.Duration(cells[0].SLOTTFTNs),
-		ITL:  time.Duration(cells[0].SLOITLNs),
+	unique, err := oneCellPerID(cells)
+	if err != nil {
+		return Comparison{}, err
 	}
-	c.Workload = cells[0].Workload
 
-	// Usable cells make the figures; the rest are named. Both passes see every
-	// cell, so a load point at which every repetition was thrown away shows up as
-	// a row with a gap in it rather than as no row at all.
+	c := Comparison{
+		SLO:      SLO{TTFT: time.Duration(cells[0].SLOTTFTNs), ITL: time.Duration(cells[0].SLOITLNs)},
+		Workload: cells[0].Workload,
+	}
+
+	// Usable cells make the figures; the rest are named. Both kinds are seen here,
+	// so a load point at which every repetition was thrown away shows up as a row
+	// with a gap in it rather than as no row at all.
 	usable := map[string]map[Load][]Cell{}
 	loads := map[Load]bool{}
 	policies := map[string]bool{}
-	for _, cell := range cells {
+	for _, cell := range unique {
 		policies[cell.Policy] = true
 		loads[cell.Load()] = true
 		if reasons := whyExcluded(cell); len(reasons) > 0 {
@@ -138,6 +145,76 @@ func Compare(cells []Cell) (Comparison, error) {
 		c.Rows = append(c.Rows, row)
 	}
 	return c, nil
+}
+
+// oneCellPerID reduces the cells to one per id, in id order.
+//
+// The same record reaches Compare more than once easily enough: one directory named
+// twice, a copy of a run kept beside it, or a directory holding both axes read
+// alongside one of them. Pooled twice it would report a spread of zero across two
+// repetitions — a claim about reproducibility that one measurement cannot make — and
+// would let the delta call itself replicated.
+//
+// Two *different* measurements under one id are refused instead, because a cell id is
+// its identity and one of the two directories therefore holds a stale run.
+func oneCellPerID(cells []Cell) ([]Cell, error) {
+	kept := make(map[string]Cell, len(cells))
+	ids := make([]string, 0, len(cells))
+	for _, cell := range cells {
+		prior, dup := kept[cell.ID]
+		if !dup {
+			kept[cell.ID] = cell
+			ids = append(ids, cell.ID)
+			continue
+		}
+		if measurementOf(prior) != measurementOf(cell) {
+			return nil, fmt.Errorf("bench: two different measurements are recorded under the cell id %q — one of %.2f goodput/s started %s, and one of %.2f started %s. "+
+				"A cell id is its identity, so one of these directories holds a stale run: ADR-0004 partitioned the workload's user space by axis, and a cell recorded before that sent different bytes under this same id. "+
+				"Name only the directory you mean, and delete the stale one rather than reading it beside a current one",
+				cell.ID, measurementOf(prior).GoodputRPS, measurementOf(prior).startedAt(),
+				measurementOf(cell).GoodputRPS, measurementOf(cell).startedAt())
+		}
+		// One measurement, recorded twice. If the two records disagree about whether
+		// it may be pooled — one resummarised against a threshold the other was not —
+		// the one that excludes it stands. A cell either copy calls unusable is
+		// unusable, and deciding it by which directory was named first would be a coin
+		// flip over a published figure.
+		if len(whyExcluded(prior)) == 0 && len(whyExcluded(cell)) > 0 {
+			kept[cell.ID] = cell
+		}
+	}
+
+	sort.Strings(ids)
+	out := make([]Cell, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, kept[id])
+	}
+	return out, nil
+}
+
+// measurement is the part of a cell that says which run produced it, so one record
+// read twice can be told from two records claiming one identity. Comparable with ==
+// on purpose: these come from a decoded record rather than from arithmetic here.
+type measurement struct {
+	StartedAtNs int64
+	EndedAtNs   int64
+	Requests    int
+	GoodputRPS  float64
+}
+
+func measurementOf(cell Cell) measurement {
+	return measurement{
+		StartedAtNs: cell.StartedAtNs,
+		EndedAtNs:   cell.EndedAtNs,
+		Requests:    cell.Requests,
+		GoodputRPS:  cell.GoodputRPS,
+	}
+}
+
+// startedAt is when this measurement began, for an error that has to tell two of
+// them apart in a sentence.
+func (m measurement) startedAt() string {
+	return time.Unix(0, m.StartedAtNs).UTC().Format(time.RFC3339)
 }
 
 // checkComparable rejects cells that cannot be put in one table.
