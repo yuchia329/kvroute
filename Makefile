@@ -41,6 +41,49 @@ SLO_FROM  ?=
 ROUTER    ?= http://127.0.0.1:8080
 BENCH_ARGS ?=
 
+# The workload every policy is compared on. Frozen on purpose.
+#
+# A comparison is only a comparison if both sides sent the same bytes, and the
+# harness enforces that: compare refuses cells whose workload names differ,
+# because the difference between the policies would otherwise include a
+# difference in prompts. So this lives in one variable rather than in each
+# operator's shell history, and it does not change once a sweep has run under it.
+#
+# multiturn, not fixed. Under the fixed workload every request is one standalone
+# message and nothing is resent, so there is no shared prefix for a policy to
+# preserve: session affinity would pin each session to a replica that has
+# nothing cached for it, score the same as round-robin, and look like a real
+# measurement. The first two-policy comparison (2026-09-08) ran on fixed, which
+# was sound for two policies that ignore caching and is not reusable for any
+# policy that does not.
+#
+# 369 sessions is working set 1.0 against the 755,712 tokens measured off all six
+# replicas, at 2,048 tokens a session. It is written as a count rather than as
+# -working-set because capacity is a measurement that moves between bring-ups:
+# the ratio would silently derive a different pool on a rebuilt fleet, change
+# this name, and split the comparison in two.
+#
+# branching is on because idea.md §5 names branched conversations as a place
+# prefix affinity should separate from session affinity -- they share an ancestor
+# under a new session id, so a hash scatters them and an index finds them. Turned
+# off, one of the two mechanisms the project rests on is absent from the trace.
+# The shared system prompt is there for realism, not for the result: §5 strikes
+# it from that list, because a hash scatters those evenly and every replica
+# caches the prefix independently.
+#
+# skew stays 0 here. It is the pressure grid's own axis, and pinning the headline
+# comparison to one arbitrary point of an axis that is about to be swept in full
+# would answer a question #18 is asking properly.
+WORKLOAD_ARGS ?= -workload multiturn \
+	-sessions 369 \
+	-turns-per-session 4 \
+	-prompt-tokens 448 \
+	-output-tokens 64 \
+	-branching 0.3 \
+	-shared-system-prompt 0.3 \
+	-skew 0 \
+	-seed 1
+
 # The router's own per-request rows. They carry accept-to-dispatch overhead and
 # the router's view of each outcome, and join to the harness rows by request id,
 # so they are kept by default rather than discarded: a sweep that threw them away
@@ -139,6 +182,7 @@ bench: build ## Sweep concurrency against the running fleet, resuming from RUN_D
 		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
 		-repetitions $(REPS) \
+		$(WORKLOAD_ARGS) \
 		$(if $(SLO_FROM),-slo-from $(SLO_FROM),) \
 		$(BENCH_ARGS)
 
@@ -150,6 +194,7 @@ goodput: build ## Offer a ladder of arrival rates open-loop and record goodput a
 		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
 		-repetitions $(REPS) \
+		$(WORKLOAD_ARGS) \
 		$(if $(SLO_FROM),-slo-from $(SLO_FROM),) \
 		$(GOODPUT_ARGS)
 
