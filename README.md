@@ -33,24 +33,32 @@ on the box, and every figure is recomputable from rows kept in the repo.
 | **Hardware latency floor** | **TTFT p50 329 ms, inter-token p50 7.8 ms** | 1,487 requests at concurrency 1, straight at each replica, pooled. Measured at a 1.3% prefix-cache hit rate, which is what makes it a prefill cost rather than a cache lookup |
 | **SLO** | **TTFT < 990 ms, inter-token p50 < 24 ms** | 3× the floor, rounded up, published with the alternatives — [ADR-0003](docs/adr/0003-slo-is-three-times-the-measured-floor.md) |
 | **Working set ratios** | **92 / 369 / 1,107 / 2,952** sessions of 2k | WS 0.25 / 1 / 3 / 8, rescaled off the measured capacity |
-| **Replica symmetry** | **2.3% spread at concurrency 1**, 0.0% between NUMA nodes | inside the 8% tolerance, and precise to 2.8%, so an 8% difference is ruled out. Unresolved at concurrency 32 — see below |
+| **Replica symmetry** | **1.5–2.3% spread at concurrency 1** when replicas are driven one at a time; **12.7%** when all six are driven at once | the fleet is symmetric at rest and is not under load: GPU 3 throttles thermally. See below |
 | Host topology | GPUs 0–3 on NUMA 0 at 12 threads each, GPUs 4–5 on NUMA 1 at 24 | pairs `PIX`, within-socket `NODE`, across-socket `SYS` |
 | Router overhead p50 / p99 | **135 µs / 318 µs** | 280 requests. Against the < 1 ms p99 Phase 1 gate — passes, though the max of 1.34 ms includes first-connection setup |
 | Contamination | zero foreign processes across 36 probes and two sweep cells, `clean: true` | the ownership check works: the process holding each card is *not* the pid in the pid file |
 
-⚠️ **Symmetry at concurrency 32 is not settled, and the NUMA question is not yet asked.** The
-replicas differ by 22.1% there, but one replica differs from *itself* by 36.3% between repetitions —
-inside its own noise, so neither a difference nor evidence of none. Concurrency 1 settled cleanly
-and is what the SLO rests on.
+⚠️ **The fleet is not symmetric under load, and the cause is heat.** Driven one replica at a time
+the six agree to 1.5–2.3%, across three independent runs. Driven all six at once the spread is
+12.7% and it *grows with time on load* — replica-3 sits 1.1% off the fleet minimum in the first
+repetition, 12.7% in the second, 17.2% in the third.
 
-The deeper limitation is the schedule. Those probes drove each replica alone, which is what §10
-prescribes — but §10's hypothesis is that four cards *sharing* a NUMA node get a quarter of its
-threads each, and that ratio only exists while all four are busy. Driven alone, a replica on either
-node has its whole node's threads, so the method removes the contention it is looking for. (Nothing
-is pinned today either, so the split is a scheduling preference rather than a hard budget: node
-distances are 10 local / 21 remote, a ~2.1× memory penalty for crossing, not a wall.) `make
-contention` is the experiment that asks the question properly — all six at once, compared by node,
-run once unpinned and once with `CPU_PINNING=1` — and it needs the box to itself.
+GPU 3 is the only card predominantly limited by **heat** rather than by the normal, equal 280 W
+power cap: `SwThermal` in 67% of samples against 0–34% for the other five, clocking down to 960 MHz
+while the rest hold 1305 MHz or better — and doing so at 75 °C, cooler than the 83 °C GPU 4
+tolerates without throttling at all. NUMA is ruled out: the effect does not follow the node
+boundary, and pinning every replica to twelve disjoint local threads did not touch it. See
+[the measurement](docs/measurements/2026-09-07-gpu3-thermal/) and [#25](https://github.com/yuchia329/kvroute/issues/25).
+
+This matters more than its 2.8% of fleet capacity suggests, because the policies are not equally
+exposed to it: the two load-aware policies automatically route away from a replica that accumulates
+inflight, while round-robin and consistent-hash keep feeding it. That is a free, always-on instance
+of the very load-imbalance mechanism the experiment exists to measure — sitting inside the cells
+meant to be the baseline.
+
+The **symmetry check in the spec cannot see this**, because it prescribes driving each replica
+alone, which is the one configuration in which the effect cannot appear. `make contention` drives
+all six at once and is what surfaced it.
 
 ✅ **The capacity discrepancy is explained.** [ADR-0001](docs/adr/0001-engine-pin-and-forced-kernel-selection.md)
 recorded 119,408 tokens at first contact against 125,952 since. It is the `torch.compile` cache, and
@@ -120,8 +128,10 @@ cmd/characterize ─────────────► replica-0..5, one at
   directly, because every question it answers is about a replica and the router's policy would
   otherwise be in the answer. Two schedules: `-schedule solo` drives one replica with the rest idle,
   which isolates the card, and `-schedule together` drives all six at once, which is the only
-  condition in which host-side contention exists — four cards sharing a NUMA node only compete for
-  its cores while all four are busy. `-render <dir>` rebuilds the analysis and the report from a
+  condition in which whole-fleet contention exists — for cores, when four cards share a NUMA node,
+  and for cooling and power, which is what actually bites on this host. Comparing the two schedules
+  is what found GPU 3's thermal throttling: invisible solo, 12.7% together.
+  `-render <dir>` rebuilds the analysis and the report from a
   finished run's own rows, so a corrected definition costs no GPU time and a published figure is
   never one no committed code can produce.
 - **`cmd/compare`** — the table the project's claim is made in: each policy's goodput against the
