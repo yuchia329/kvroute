@@ -217,6 +217,10 @@ type Cell struct {
 	ArrivalRate float64 `json:"arrival_rate" parquet:"arrival_rate"`
 	Repetition  int     `json:"repetition" parquet:"repetition"`
 	Workload    string  `json:"workload" parquet:"workload"`
+	// ArrivalPlan is how an open-loop cell mapped its arrivals onto
+	// conversations; empty for a closed-loop cell, which has no pool to rotate
+	// through. See bench.ArrivalPlan for why the workload name cannot carry it.
+	ArrivalPlan string `json:"arrival_plan" parquet:"arrival_plan"`
 
 	StartedAtNs int64 `json:"started_at_ns" parquet:"started_at_ns"`
 	EndedAtNs   int64 `json:"ended_at_ns" parquet:"ended_at_ns"`
@@ -271,6 +275,16 @@ func (c Cell) Prefill() vllmmetrics.Prefill {
 // would carry a ratio that no longer converts its own figures.
 func (c Cell) BytesPerToken() (float64, bool) {
 	return prefix.MeasureBytesPerToken(c.PromptBytes, c.Prefill())
+}
+
+// arrivalPlanFor is the plan a cell of this load axis ran under. Only the
+// open-loop driver rotates arrivals through a conversation pool; a closed-loop
+// cell's virtual users walk the workload directly and have no plan to record.
+func arrivalPlanFor(load Load) string {
+	if load.Driver == OpenLoopDriver {
+		return ArrivalPlan
+	}
+	return ""
 }
 
 // Load is the point of the load axis this cell sits on, reassembled from the
@@ -811,6 +825,7 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		ArrivalRate: load.ArrivalRate,
 		Repetition:  repetition,
 		Workload:    cfg.Workload.Name(),
+		ArrivalPlan: arrivalPlanFor(load),
 		StartedAtNs: started.UnixNano(),
 		EndedAtNs:   ended.UnixNano(),
 

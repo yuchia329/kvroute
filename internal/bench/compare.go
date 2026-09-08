@@ -345,6 +345,10 @@ func checkComparable(cells []Cell) error {
 	var unjudged []string
 	slos := map[SLO][]string{}
 	workloads := map[string][]string{}
+	// Keyed per driver: only the open-loop driver has a plan, so a table holding
+	// both axes would otherwise see its closed-loop cells' empty plan as a second
+	// one and refuse a comparison that is perfectly sound.
+	plans := map[string][]string{}
 	for _, cell := range cells {
 		if !cell.SLOApplied {
 			unjudged = append(unjudged, cell.ID)
@@ -353,6 +357,9 @@ func checkComparable(cells []Cell) error {
 		slo := SLO{TTFT: time.Duration(cell.SLOTTFTNs), ITL: time.Duration(cell.SLOITLNs)}
 		slos[slo] = append(slos[slo], cell.ID)
 		workloads[cell.Workload] = append(workloads[cell.Workload], cell.ID)
+		if cell.Driver == OpenLoopDriver {
+			plans[cell.ArrivalPlan] = append(plans[cell.ArrivalPlan], cell.ID)
+		}
 	}
 
 	if len(unjudged) > 0 {
@@ -365,6 +372,20 @@ func checkComparable(cells []Cell) error {
 	if len(slos) > 1 {
 		return fmt.Errorf("bench: these cells were judged against %d different SLOs, so their goodput figures are not comparable: %s",
 			len(slos), describeSLOs(slos))
+	}
+	if len(plans) > 1 {
+		// The workload name cannot catch this: it says what bytes a (user, turn)
+		// pair renders to, and the plan says which pair each arrival took. Cells
+		// from before the rotation was shuffled and cells from after it share a
+		// workload name and send different traffic, and pooling them would report
+		// a difference between two drivers as a difference between two policies.
+		var described []string
+		for plan, ids := range plans {
+			described = append(described, fmt.Sprintf("%s (%d cells, e.g. %s)", cmp.Or(plan, "unnamed, recorded before the plan was"), len(ids), ids[0]))
+		}
+		sort.Strings(described)
+		return fmt.Errorf("bench: these cells ran under %d different arrival plans, so the difference between the policies would include a difference in which conversation each arrival took: %s",
+			len(plans), strings.Join(described, "; "))
 	}
 	if len(workloads) > 1 {
 		var described []string

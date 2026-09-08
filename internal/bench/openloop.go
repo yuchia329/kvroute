@@ -68,10 +68,16 @@ func OpenLoopClient(rate float64) *http.Client {
 // record instead of quietly reporting a rate it never offered.
 //
 // Arrivals are spread over a pool of conversations rather than each being its
-// own: the pool is ArrivalRate x ThinkTime conversations, and the k-th arrival
-// is the next turn of the k-th of them in rotation. Without that this driver
-// offers every session's first turn and no session's second, which is a workload
-// with no growing prefix for a cache-aware policy to be aware of.
+// own: the pool is ArrivalRate x ThinkTime conversations, and each takes one
+// turn per round of the pool. Without that this driver offers every session's
+// first turn and no session's second, which is a workload with no growing prefix
+// for a cache-aware policy to be aware of.
+//
+// The order within a round is shuffled and reshuffled every round. See rotation:
+// a fixed order gives a conversation's turns a fixed stride, which cancels
+// against a round-robin router's fixed step and hands every turn of a
+// conversation to one replica. That is what ArrivalPlan records, and why cells
+// carrying different plans are not comparable.
 func RunOpenLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 	if cfg.Target == "" {
 		return nil, errors.New("bench: a target router URL is required")
@@ -96,6 +102,9 @@ func RunOpenLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Seeded on the cell, so a re-run replays the same order and sends the same
+	// bytes (ADR-0004), while two cells do not share one.
+	turns := newRotation(conversations, rotationSeed(cfg.Labels.CellID))
 	if cfg.Client == nil {
 		cfg.Client = OpenLoopClient(cfg.ArrivalRate)
 	}
@@ -140,7 +149,7 @@ func RunOpenLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 		if !waitUntil(ctx, due) {
 			break
 		}
-		user, turn := arrival(k, conversations)
+		user, turn := turns.at(k)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -181,21 +190,6 @@ func conversationPool(rate float64, thinkTime time.Duration) (int, error) {
 			rate, thinkTime, n, WorkloadStride)
 	}
 	return n, nil
-}
-
-// arrival maps the k-th arrival onto the workload's (user, turn) space.
-//
-// Arrivals rotate through the pool, so arrival k is the next turn of
-// conversation k mod n. That is the same walk a closed-loop virtual user makes
-// — the workload draws a session per slot and advances it a turn at a time —
-// and it is deliberately the same walk, so the two drivers offer traffic of one
-// shape and differ only in what paces it. A goodput gap between their tables is
-// then the pacing, which is what the pair is read for.
-//
-// The workload is deterministic in the pair, so every arrival still sends bytes
-// no other arrival in the cell sends, which is what ADR-0004 requires.
-func arrival(k, conversations int) (user, turn int) {
-	return k % conversations, k / conversations
 }
 
 // waitUntil blocks until due, reporting false if the run was cancelled first.
