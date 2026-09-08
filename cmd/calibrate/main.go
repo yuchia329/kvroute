@@ -55,6 +55,10 @@ func run() error {
 		from          = flag.String("from", "", "a sweep directory to measure the prompt bytes-per-token ratio from; its cells carry the bytes offered and the tokens the engines reported")
 		bytesPerToken = flag.Float64("prompt-bytes-per-token", 0,
 			"the prompt bytes-per-token ratio, when there is no sweep to measure it from. Prefer -from: a figure typed in by hand is the guess this command exists to avoid")
+		chosenTTL = flag.Duration("ttl", 0,
+			"use this TTL instead of deriving one from the engine's idle-before-evict tail. "+
+				"For a fleet with no residency history to derive from -- the histograms are empty until blocks have been evicted. "+
+				"Recorded in the calibration as chosen rather than measured, so a run under it is never written up as a derived one")
 		out     = flag.String("out", "runs/prefix-calibration.json", "where to write the calibration")
 		timeout = flag.Duration("timeout", 30*time.Second, "how long to spend scraping the fleet")
 	)
@@ -95,6 +99,7 @@ func run() error {
 		PromptBytesPerToken: ratio,
 		BlockIdle:           prefix.ScrapeBlockIdle(ctx, client, baseURLs),
 		BlockLifetime:       prefix.ScrapeBlockLifetime(ctx, client, baseURLs),
+		ChosenTTL:           *chosenTTL,
 	}
 	// Derived here rather than left for the router, so that a fleet that cannot
 	// support a calibration fails now — with the fleet in front of whoever ran
@@ -110,7 +115,7 @@ func run() error {
 	fmt.Printf("prefix index calibrated from %d replicas\n", len(replicas))
 	fmt.Printf("  aggregate fleet KV capacity   %d tokens\n", measured.FleetTokens)
 	fmt.Printf("  prompt bytes per token        %.2f\n", measured.PromptBytesPerToken)
-	fmt.Printf("  %s p%.0f    %v\n", vllmmetrics.BlockIdleBeforeEvict, prefix.TTLQuantile*100, cfg.TTL)
+	fmt.Printf("  TTL                           %v (%s)\n", cfg.TTL, measured.TTLSource())
 	fmt.Printf("  -> node cap %d, TTL %v\n", cfg.NodeCap, cfg.TTL)
 	if warning, disagrees := measured.CheckAgainstLifetime(cfg.TTL); disagrees {
 		fmt.Printf("  ⚠️  %s\n", warning)

@@ -49,6 +49,25 @@ type Calibration struct {
 	// check while believing in blocks the fleet could never have held, and
 	// nothing else in the file would show it.
 	BlockLifetime vllmmetrics.Distribution `json:"block_lifetime"`
+	// ChosenTTL, when set, is used instead of deriving the TTL from BlockIdle.
+	//
+	// It exists for the case the derivation cannot serve: the residency
+	// histograms are empty until the fleet has evicted blocks, and the fleet is
+	// brought down between policy passes, so a sweep that has to start against a
+	// freshly booted fleet has nothing to derive from. Recorded in the file and
+	// reported by TTLSource, so a run under a chosen TTL can never be written up
+	// as a run under a measured one -- which is the only thing that made the
+	// derivation worth insisting on.
+	ChosenTTL time.Duration `json:"chosen_ttl,omitempty"`
+}
+
+// TTLSource says where the TTL came from, so every report of it carries its own
+// provenance rather than relying on whoever writes the summary to remember.
+func (c Calibration) TTLSource() string {
+	if c.ChosenTTL > 0 {
+		return "chosen"
+	}
+	return "measured from " + vllmmetrics.BlockIdleBeforeEvict
 }
 
 // CheckAgainstLifetime reports whether the derived TTL is consistent with how
@@ -137,6 +156,9 @@ func (c Calibration) NodeCap() int {
 // invalidate every completed cell, so the answer to an unread histogram is to
 // refuse, never to enable it and re-scrape.
 func (c Calibration) TTL() (time.Duration, error) {
+	if c.ChosenTTL > 0 {
+		return c.ChosenTTL, nil
+	}
 	if !c.BlockIdle.Read {
 		return 0, fmt.Errorf("prefix: %s was not published, so the index TTL cannot be calibrated. "+
 			"The family needs --kv-cache-metrics, which ADR-0001 sets from the first cell — do not enable it now to obtain this reading, because changing the engine configuration mid-experiment invalidates every completed cell",

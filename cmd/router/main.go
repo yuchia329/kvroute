@@ -138,6 +138,7 @@ func prefixOptions(log *slog.Logger, policyName, calibrationPath string) (policy
 		"from", calibrationPath,
 		"node_cap", cfg.NodeCap,
 		"ttl", cfg.TTL,
+		"ttl_source", measured.TTLSource(),
 		"fleet_tokens", measured.FleetTokens,
 		"prompt_bytes_per_token", measured.PromptBytesPerToken,
 	)

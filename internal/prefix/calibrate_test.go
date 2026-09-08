@@ -214,3 +214,40 @@ func TestTheLifetimeCheckNeitherRefusesNorInventsAVerdict(t *testing.T) {
 		t.Error("a verdict was invented from a lifetime histogram nobody read")
 	}
 }
+
+// A chosen TTL is usable where a derived one is impossible — the residency
+// histograms are empty until the fleet has evicted something, and a sweep may
+// have to start against a fleet that has just come up. What it must never do is
+// pass itself off as a measurement.
+func TestAChosenTTLIsUsableAndSaysThatItWasChosen(t *testing.T) {
+	c := prefix.Calibration{FleetTokens: 629_760, PromptBytesPerToken: 1.59, ChosenTTL: 20 * time.Second}
+
+	cfg, err := c.Config()
+	if err != nil {
+		t.Fatalf("Config with a chosen TTL and no histogram: %v", err)
+	}
+	if cfg.TTL != 20*time.Second {
+		t.Errorf("TTL = %v, want the chosen 20s", cfg.TTL)
+	}
+	if c.TTLSource() != "chosen" {
+		t.Errorf("TTLSource = %q, want it to say the figure was chosen", c.TTLSource())
+	}
+
+	// And a derived one still says so, so the two can never be confused in a
+	// write-up.
+	derived := prefix.Calibration{FleetTokens: 629_760, PromptBytesPerToken: 1.59, BlockIdle: idle()}
+	if !strings.Contains(derived.TTLSource(), "measured") {
+		t.Errorf("TTLSource = %q, want it to name the measurement", derived.TTLSource())
+	}
+}
+
+// The choice covers the TTL and nothing else. Capacity and the ratio are still
+// required, because those are measurable on a fleet that has just come up.
+func TestAChosenTTLDoesNotExcuseTheOtherMeasurements(t *testing.T) {
+	if _, err := (prefix.Calibration{ChosenTTL: 20 * time.Second}).Config(); err == nil {
+		t.Error("a chosen TTL was accepted as a substitute for fleet capacity")
+	}
+	if _, err := (prefix.Calibration{FleetTokens: 629_760, ChosenTTL: 20 * time.Second}).Config(); err == nil {
+		t.Error("a chosen TTL was accepted as a substitute for the bytes-per-token ratio")
+	}
+}
