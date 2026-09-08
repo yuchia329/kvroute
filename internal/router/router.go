@@ -17,6 +17,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -34,6 +35,11 @@ const (
 	ReplicaHeader  = "X-Kvroute-Replica"
 	DecisionHeader = "X-Kvroute-Decision"
 	RequestHeader  = "X-Kvroute-Request-Id"
+	// PrefixMatchHeader carries the prefix match the decision was made on, in
+	// bytes. The harness reads it back onto its own row rather than
+	// reimplementing the index, which is the same reason the replica and the
+	// decision are headers: what the router believed is the router's to report.
+	PrefixMatchHeader = "X-Kvroute-Prefix-Match"
 )
 
 // ChatCompletionsPath is the surface clients POST to.
@@ -205,6 +211,7 @@ func (rt *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request
 	row.Replica = choice.Replica.ID
 	row.DecisionReason = string(choice.Reason)
 	row.Inflight = choice.Inflight
+	row.PrefixMatchBytes = choice.PrefixMatchBytes
 
 	// The request is now committed to a replica, so it counts against that
 	// replica from here. Released by a defer rather than at each return, because
@@ -250,6 +257,7 @@ func (rt *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request
 		"replica", choice.Replica.ID,
 		"reason", choice.Reason,
 		"inflight", choice.Inflight,
+		"prefix_match_b", choice.PrefixMatchBytes,
 		"stream", row.Stream,
 		"overhead_us", float64(row.RouterOverheadNs)/1000,
 	)
@@ -258,6 +266,7 @@ func (rt *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request
 	w.Header().Set(ReplicaHeader, choice.Replica.ID)
 	w.Header().Set(DecisionHeader, string(choice.Reason))
 	w.Header().Set(RequestHeader, row.RequestID)
+	w.Header().Set(PrefixMatchHeader, strconv.Itoa(choice.PrefixMatchBytes))
 	w.WriteHeader(resp.StatusCode)
 
 	written, firstByte, upstreamErr, clientErr := streamBody(w, resp.Body)

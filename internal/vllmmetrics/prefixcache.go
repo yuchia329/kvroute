@@ -3,7 +3,6 @@ package vllmmetrics
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 )
 
@@ -103,25 +102,13 @@ func PoolPrefixCache(readings []PrefixCache) PrefixCache {
 // record says its cache evidence is missing rather than losing the measurement
 // over a scrape that did not answer.
 func ReadPrefixCache(ctx context.Context, client *http.Client, metricsURL string) PrefixCache {
-	if client == nil {
-		client = http.DefaultClient
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, nil)
-	if err != nil {
-		return PrefixCache{}
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return PrefixCache{}
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil || resp.StatusCode != http.StatusOK {
+	body, ok := scrape(ctx, client, metricsURL)
+	if !ok {
 		return PrefixCache{}
 	}
 
-	hits, hitsOK := Value(string(body), PrefixCacheHits)
-	queries, queriesOK := Value(string(body), PrefixCacheQueries)
+	hits, hitsOK := Value(body, PrefixCacheHits)
+	queries, queriesOK := Value(body, PrefixCacheQueries)
 	if !hitsOK || !queriesOK {
 		return PrefixCache{}
 	}

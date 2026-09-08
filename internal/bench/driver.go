@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -269,6 +270,7 @@ func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int, warmUntil, 
 		Session:     next.Session,
 		Turn:        next.Index,
 		VirtualUser: user,
+		PromptBytes: int64(len(next.Body)),
 		// Judged on when the request started: a request that began inside the
 		// warm-up window is a warm-up request however long it took to finish.
 		// One rule for both drivers, so a row's warm-up flag means the same
@@ -314,6 +316,10 @@ func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int, warmUntil, 
 	row.Replica = resp.Header.Get(router.ReplicaHeader)
 	row.Decision = resp.Header.Get(router.DecisionHeader)
 	row.RequestID = resp.Header.Get(router.RequestHeader)
+	// Absent under a policy that consults no index, and absent entirely when a
+	// replica is being driven directly. Both are honestly zero: no prefix match
+	// was predicted because nothing predicted one.
+	row.PrefixMatchBytes, _ = strconv.Atoi(resp.Header.Get(router.PrefixMatchHeader))
 	if cfg.DirectReplica != "" {
 		// Driving a replica directly, so the harness knows where the request
 		// went without being told: it chose. Attributing it here rather than

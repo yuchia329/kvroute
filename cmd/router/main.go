@@ -18,6 +18,7 @@ import (
 	"github.com/yuchia329/kvroute/internal/fleet"
 	"github.com/yuchia329/kvroute/internal/httpserve"
 	"github.com/yuchia329/kvroute/internal/policy"
+	"github.com/yuchia329/kvroute/internal/prefix"
 	"github.com/yuchia329/kvroute/internal/record"
 	"github.com/yuchia329/kvroute/internal/router"
 )
@@ -35,6 +36,9 @@ func run() error {
 		replicaSpecs = flag.String("replicas", "", "comma-separated replica specs, id=url or bare url")
 		policyName   = flag.String("policy", policy.RoundRobinName,
 			"routing policy to run: "+strings.Join(policy.Order, ", ")+". Only the policy varies between benchmark runs")
+		calibration = flag.String("prefix-calibration", "",
+			"path to the prefix index's calibration, as written by cmd/calibrate. Required by "+policy.PrefixAffinityName+
+				", which will not run on an index whose bounds were guessed")
 		recordsPath  = flag.String("records", "", "path to append per-request JSONL rows to; empty discards them")
 		logLevel     = flag.String("log-level", "info", "log level: debug, info, warn or error. debug logs every routing decision")
 		shutdownWait = flag.Duration("shutdown-grace", 30*time.Second, "how long to let in-flight requests finish on shutdown")
@@ -55,7 +59,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	chosen, err := policy.ByName(*policyName)
+	options, err := prefixOptions(log, *policyName, *calibration)
+	if err != nil {
+		return err
+	}
+	chosen, err := policy.ByName(*policyName, options)
 	if err != nil {
 		return err
 	}
@@ -93,6 +101,47 @@ func run() error {
 		"max_us", s.RouterOverhead.MaxUs,
 	)
 	return serveErr
+}
+
+// prefixOptions builds the prefix index the chosen policy needs, from a
+// calibration measured off the fleet.
+//
+// Only prefix affinity reads it, and it is loaded only for that policy: a
+// round-robin router should not fail to start because a file it will never
+// consult is missing. The refusal when it *is* missing is the point of the flag
+// — an index whose node cap and TTL were guessed would put an arbitrary constant
+// at the centre of the policy this project's claim rests on, and nothing in the
+// resulting cells would show that it had.
+func prefixOptions(log *slog.Logger, policyName, calibrationPath string) (policy.Options, error) {
+	if policyName != policy.PrefixAffinityName {
+		return policy.Options{}, nil
+	}
+	if calibrationPath == "" {
+		return policy.Options{}, fmt.Errorf("-prefix-calibration is required to run %s: the index's node cap and TTL are measured off the fleet rather than defaulted, and cmd/calibrate writes the file", policy.PrefixAffinityName)
+	}
+	measured, err := prefix.Load(calibrationPath)
+	if err != nil {
+		return policy.Options{}, err
+	}
+	cfg, err := measured.Config()
+	if err != nil {
+		return policy.Options{}, err
+	}
+	index, err := prefix.New(cfg)
+	if err != nil {
+		return policy.Options{}, err
+	}
+	// Logged so the bounds the router actually ran with are in the run's own
+	// output, next to the measurements they were derived from. A calibration
+	// that only exists in a file beside the binary is one nobody reads back.
+	log.Info("prefix index calibrated",
+		"from", calibrationPath,
+		"node_cap", cfg.NodeCap,
+		"ttl", cfg.TTL,
+		"fleet_tokens", measured.FleetTokens,
+		"prompt_bytes_per_token", measured.PromptBytesPerToken,
+	)
+	return policy.Options{PrefixIndex: index}, nil
 }
 
 func parseLevel(name string) (slog.Level, error) {

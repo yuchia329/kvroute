@@ -154,6 +154,17 @@ type Summary struct {
 	// was judged by.
 	ScheduleLagThresholdNs int64 `json:"schedule_lag_threshold_ns" parquet:"schedule_lag_threshold_ns"`
 
+	// PromptBytes is the prompt bytes this cell offered over its measured
+	// window, counted across every request it sent rather than only the ones
+	// that came back.
+	//
+	// Offered rather than served, because it is the numerator of the prompt
+	// bytes-per-token ratio and the engines' prompt-token counters on the other
+	// side of that ratio count what they were asked to process. Restricting it
+	// to successes would put a fleet's failures into a conversion factor that
+	// has nothing to do with them.
+	PromptBytes int64 `json:"prompt_bytes" parquet:"prompt_bytes"`
+
 	// FailureRate is dropped plus failed over every measured request.
 	FailureRate      float64 `json:"failure_rate" parquet:"failure_rate"`
 	FailureThreshold float64 `json:"failure_threshold" parquet:"failure_threshold"`
@@ -188,6 +199,7 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 			continue
 		}
 		s.Requests++
+		s.PromptBytes += r.PromptBytes
 
 		started := time.Unix(0, r.StartedAtNs)
 		if first.IsZero() || started.Before(first) {

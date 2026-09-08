@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,6 +18,7 @@ import (
 	"github.com/yuchia329/kvroute/internal/fakereplica"
 	"github.com/yuchia329/kvroute/internal/fleet"
 	"github.com/yuchia329/kvroute/internal/policy"
+	"github.com/yuchia329/kvroute/internal/prefix"
 	"github.com/yuchia329/kvroute/internal/record"
 	"github.com/yuchia329/kvroute/internal/router"
 )
@@ -882,4 +884,73 @@ func TestAConcurrentBurstIsSpreadRatherThanPiledOntoOneReplica(t *testing.T) {
 		t.Errorf("a %d-request burst used only %d of %d replicas (%v)", arrivals, len(seen), replicas, seen)
 	}
 	rt.drains(t)
+}
+
+// The router's prediction has to reach both the row and the client, because two
+// different readers need it. The row is where belief divergence is computed
+// from, and the header is how the harness puts the figure on its own row without
+// reimplementing the index.
+func TestThePrefixMatchReachesBothTheRowAndTheResponse(t *testing.T) {
+	_, base := startFake(t, fakereplica.Config{ID: "replica-0", OutputTokens: 2})
+	index, err := prefix.New(prefix.Config{NodeCap: 1024, TTL: time.Hour})
+	if err != nil {
+		t.Fatalf("prefix.New: %v", err)
+	}
+	rt := startRouterWith(t, policy.NewPrefixAffinity(index), "replica-0="+base)
+
+	// A prompt long enough to fill several blocks, sent twice: the first turn
+	// teaches the index, the second is the one with something to match.
+	body := fmt.Sprintf(`{"model":"m","messages":[{"role":"user","content":%q}],"stream":true}`,
+		strings.Repeat("a long shared opening ", 40))
+
+	var matches []string
+	for range 2 {
+		resp, err := http.Post(rt.url+router.ChatCompletionsPath, "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("post: %v", err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		matches = append(matches, resp.Header.Get(router.PrefixMatchHeader))
+	}
+
+	if matches[0] != "0" {
+		t.Errorf("the first turn reported a match of %q, want 0", matches[0])
+	}
+	if matches[1] == "" || matches[1] == "0" {
+		t.Errorf("the second turn of the same prompt reported a match of %q", matches[1])
+	}
+
+	rows := rt.rows.wait(t, 2)
+	if rows[0].PrefixMatchBytes != 0 {
+		t.Errorf("row 0 prefix_match_bytes = %d, want 0", rows[0].PrefixMatchBytes)
+	}
+	if rows[1].PrefixMatchBytes <= 0 {
+		t.Errorf("row 1 prefix_match_bytes = %d, want the match the decision was made on", rows[1].PrefixMatchBytes)
+	}
+	if got := strconv.Itoa(rows[1].PrefixMatchBytes); got != matches[1] {
+		t.Errorf("the row says %s and the header says %s, so the two readers disagree", got, matches[1])
+	}
+	if rows[1].DecisionReason != string(policy.ReasonPrefixAffinity) {
+		t.Errorf("row 1 decision = %q, want %q", rows[1].DecisionReason, policy.ReasonPrefixAffinity)
+	}
+}
+
+// The policies that consult no index report no match, rather than a zero that
+// could be read as an index that found nothing.
+func TestAPolicyWithNoIndexReportsNoPrefixMatch(t *testing.T) {
+	_, base := startFake(t, fakereplica.Config{ID: "replica-0", OutputTokens: 2})
+	rt := startRouterWith(t, policy.NewSessionAffinity(), "replica-0="+base)
+
+	resp, err := http.Post(rt.url+router.ChatCompletionsPath, "application/json", strings.NewReader(streamingRequest))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	rows := rt.rows.wait(t, 1)
+	if rows[0].PrefixMatchBytes != 0 {
+		t.Errorf("a policy with no index recorded a %dB match", rows[0].PrefixMatchBytes)
+	}
 }

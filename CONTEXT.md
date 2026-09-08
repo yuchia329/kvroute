@@ -71,6 +71,16 @@ The length of the longest chain of leading prefix blocks a candidate replica is 
 hold. Measured in bytes, and reported as such.
 _Avoid_: prefix hit, cache hit (those mean the vLLM-side quantity, below)
 
+**Prompt bytes per token**:
+How many bytes of prompt the model's tokenizer turns into one token, measured over a run as the
+prompt bytes the harness offered divided by the prompt tokens the engines reported processing.
+It is the conversion every byte-denominated figure here has to be read through, because the
+router has no tokenizer and reports prefix match in its own bytes. Measured rather than assumed,
+and published with every comparison: a byte figure nobody can convert is a byte figure nobody can
+check against the engine's own counts. Not to be confused with the KV footprint of one token in
+GPU memory, which is a different quantity that shares the name in English.
+_Avoid_: bytes/token (unqualified — that is the KV arithmetic), token size, compression ratio
+
 **Prefix cache hit rate**:
 vLLM's own reported figure, scraped from a replica. This is ground truth; prefix match is the
 router's prediction of it.
@@ -122,6 +132,13 @@ its own KV pressure, which is a different thing at a different layer. Never call
 The router's decision to route to the replica with the best prefix match.
 _Avoid_: stickiness, pinning
 
+**Cold**:
+A request no replica was believed to hold any of, routed on load because there was no cache
+locality to preserve. It is its own decision rather than a least-outstanding decision or a
+declined affinity: a policy producing nothing but cold decisions has an index that is not
+working, and no goodput figure beside it would reveal that.
+_Avoid_: miss, no match, fallback
+
 **Session affinity**:
 Routing every turn of a session to one replica by hashing its session identity onto a ring of the
 replicas. Named for the session rather than for the prefix, because it is the *other* kind of
@@ -140,10 +157,19 @@ Requests per second that met the SLO. The primary metric. Distinct from throughp
 requests that completed regardless of how badly.
 _Avoid_: throughput, RPS, QPS
 
+**Recomputed prefill**:
+Prompt tokens a replica had to compute because it did not hold them, read off one fleet as
+`vllm:prompt_tokens_total` minus `vllm:prompt_tokens_cached_total`. It says what the GPUs spent
+and nothing about whether spending it was avoidable.
+_Avoid_: prefill (unqualified), redundant prefill (that is the comparison below)
+
 **Redundant prefill**:
 Prompt tokens a replica had to compute because it did not hold them, which some other replica did
 hold. The physical work prefix affinity exists to eliminate, and therefore the measurement of the
-mechanism rather than of the outcome.
+mechanism rather than of the outcome. No single fleet's counters can see it, because holding is a
+fact about the siblings: it is measured as the recomputed prefill one policy carries over the
+policy that recomputed least on identical bytes, which the comparison guarantees by refusing
+cells whose workloads differ.
 _Avoid_: wasted prefill, recompute, duplicate work
 
 **Router overhead**:

@@ -133,7 +133,20 @@ cmd/characterize ─────────────► replica-0..5, one at
   replica holding the fewest inflight requests and breaks ties by rotation, because every replica of
   an idle fleet is tied and a fixed tie-break would send the whole low-concurrency end of the sweep
   to one card. Every row records the inflight the decision was weighed on, so how balanced a policy
-  left the fleet is a figure in the data rather than a claim about the code.
+  left the fleet is a figure in the data rather than a claim about the code. `session_affinity`
+  hashes a conversation onto a ring of the replicas, and `prefix_affinity` routes to the replica
+  already believed to hold the longest leading run of the prompt's own bytes — it needs
+  `-prefix-calibration`, because the index's node cap and TTL are measured off the fleet rather
+  than defaulted in the source, and a router asked for that policy without one refuses to start
+  ([ADR-0006](docs/adr/0006-the-prefix-index-is-bounded-by-measurement.md)). Every row records the
+  prefix match the decision was made on, in bytes, alongside the measured prompt bytes-per-token
+  ratio that converts it — the router carries no tokenizer, and reporting a router-side belief in
+  the engine's units would hide that.
+- **`cmd/calibrate`** — measures the prefix index's two bounds off the fleet and a sweep that has
+  already run: aggregate KV capacity summed from every replica's own cache configuration, the
+  prompt bytes-per-token ratio from the cells' offered bytes over the engines' reported tokens, and
+  the TTL from the p90 of `vllm:kv_block_idle_before_evict_seconds`. It writes them to a file, and
+  refuses rather than substituting a constant for a measurement it could not take.
 - **`cmd/bench`** — the two load drivers and the sweeps they run. Refuses to start unless every
   replica answers `/health`, warms each one directly, then drives one of two axes, counting dropped,
   failed and SLO-violating requests in three separate columns. Samples the GPUs throughout and
@@ -221,7 +234,27 @@ make bench   POLICY=least_outstanding BENCH_ARGS="-cell-duration 60s -repetition
 make goodput POLICY=least_outstanding GOODPUT_ARGS="-cell-duration 60s -repetitions 3"
 kill %1
 
-make compare                                               # both policies, both axes, one table
+make fleet-down && make fleet-up
+
+make run-router POLICY=session_affinity REPLICAS="$(ops/fleet.sh replicas)" &
+make bench   POLICY=session_affinity BENCH_ARGS="-cell-duration 60s -repetitions 5"
+make goodput POLICY=session_affinity GOODPUT_ARGS="-cell-duration 60s -repetitions 5"
+kill %1
+
+# The prefix index's bounds are measured, not chosen, so this runs against a fleet
+# that has been under load — the histogram it reads is empty until blocks have
+# actually been evicted. Never turn --kv-cache-metrics on now to make it work: that
+# changes the engine configuration every cell shares and invalidates all of them.
+make calibrate                          # -> runs/prefix-calibration.json
+
+make fleet-down && make fleet-up
+
+make run-router POLICY=prefix_affinity REPLICAS="$(ops/fleet.sh replicas)" &
+make bench   POLICY=prefix_affinity BENCH_ARGS="-cell-duration 60s -repetitions 3"
+make goodput POLICY=prefix_affinity GOODPUT_ARGS="-cell-duration 60s -repetitions 3"
+kill %1
+
+make compare                                               # every policy, both axes, one table
 ```
 
 `make characterize` comes before `make bench` and not after it, because the SLO the sweep is judged

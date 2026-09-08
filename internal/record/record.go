@@ -64,6 +64,17 @@ type Request struct {
 	Policy         string `json:"policy" parquet:"policy"`
 	Replica        string `json:"replica" parquet:"replica"`
 	DecisionReason string `json:"decision_reason" parquet:"decision_reason"`
+	// PrefixMatchBytes is how much of this prompt's leading bytes the router
+	// believed the chosen replica already held. Zero under the policies that
+	// consult no prefix index.
+	//
+	// In bytes, because the index has no tokenizer: this is a length of prompt,
+	// and the measured prompt bytes-per-token ratio published with a run is what
+	// converts it. It is the router's prediction, and the engine's own
+	// vllm:request_prefill_kv_computed_tokens for the same request is the truth
+	// it is predicting — one field per row is the entire cost of being able to
+	// plot the two against each other.
+	PrefixMatchBytes int `json:"prefix_match_bytes" parquet:"prefix_match_bytes"`
 	// Inflight is the chosen replica's inflight when the decision was made, not
 	// counting this request. It is the load the policy
 	// weighed, recorded so that how balanced a policy left the fleet is a figure

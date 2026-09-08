@@ -12,6 +12,7 @@ import (
 	"net/http"
 
 	"github.com/yuchia329/kvroute/internal/fleet"
+	"github.com/yuchia329/kvroute/internal/prefix"
 	"github.com/yuchia329/kvroute/internal/session"
 )
 
@@ -36,6 +37,18 @@ const (
 	// looks exactly like one hot session, and the decision mix is a reported
 	// result.
 	ReasonSessionUnidentified Reason = "SESSION_UNIDENTIFIED"
+	// ReasonPrefixAffinity is the replica believed to hold the longest leading
+	// run of this prompt's blocks.
+	ReasonPrefixAffinity Reason = "PREFIX_AFFINITY"
+	// ReasonCold is a request no replica was believed to hold anything for,
+	// placed on load because there was no cache locality to preserve.
+	//
+	// It is its own reason rather than folded into least-outstanding, because
+	// the decision mix is a reported result and the two say different things: a
+	// cold request is one the index had nothing for, and a policy that produced
+	// nothing but cold decisions has an index that is not working, which no
+	// goodput figure beside it would reveal.
+	ReasonCold Reason = "COLD"
 )
 
 // Order is the order the policies are compared in: the naive baseline first, then
@@ -48,6 +61,7 @@ var Order = []string{
 	RoundRobinName,
 	LeastOutstandingName,
 	SessionAffinityName,
+	PrefixAffinityName,
 }
 
 // Request is everything a policy may know about an incoming request. The body
@@ -72,6 +86,23 @@ type Request struct {
 type Choice struct {
 	Replica fleet.Replica
 	Reason  Reason
+	// PrefixMatchBytes is how much of this prompt's leading bytes the chosen
+	// replica was believed to already hold. Zero when the policy did not consult
+	// a prefix index, and zero when it did and found nothing.
+	//
+	// In bytes, because the index has no tokenizer and will not pretend to one:
+	// it chunks the prompt into its own fixed byte blocks, so this is a length
+	// of prompt and not a count of tokens. The measured prompt bytes-per-token
+	// ratio published beside it is what converts it, and keeping the conversion
+	// outside the figure is what stops a router-side belief from being reported
+	// in the engine's units.
+	//
+	// It travels on the decision because it is the router's prediction of the
+	// prefix cache hit the engine will record, and the gap between the two is a
+	// measured result of this project. A prediction reconstructed after the fact
+	// from an index that has moved on would not be the one the decision was made
+	// on.
+	PrefixMatchBytes int
 	// Inflight is what the chosen replica's inflight was when the decision was
 	// made, not counting this request.
 	//
@@ -91,9 +122,22 @@ type Policy interface {
 	Choose(req Request, state fleet.State) (Choice, error)
 }
 
+// Options is what a policy needs beyond its name.
+//
+// It exists because exactly one policy has a dependency it cannot build for
+// itself, and that dependency is a calibrated one: an index sized and expired
+// against figures measured off the fleet. Letting ByName default it would put a
+// guess at the centre of the policy the project's claim rests on, so the
+// dependency is passed in and its absence is an error.
+type Options struct {
+	// PrefixIndex is the index prefix affinity routes on. Required by that
+	// policy and ignored by the others, which route on the fleet snapshot alone.
+	PrefixIndex *prefix.Index
+}
+
 // ByName resolves the policy named in configuration, so that a benchmark can
 // run every policy against an unchanged fleet.
-func ByName(name string) (Policy, error) {
+func ByName(name string, opts Options) (Policy, error) {
 	switch name {
 	case RoundRobinName:
 		return NewRoundRobin(), nil
@@ -101,6 +145,11 @@ func ByName(name string) (Policy, error) {
 		return NewLeastOutstanding(), nil
 	case SessionAffinityName:
 		return NewSessionAffinity(), nil
+	case PrefixAffinityName:
+		if opts.PrefixIndex == nil {
+			return nil, fmt.Errorf("policy: %s needs a prefix index, and its bounds are measurements rather than defaults: build one with prefix.Calibration", PrefixAffinityName)
+		}
+		return NewPrefixAffinity(opts.PrefixIndex), nil
 	default:
 		return nil, fmt.Errorf("policy: unknown policy %q", name)
 	}

@@ -171,7 +171,7 @@ func TestExactCountsPreventTheHerdAStaleViewWouldCause(t *testing.T) {
 
 func TestByNameResolvesEveryPolicyTheComparisonReports(t *testing.T) {
 	for _, name := range policy.Order {
-		p, err := policy.ByName(name)
+		p, err := policy.ByName(name, policy.Options{PrefixIndex: prefixIndex(t)})
 		if err != nil {
 			t.Errorf("policy %q is compared but cannot be run: %v", name, err)
 			continue

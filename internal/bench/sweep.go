@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yuchia329/kvroute/internal/prefix"
 	"github.com/yuchia329/kvroute/internal/record"
 	"github.com/yuchia329/kvroute/internal/router"
 	"github.com/yuchia329/kvroute/internal/vllmmetrics"
@@ -54,10 +55,17 @@ var ConcurrencySweep = []int{1, 4, 8, 16, 32, 64, 128, 256}
 // new text only and should turn nearer the old 12 to 16. The rungs span both,
 // evenly, so whichever end a policy turns at there are points either side of it.
 //
+// The top rung is 20 rather than 16 to protect the policy most likely to turn
+// late. A conversation kept on one replica finds its history already cached, so
+// it computes only its new text — about 448 tokens against the ~1,250 a scattered
+// conversation pays, and less than the ~512 of the fixed workload that turned at
+// 12 to 16. Session affinity could therefore turn at or above 16, and a ladder
+// ending exactly at its peak could not show it turning at all.
+//
 // Every policy in one comparison has to climb the same ladder. A rung one policy
 // skipped is a gap in that row of the table, not a lower score, so this is
 // settled before the first sweep rather than tuned between them.
-var ArrivalRateSweep = []float64{2, 4, 6, 8, 10, 12, 14, 16}
+var ArrivalRateSweep = []float64{2, 4, 6, 8, 10, 12, 14, 16, 20}
 
 // FormatLevels renders concurrency levels into the comma-separated spec the
 // commands take, so a flag's default can be the package's own value rather than
@@ -227,6 +235,18 @@ type Cell struct {
 	PrefixCacheQueries float64 `json:"prefix_cache_queries" parquet:"prefix_cache_queries"`
 	PrefixCacheRead    bool    `json:"prefix_cache_read" parquet:"prefix_cache_read"`
 
+	// The prompt-token counters the fleet moved over the same window, flat for
+	// the same reason and reassembled by Prefill.
+	//
+	// They are the physical measurement beside the cache's ratio: prompt tokens
+	// the GPUs actually had to compute, which is the work cache-aware routing
+	// exists to remove. Two policies sending identical bytes and computing
+	// different numbers of prompt tokens differ by redundant prefill, and no hit
+	// rate on its own can say by how much.
+	PromptTokens       float64 `json:"prompt_tokens" parquet:"prompt_tokens"`
+	PromptTokensCached float64 `json:"prompt_tokens_cached" parquet:"prompt_tokens_cached"`
+	PrefillRead        bool    `json:"prefill_read" parquet:"prefill_read"`
+
 	Summary       `json:"summary"`
 	Contamination `json:"contamination"`
 }
@@ -235,6 +255,22 @@ type Cell struct {
 // reassembled from the flat columns it is recorded in.
 func (c Cell) PrefixCache() vllmmetrics.PrefixCache {
 	return vllmmetrics.PrefixCache{Hits: c.PrefixCacheHits, Queries: c.PrefixCacheQueries, Read: c.PrefixCacheRead}
+}
+
+// Prefill is what the fleet's GPUs had to compute over this cell, reassembled
+// from the flat columns it is recorded in.
+func (c Cell) Prefill() vllmmetrics.Prefill {
+	return vllmmetrics.Prefill{PromptTokens: c.PromptTokens, CachedTokens: c.PromptTokensCached, Read: c.PrefillRead}
+}
+
+// BytesPerToken is the prompt bytes-per-token ratio this cell measured: the
+// bytes it offered over the tokens the engines said they processed.
+//
+// Per cell rather than as a constant, because it is a property of the workload's
+// prompts and the model's tokenizer together, and a run that changed either
+// would carry a ratio that no longer converts its own figures.
+func (c Cell) BytesPerToken() (float64, bool) {
+	return prefix.MeasureBytesPerToken(c.PromptBytes, c.Prefill())
 }
 
 // Load is the point of the load axis this cell sits on, reassembled from the
@@ -778,9 +814,13 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		StartedAtNs: started.UnixNano(),
 		EndedAtNs:   ended.UnixNano(),
 
-		PrefixCacheHits:    served.Hits,
-		PrefixCacheQueries: served.Queries,
-		PrefixCacheRead:    served.Read,
+		PrefixCacheHits:    served.Cache.Hits,
+		PrefixCacheQueries: served.Cache.Queries,
+		PrefixCacheRead:    served.Cache.Read,
+
+		PromptTokens:       served.Prefill.PromptTokens,
+		PromptTokensCached: served.Prefill.CachedTokens,
+		PrefillRead:        served.Prefill.Read,
 
 		Summary:       Summarize(results, cfg.summaryOptions()),
 		Contamination: contamination,

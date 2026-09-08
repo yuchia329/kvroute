@@ -29,9 +29,22 @@ import (
 // warm-up measured in seconds. The window is therefore a few requests wide at
 // worst, and it is stated here rather than claimed away because the whole reason
 // this reading is delayed at all is to make the two columns describe one window.
+// engineCounters is what one window read off the fleet: the two counter pairs
+// that say what the caches answered and what the GPUs had to compute.
+//
+// They travel together because they are read over one window and answer one
+// question between them. A prefix cache hit rate is a share of block queries and
+// a recomputed-prefill figure is a count of tokens, and a policy can move one
+// without moving the other — which is exactly the disagreement idea.md §1 says
+// two published results found, so the table has to be able to show it.
+type engineCounters struct {
+	Cache   vllmmetrics.PrefixCache
+	Prefill vllmmetrics.Prefill
+}
+
 type prefixCacheWindow struct {
 	done   chan struct{}
-	before vllmmetrics.PrefixCache
+	before engineCounters
 	// replicas are the /metrics URLs, resolved once so that Stop does not repeat
 	// the string work on the path a cell ends on.
 	replicas []string
@@ -67,24 +80,30 @@ func watchPrefixCache(ctx context.Context, replicas []string, opensIn time.Durat
 }
 
 // Stop closes the window and returns what the fleet served over it.
-func (w *prefixCacheWindow) Stop(ctx context.Context) vllmmetrics.PrefixCache {
+func (w *prefixCacheWindow) Stop(ctx context.Context) engineCounters {
 	<-w.done
-	return w.read(ctx).Since(w.before)
+	after := w.read(ctx)
+	return engineCounters{
+		Cache:   after.Cache.Since(w.before.Cache),
+		Prefill: after.Prefill.Since(w.before.Prefill),
+	}
 }
 
 // read scrapes every replica and pools the readings, so the figure is the
 // fleet's rather than one card's. One replica nobody could read makes the whole
 // reading unread: a hit rate over a fleet where some replicas were checked and
 // some were not is a number nobody can say what is behind.
-func (w *prefixCacheWindow) read(ctx context.Context) vllmmetrics.PrefixCache {
+func (w *prefixCacheWindow) read(ctx context.Context) engineCounters {
 	if len(w.replicas) == 0 {
-		return vllmmetrics.PrefixCache{}
+		return engineCounters{}
 	}
-	readings := make([]vllmmetrics.PrefixCache, 0, len(w.replicas))
+	cache := make([]vllmmetrics.PrefixCache, 0, len(w.replicas))
+	prefill := make([]vllmmetrics.Prefill, 0, len(w.replicas))
 	for _, url := range w.replicas {
-		readings = append(readings, vllmmetrics.ReadPrefixCache(ctx, w.client, url))
+		cache = append(cache, vllmmetrics.ReadPrefixCache(ctx, w.client, url))
+		prefill = append(prefill, vllmmetrics.ReadPrefill(ctx, w.client, url))
 	}
-	return vllmmetrics.PoolPrefixCache(readings)
+	return engineCounters{Cache: vllmmetrics.PoolPrefixCache(cache), Prefill: vllmmetrics.PoolPrefill(prefill)}
 }
 
 func metricsURLs(replicas []string) []string {

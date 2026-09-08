@@ -67,6 +67,17 @@ type Result struct {
 	// having to reimplement the policy.
 	Replica  string `json:"replica" parquet:"replica"`
 	Decision string `json:"decision" parquet:"decision"`
+	// PrefixMatchBytes is what the router believed the chosen replica already
+	// held of this prompt, read back off its response header for the same reason
+	// Replica and Decision are: the belief is the router's, and a harness that
+	// recomputed it would be reporting a second index rather than the one that
+	// routed the request.
+	PrefixMatchBytes int `json:"prefix_match_bytes" parquet:"prefix_match_bytes"`
+	// PromptBytes is how many bytes of prompt this request sent. It is the
+	// numerator of the measured prompt bytes-per-token ratio — the denominator
+	// being what the engines say they processed — and that ratio is what turns
+	// every byte-denominated prefix figure into the engine's own units.
+	PromptBytes int64 `json:"prompt_bytes" parquet:"prompt_bytes"`
 
 	Status int `json:"status" parquet:"status"`
 
