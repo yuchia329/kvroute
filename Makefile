@@ -60,11 +60,22 @@ BENCH_ARGS ?=
 # was sound for two policies that ignore caching and is not reusable for any
 # policy that does not.
 #
-# 369 sessions is working set 1.0 against the 755,712 tokens measured off all six
-# replicas, at 2,048 tokens a session. It is written as a count rather than as
-# -working-set because capacity is a measurement that moves between bring-ups:
-# the ratio would silently derive a different pool on a rebuilt fleet, change
-# this name, and split the comparison in two.
+# 307 sessions is working set 1.0 against the 629,760 tokens measured off the
+# five-card fleet on 2026-09-08, at 2,048 tokens a session. Every replica reports
+# 7,872 GPU blocks of 16 tokens -- 125,952 each, which is exactly a sixth of the
+# 755,712 the six-card fleet reported, so the per-card figure did not drift and
+# only the card count changed.
+#
+# Measured on the five rather than scaled from the six on principle: capacity is
+# read off the replicas and summed, never extrapolated, because a figure taken
+# from one card and multiplied has already moved between two bring-ups of
+# identical configuration. Here the two happened to agree, which is worth knowing
+# and is not a reason to have assumed it.
+#
+# It is written as a count rather than as -working-set because capacity is a
+# measurement that moves between bring-ups: the ratio would silently derive a
+# different pool on a rebuilt fleet, change this name, and split the comparison
+# in two.
 #
 # branching is on because idea.md §5 names branched conversations as a place
 # prefix affinity should separate from session affinity -- they share an ancestor
@@ -78,7 +89,7 @@ BENCH_ARGS ?=
 # comparison to one arbitrary point of an axis that is about to be swept in full
 # would answer a question #18 is asking properly.
 WORKLOAD_ARGS ?= -workload multiturn \
-	-sessions 369 \
+	-sessions 307 \
 	-turns-per-session 4 \
 	-prompt-tokens 448 \
 	-output-tokens 64 \
