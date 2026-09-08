@@ -182,23 +182,27 @@ func checkComparable(cells []Cell) error {
 // nothing if they are.
 //
 // Cleanliness is read from the cell rather than inferred from its flags. A sweep
-// flags an unclean cell as it records it, so today the two agree — but
-// Contamination keeps Clean as its own field precisely so that "nothing was
-// found" and "nothing was looked for" cannot be collapsed into one another, and a
-// record that arrives here with clean false and no flag must not be averaged into
-// a published median on the strength of an inference.
+// folds the cleanliness verdict into a cell's flags as it writes it, so for its own
+// records the flags already say it in the contamination's own words — which is why
+// that case adds no sentence of its own here, and an unsampled cell reports that it
+// was never sampled rather than that plus a vaguer restatement of it.
+//
+// The sentence is for a record where the two disagree. Contamination keeps Clean as
+// its own field precisely so that "nothing was found" and "nothing was looked for"
+// cannot be collapsed into one another, and a cell that arrives here unclean with
+// no flag must not be pooled into a published median on the strength of an
+// inference about how it was written.
 func whyExcluded(cell Cell) []string {
-	var reasons []string
-	if !cell.Clean {
-		reasons = append(reasons, "the cell is not clean, so it is discarded and re-run rather than averaged in")
-	}
 	if cell.Flagged {
 		if len(cell.FlagReasons) == 0 {
-			return append(reasons, "flagged, with no reason recorded")
+			return []string{"flagged, with no reason recorded"}
 		}
-		reasons = append(reasons, cell.FlagReasons...)
+		return cell.FlagReasons
 	}
-	return reasons
+	if !cell.Clean {
+		return []string{"the cell is not clean and carries no flag saying why, so it is discarded and re-run rather than averaged in"}
+	}
+	return nil
 }
 
 // pool reduces a policy's repetitions at one load point to one figure.
@@ -320,8 +324,8 @@ func (c Comparison) Report() string {
 	fmt.Fprintf(&b, "# Policy comparison — goodput against the derived SLO\n\n")
 	fmt.Fprintf(&b, "SLO: TTFT < %v, inter-token p50 < %v. Goodput is requests per second that met it,\n", c.SLO.TTFT, c.SLO.ITL)
 	fmt.Fprintf(&b, "so a policy that completed more requests can still score lower.\n\n")
-	fmt.Fprintf(&b, "Workload: %s. Both policies sent the same bytes at the\n", c.Workload)
-	fmt.Fprintf(&b, "same load point, which is what makes them comparable at all.\n\n")
+	fmt.Fprintf(&b, "Workload, the same for every cell here — both policies sent the same bytes at the same\n")
+	fmt.Fprintf(&b, "load point, which is what makes them comparable at all:\n\n    %s\n\n", c.Workload)
 	fmt.Fprintf(&b, "Each figure is the median of that cell's repetitions, with the range across them. A\n")
 	fmt.Fprintf(&b, "difference smaller than those ranges is a difference between a policy and itself.\n\n")
 

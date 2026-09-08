@@ -86,7 +86,7 @@ var Required = []Family{
 // NumRequestsRunning and NumRequestsWaiting are the gauges that say what the
 // engine is actually doing, as opposed to what was asked of it.
 //
-// A driver holding 32 requests against a replica knows 32 are outstanding. It
+// A driver holding 32 requests against a replica knows 32 are in flight. It
 // does not know how many the engine put in a batch and how many are queued
 // behind them, and those are different questions: the first is offered load,
 // the second is what the hardware is doing with it. Being gauges rather than

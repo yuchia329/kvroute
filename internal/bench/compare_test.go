@@ -231,11 +231,11 @@ func TestFlaggedCellsAreLeftOutOfTheFiguresAndSaidSo(t *testing.T) {
 	}
 }
 
-// TestAnUncleanCellIsExcludedWhetherOrNotItWasFlagged. Contamination keeps Clean
-// as its own field so that "nothing was found" and "nothing was looked for" cannot
-// be collapsed; a comparison that inferred cleanliness from the flags would pool a
+// TestAnUncleanCellWithNoFlagIsStillExcluded. Contamination keeps Clean as its own
+// field so that "nothing was found" and "nothing was looked for" cannot be
+// collapsed; a comparison that inferred cleanliness from the flags would pool a
 // record where the two disagree.
-func TestAnUncleanCellIsExcludedWhetherOrNotItWasFlagged(t *testing.T) {
+func TestAnUncleanCellWithNoFlagIsStillExcluded(t *testing.T) {
 	at8 := bench.ClosedLoopAt(8)
 	unclean := cell(policy.LeastOutstandingName, at8, 2, 99.0)
 	unclean.Clean = false // and deliberately not flagged
@@ -250,7 +250,7 @@ func TestAnUncleanCellIsExcludedWhetherOrNotItWasFlagged(t *testing.T) {
 	if pooled.Repetitions != 1 || pooled.MaxRPS == 99.0 {
 		t.Errorf("an unclean cell was averaged in: pooled %d repetitions, max %v", pooled.Repetitions, pooled.MaxRPS)
 	}
-	if !strings.Contains(got.Report(), "not clean") {
+	if !strings.Contains(got.Report(), "not clean and carries no flag") {
 		t.Errorf("the report does not say the cell was excluded for being unclean:\n%s", got.Report())
 	}
 }

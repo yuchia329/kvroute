@@ -18,7 +18,7 @@ const DefaultEngineSampleInterval = time.Second
 // EngineLoad is what the engine said about its own queue while a probe ran.
 //
 // It exists because offered load and actual load are different questions. A
-// driver holding 32 requests against a replica knows 32 are outstanding; it
+// driver holding 32 requests against a replica knows 32 are in flight; it
 // does not know how many the engine put in a batch and how many are queued
 // behind them. The contention experiment is about the second — whether a
 // replica sharing a NUMA node with three others gets through fewer of them per

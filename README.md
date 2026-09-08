@@ -168,11 +168,13 @@ make characterize                                          # capacity, topology,
 make contention                                            # all six at once, compared by NUMA node
 export SLO_FROM=runs/characterization    # the SLO comes from the record, not from typing
 
-# One policy per router, the fleet untouched between them, so only the policy varies.
+# Round-robin first, against a fleet that has served nothing but its own warm-up.
 make run-router POLICY=round_robin REPLICAS="$(ops/fleet.sh replicas)" &
 make bench   POLICY=round_robin BENCH_ARGS="-cell-duration 60s -repetitions 3"
 make goodput POLICY=round_robin GOODPUT_ARGS="-cell-duration 60s -repetitions 3"
 kill %1
+
+make fleet-down && make fleet-up        # NOT optional — see below
 
 make run-router POLICY=least_outstanding REPLICAS="$(ops/fleet.sh replicas)" &
 make bench   POLICY=least_outstanding BENCH_ARGS="-cell-duration 60s -repetitions 3"
@@ -197,11 +199,27 @@ because they are different drivers measuring different things — a closed-loop 
 construction — and both write tables that name the driver behind them.
 
 **Each policy needs its own router, and the same `RUN_DIR` takes them all.** A router runs one
-policy, chosen at startup, so a two-policy comparison is two routers in turn against a fleet that is
-never restarted between them — only the policy varies. Their cells can share a directory because a
-cell id carries its policy, and `make compare` reads them back into one table. Two policies at the
-same load point send identical bytes, which is what makes them comparable; that falls out of the
-workload slice being keyed on the load axis and the repetition and deliberately not on the policy.
+policy, chosen at startup, so a two-policy comparison is two routers in turn. Their cells can share
+a directory because a cell id carries its policy, and `make compare` reads them back into one table.
+Two policies at the same load point send identical bytes, which is what makes them comparable; that
+falls out of the workload slice being keyed on the load axis and the repetition and deliberately not
+on the policy.
+
+⚠️ **Bring the fleet down between the two policy passes.** That identical-bytes property is exactly
+why: the replicas run with prefix caching on, so the second pass would re-send prompts the first
+pass had already prefilled and read them back out of cache. [ADR-0004](docs/adr/0004-every-measurement-sends-unseen-bytes.md)
+measured what that is worth — **TTFT p50 of ~325 ms for unseen prompts against ~46 ms for the same
+prompts sent again** — so leaving the fleet up would hand whichever policy ran second a sevenfold
+head start on the primary metric, and nothing in the resulting latency would say so. A comparison
+run that way is the invalid outcome §0 warns about, not a result.
+
+**The SLO stays fixed across both passes, and is not re-derived after the restart.** A comparison
+needs one yardstick, so `SLO_FROM` points both passes at the one characterization; `make compare`
+refuses cells judged against two different SLOs precisely so this cannot happen quietly. Capacity
+has moved between bring-ups of identical configuration before, so characterizing the second bring-up
+into its own directory is a worthwhile *check* — if that floor has moved materially, the fleet is
+not stable enough for the comparison and that is the finding, rather than a reason to re-derive the
+threshold halfway through.
 
 `ops/versions.env` is the single source of truth for everything held constant between cells: the
 engine version, the model, the forced quantization backend, the prefix-caching and chunked-prefill
