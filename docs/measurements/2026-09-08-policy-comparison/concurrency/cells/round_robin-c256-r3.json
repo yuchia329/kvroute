@@ -1,0 +1,51 @@
+{
+  "id": "round_robin-c256-r3",
+  "policy": "round_robin",
+  "driver": "closed_loop",
+  "concurrency": 256,
+  "arrival_rate": 0,
+  "repetition": 3,
+  "workload": "fixed(prompt=2048B,output=64t,seed=1)",
+  "started_at_ns": 1788843001423714073,
+  "ended_at_ns": 1788843111329506322,
+  "summary": {
+    "requests": 976,
+    "warmup": 443,
+    "successes": 976,
+    "failed": 0,
+    "dropped": 0,
+    "cancelled": 0,
+    "slo_violations": 545,
+    "window_ns": 84885839237,
+    "throughput_rps": 11.497795259760847,
+    "goodput_rps": 5.077407537865702,
+    "ttft_p50_ns": 620938479,
+    "ttft_p95_ns": 14005753744,
+    "ttft_p99_ns": 16930190653,
+    "total_p50_ns": 7962214111,
+    "total_p99_ns": 56127922726,
+    "itl_p50_ns": 43999818,
+    "itl_p95_ns": 740764222,
+    "slo_applied": true,
+    "slo_ttft_ns": 990000000,
+    "slo_itl_ns": 24000000,
+    "warmup_drift": 0.42387687864847484,
+    "scheduled": 0,
+    "schedule_lag_p50_ns": 0,
+    "schedule_lag_p99_ns": 0,
+    "schedule_lag_max_ns": 0,
+    "schedule_lag_threshold_ns": 100000000,
+    "failure_rate": 0,
+    "failure_threshold": 0.01,
+    "flagged": true,
+    "flag_reasons": [
+      "still warming up: the first half of the measured window was 42% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run"
+    ]
+  },
+  "contamination": {
+    "gpu_samples": 22,
+    "probe_errors": 0,
+    "max_foreign_gpu_mem_mib": 0,
+    "clean": true
+  }
+}

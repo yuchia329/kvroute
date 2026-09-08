@@ -7,13 +7,11 @@ the consistent-hash session-affinity baseline any load balancer already gives yo
 measured comparison of routing policies, not a service. See [`idea.md`](idea.md) for the spec and
 [`CONTEXT.md`](CONTEXT.md) for the vocabulary.
 
-> **Status: the fleet, the harness and the facts every later number scales off are in place** —
-> six replicas come up behind a preflight, the fleet's KV capacity, its latency floor, its SLO and
-> its symmetry are measured rather than assumed, and every cell lands as a row in the results table
-> with its own contamination evidence. Two of the four policies are in — round-robin and
-> least-outstanding — and `cmd/compare` puts their goodput in one table. What is missing is the rest
-> of the comparison: the two cache-aware policies and both pressure axes.
-> This README gets replaced by a results-first one once there are results.
+> **Status: the first policy comparison is measured.** Six replicas come up behind a preflight, the
+> fleet's KV capacity, its latency floor and its SLO are measured rather than assumed, and every cell
+> lands as a row with its own contamination evidence. Two of the four policies are in — round-robin
+> and least-outstanding — and they have now been run head to head over both load axes. What is
+> missing is the rest of the comparison: the two cache-aware policies and both pressure axes.
 >
 > **Verified on the box, 2026-09-06/07.** All six replicas came up under `ops/fleet.sh` behind the
 > preflight, the metric contract passed against every one of them, and a characterization pass drove
@@ -21,6 +19,35 @@ measured comparison of routing policies, not a service. See [`idea.md`](idea.md)
 > those runs. See [ADR-0001](docs/adr/0001-engine-pin-and-forced-kernel-selection.md) for what first
 > contact corrected and [ADR-0004](docs/adr/0004-every-measurement-sends-unseen-bytes.md) for the
 > measurement that nearly went in seven times too low.
+
+## First result: balancing load cost goodput
+
+[Round-robin against least-outstanding](docs/measurements/2026-09-08-policy-comparison/), 90 cells,
+~122,500 requests, 2026-09-07/08. Goodput is requests per second meeting the derived SLO of
+**TTFT < 990 ms and inter-token p50 < 24 ms**.
+
+| concurrency | round_robin | least_outstanding | Δ |
+|---:|---:|---:|---:|
+| 8 | 7.50 | **8.01** | **+6.8%** |
+| 16 | 10.34 | **10.56** | **+2.2%** |
+| 32 | **12.34** | 10.28 | **−16.7%** |
+| 64 | **9.80** | 8.21 | **−16.2%** |
+| 128 | **9.44** | 6.41 | **−32.1%** |
+
+**Least-outstanding completed more requests than round-robin at every level — up to 28% more — and
+met the SLO on fewer of them.** The crossover sits between 16 and 32 virtual users.
+
+The mechanism is one bad card. GPU 3 thermally throttles under sustained six-card load
+([#25](docs/measurements/2026-09-07-gpu3-thermal/)). Round-robin sends it exactly its sixth and lets
+the queue pool there: at concurrency 128 that replica sits at **6.7 s TTFT and passes nothing**,
+while the other five run at ~370 ms and pass essentially everything. Least-outstanding sees the
+inflight climbing, routes away — 14.70% of traffic against round-robin's 16.67% — and so moves that
+pressure onto the healthy five, lifting them from ~370 ms to ~1100 ms, across the threshold. A
+bimodal fleet beat a balanced one because **goodput counts requests under a threshold, and
+balancing moved the whole distribution over it**.
+
+That ordering is a property of a fleet with one slow member, not a verdict on the policy: on a
+symmetric fleet there is no sacrificial queue to exploit. Quote the −32% only with GPU 3 attached.
 
 ## Measured facts
 

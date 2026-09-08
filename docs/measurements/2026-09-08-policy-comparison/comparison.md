@@ -1,0 +1,36 @@
+# Policy comparison — goodput against the derived SLO
+
+SLO: TTFT < 990ms, inter-token p50 < 24ms. Goodput is requests per second that met it,
+so a policy that completed more requests can still score lower.
+
+Workload, the same for every cell here — both policies sent the same bytes at the same
+load point, which is what makes them comparable at all:
+
+    fixed(prompt=2048B,output=64t,seed=1)
+
+Each figure is the median of that cell's repetitions, with the range across them. A
+difference smaller than those ranges is a difference between a policy and itself.
+
+| driver | load | round_robin | least_outstanding | Δ least_outstanding vs round_robin |
+|---|---:|---:|---:|---:|
+| closed-loop | 1 users | 1.30 (1.30–1.31, n=3) | 1.28 (1.26–1.34, n=3) | -1.7% (within spread) |
+| closed-loop | 4 users | 5.01 (4.98–5.08, n=3) | 4.99 (4.93–5.08, n=3) | -0.3% (within spread) |
+| closed-loop | 8 users | 7.50 (7.48–7.58, n=3) | 8.01 (7.92–8.03, n=3) | +6.8% |
+| closed-loop | 16 users | 10.34 (10.31–10.35, n=3) | 10.56 (10.52–10.67, n=3) | +2.2% |
+| closed-loop | 32 users | 12.34 (12.33–12.37, n=3) | 10.28 (9.84–10.57, n=3) | -16.7% |
+| closed-loop | 64 users | 9.80 (9.78–9.84, n=3) | 8.21 (8.17–9.31, n=3) | -16.2% |
+| closed-loop | 128 users | 9.44 (9.42–9.47, n=3) | 6.41 (5.53–6.64, n=3) | -32.1% |
+| closed-loop | 256 users | — | 0.37 (0.35–0.50, n=3) | — |
+| open-loop | 4 req/s | 4.00 (4.00–4.00, n=3) | 4.00 (4.00–4.00, n=3) | +0.0% (within spread) |
+| open-loop | 8 req/s | 8.00 (8.00–8.00, n=3) | 8.00 (8.00–8.00, n=3) | +0.0% (within spread) |
+| open-loop | 12 req/s | 12.00 (12.00–12.00, n=3) | 11.19 (10.72–11.39, n=3) | -6.8% |
+| open-loop | 16 req/s | 2.69 (0.02–3.46, n=3) | 0.05 (0.02–0.37, n=3) | -98.3% (within spread) |
+| open-loop | 24 req/s | 0.00 (0.00–0.00, n=3) | 0.00 (0.00–0.00, n=3) | +0.00/s over a baseline of zero |
+| open-loop | 32 req/s | 0.00 (0.00–0.00, n=3) | 0.00 (0.00–0.00, n=3) | +0.00/s over a baseline of zero |
+| open-loop | 48 req/s | 0.00 (0.00–0.00, n=3) | 0.00 (0.00–0.00, n=3) | +0.00/s over a baseline of zero |
+
+Excluded from every figure above — §6 discards these rather than averaging them in:
+
+- `round_robin-c256-r1`: still warming up: the first half of the measured window was 30% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+- `round_robin-c256-r2`: still warming up: the first half of the measured window was 57% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+- `round_robin-c256-r3`: still warming up: the first half of the measured window was 42% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
