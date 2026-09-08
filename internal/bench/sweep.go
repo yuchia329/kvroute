@@ -19,6 +19,7 @@ import (
 
 	"github.com/yuchia329/kvroute/internal/record"
 	"github.com/yuchia329/kvroute/internal/router"
+	"github.com/yuchia329/kvroute/internal/vllmmetrics"
 )
 
 // ConcurrencySweep is the scaling axis: how each policy's latency degrades as
@@ -194,8 +195,28 @@ type Cell struct {
 	StartedAtNs int64 `json:"started_at_ns" parquet:"started_at_ns"`
 	EndedAtNs   int64 `json:"ended_at_ns" parquet:"ended_at_ns"`
 
+	// The prefix-cache counters the fleet moved over this cell's measured
+	// window: vLLM's own reported figure, and the ground truth a cache-aware
+	// policy's claim is judged against. Flat for the same reason the load axis
+	// is — the row schema is flat, and a nested reading would not compact to the
+	// same columns — and reassembled by PrefixCache.
+	//
+	// PrefixCacheRead is kept beside the counts so "no hits" and "nobody looked"
+	// do not read the same. A cell whose replicas could not be scraped has no
+	// evidence, and a zero in this column would be a scrape failure published as
+	// a measurement.
+	PrefixCacheHits    float64 `json:"prefix_cache_hits" parquet:"prefix_cache_hits"`
+	PrefixCacheQueries float64 `json:"prefix_cache_queries" parquet:"prefix_cache_queries"`
+	PrefixCacheRead    bool    `json:"prefix_cache_read" parquet:"prefix_cache_read"`
+
 	Summary       `json:"summary"`
 	Contamination `json:"contamination"`
+}
+
+// PrefixCache is what the fleet's prefix caches served over this cell,
+// reassembled from the flat columns it is recorded in.
+func (c Cell) PrefixCache() vllmmetrics.PrefixCache {
+	return vllmmetrics.PrefixCache{Hits: c.PrefixCacheHits, Queries: c.PrefixCacheQueries, Read: c.PrefixCacheRead}
 }
 
 // Load is the point of the load axis this cell sits on, reassembled from the
@@ -675,6 +696,10 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 	cfg.Log.Info("running cell", "cell", id, "driver", load.Driver, "load", load.String(), "duration", cfg.CellDuration)
 	started := time.Now()
 	watcher := Watch(ctx, cfg.Contamination)
+	// Opened when the measured window opens rather than at the cell's first
+	// instant, so the prefix cache hit rate on a row covers the same requests the
+	// goodput beside it does. See prefixCacheWindow for how closely.
+	prefixCache := watchPrefixCache(ctx, cfg.Replicas, cfg.Warmup)
 
 	driver := DriverConfig{
 		Target:      cfg.Target,
@@ -703,6 +728,7 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		results, runErr = RunClosedLoop(ctx, driver)
 	}
 	contamination := watcher.Stop()
+	served := prefixCache.Stop(ctx)
 	ended := time.Now()
 
 	if closeErr := rows.Close(); closeErr != nil && runErr == nil {
@@ -724,15 +750,20 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 	}
 
 	cell := Cell{
-		ID:            id,
-		Policy:        cfg.Policy,
-		Driver:        load.Driver,
-		Concurrency:   load.Concurrency,
-		ArrivalRate:   load.ArrivalRate,
-		Repetition:    repetition,
-		Workload:      cfg.Workload.Name(),
-		StartedAtNs:   started.UnixNano(),
-		EndedAtNs:     ended.UnixNano(),
+		ID:          id,
+		Policy:      cfg.Policy,
+		Driver:      load.Driver,
+		Concurrency: load.Concurrency,
+		ArrivalRate: load.ArrivalRate,
+		Repetition:  repetition,
+		Workload:    cfg.Workload.Name(),
+		StartedAtNs: started.UnixNano(),
+		EndedAtNs:   ended.UnixNano(),
+
+		PrefixCacheHits:    served.Hits,
+		PrefixCacheQueries: served.Queries,
+		PrefixCacheRead:    served.Read,
+
 		Summary:       Summarize(results, cfg.summaryOptions()),
 		Contamination: contamination,
 	}

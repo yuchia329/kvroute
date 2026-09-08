@@ -163,7 +163,7 @@ func (f Floor) Usable() (bool, string) {
 	// Checked last because it is the one that catches a floor that looks
 	// perfect: hundreds of clean, fast, low-variance requests that were never
 	// prefilled at all.
-	if reason := f.PrefixCache.reason(f.MaxPrefixHitRate); reason != "" {
+	if reason := prefixCacheReason(f.PrefixCache, f.MaxPrefixHitRate); reason != "" {
 		return false, reason
 	}
 	return true, ""

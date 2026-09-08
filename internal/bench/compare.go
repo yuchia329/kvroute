@@ -13,6 +13,7 @@ import (
 
 	"github.com/yuchia329/kvroute/internal/policy"
 	"github.com/yuchia329/kvroute/internal/stats"
+	"github.com/yuchia329/kvroute/internal/vllmmetrics"
 )
 
 // Comparison is what two or more policies did to the same fleet, at the same
@@ -44,11 +45,53 @@ type Comparison struct {
 }
 
 // ComparisonRow is one point of the load axis, across policies.
+//
+// The three maps are the three things the comparison reports, all keyed by
+// policy name. A policy with no usable cell at this load point is absent from
+// them rather than zero: it did not score nothing, it did not run.
 type ComparisonRow struct {
 	Load Load
-	// Goodput is keyed by policy name. A policy with no usable cell at this load
-	// point is absent rather than zero: it did not score nothing, it did not run.
+	// Goodput is the primary metric: requests per second that met the SLO.
 	Goodput map[string]PolicyGoodput
+	// Latency is the TTFT distribution each policy produced. Goodput is a
+	// pass/fail count against the SLO, so two policies can score the same
+	// goodput with very different tails — one sitting just inside the threshold
+	// and one far under it — and the percentiles are what tells them apart.
+	Latency map[string]PolicyLatency
+	// PrefixCache is what each policy left the fleet's prefix caches serving:
+	// vLLM's own figure, and therefore ground truth for the cache locality this
+	// project's whole claim is about.
+	//
+	// It is in the same table as the outcome deliberately. Anyscale found a
+	// load-aware router beat consistent hashing on p99 *despite* a lower prefix
+	// cache hit rate, and CacheRoute found sticky routing took the highest hit
+	// rate and the lowest capacity (idea.md §1). A table with goodput but no hit
+	// rate could not have found either result, and could not disagree with them.
+	PrefixCache map[string]vllmmetrics.PrefixCache
+}
+
+// PolicyLatency is one policy's TTFT percentiles at one load point, pooled over
+// the repetitions that were fit to pool.
+//
+// Each figure is the median across repetitions of that cell's own percentile,
+// which is how goodput beside it is pooled, and is not the percentile of the
+// repetitions' rows taken together. The two differ, and the difference is not
+// hidden: the per-request rows are the system of record, so a true pooled p99 is
+// recomputable from them whenever a claim needs to rest on one. What this column
+// answers is the question the table is read for — what a typical repetition of
+// this policy did at this load point — and answering it the same way goodput is
+// answered keeps the two columns of one row commensurable.
+type PolicyLatency struct {
+	Policy      string
+	Load        Load
+	Repetitions int
+	P50Ns       int64
+	P99Ns       int64
+}
+
+// String is the pair as a table cell.
+func (l PolicyLatency) String() string {
+	return fmt.Sprintf("%s / %s", ms(l.P50Ns), ms(l.P99Ns))
 }
 
 // PolicyGoodput is one policy's goodput at one load point, pooled over the
@@ -136,10 +179,22 @@ func Compare(cells []Cell) (Comparison, error) {
 	c.Policies = comparisonOrder(policies)
 
 	for _, load := range sortedLoads(loads) {
-		row := ComparisonRow{Load: load, Goodput: map[string]PolicyGoodput{}}
+		row := ComparisonRow{
+			Load:        load,
+			Goodput:     map[string]PolicyGoodput{},
+			Latency:     map[string]PolicyLatency{},
+			PrefixCache: map[string]vllmmetrics.PrefixCache{},
+		}
 		for _, name := range c.Policies {
-			if pooled, ok := pool(name, load, usable[name][load]); ok {
+			cells := usable[name][load]
+			if pooled, ok := pool(name, load, cells); ok {
 				row.Goodput[name] = pooled
+			}
+			if pooled, ok := poolLatency(name, load, cells); ok {
+				row.Latency[name] = pooled
+			}
+			if len(cells) > 0 {
+				row.PrefixCache[name] = poolPrefixCache(cells)
 			}
 		}
 		c.Rows = append(c.Rows, row)
@@ -305,6 +360,47 @@ func pool(name string, load Load, cells []Cell) (PolicyGoodput, bool) {
 	}, true
 }
 
+// poolLatency reduces a policy's repetitions at one load point to one pair of
+// TTFT percentiles, by the same median-across-repetitions rule goodput is pooled
+// by. See PolicyLatency for why that rather than a percentile over the pooled
+// rows.
+func poolLatency(name string, load Load, cells []Cell) (PolicyLatency, bool) {
+	if len(cells) == 0 {
+		return PolicyLatency{}, false
+	}
+	p50 := make([]float64, 0, len(cells))
+	p99 := make([]float64, 0, len(cells))
+	for _, cell := range cells {
+		p50 = append(p50, float64(cell.TTFTP50Ns))
+		p99 = append(p99, float64(cell.TTFTP99Ns))
+	}
+	slices.Sort(p50)
+	slices.Sort(p99)
+	return PolicyLatency{
+		Policy:      name,
+		Load:        load,
+		Repetitions: len(cells),
+		P50Ns:       int64(stats.Quantile(p50, 0.50)),
+		P99Ns:       int64(stats.Quantile(p99, 0.50)),
+	}, true
+}
+
+// poolPrefixCache adds up a policy's repetitions' counters.
+//
+// Summed rather than averaged: a hit rate is a ratio of counts, so the way to
+// combine two windows of it is to combine the counts. Averaging the rates would
+// weigh a repetition that served two hundred queries the same as one that served
+// two hundred thousand. One unscraped repetition makes the whole figure unread —
+// a rate over cells where some were checked and some were not is a number nobody
+// can say what is behind.
+func poolPrefixCache(cells []Cell) vllmmetrics.PrefixCache {
+	readings := make([]vllmmetrics.PrefixCache, 0, len(cells))
+	for _, cell := range cells {
+		readings = append(readings, cell.PrefixCache())
+	}
+	return vllmmetrics.PoolPrefixCache(readings)
+}
+
 // comparisonOrder puts the policies in the order idea.md §5 numbers them, so the
 // baseline is the baseline whichever order the runs happened in.
 //
@@ -450,6 +546,8 @@ func (c Comparison) Report() string {
 		fmt.Fprintln(&b)
 	}
 
+	c.reportMechanism(&b)
+
 	if len(c.Excluded) > 0 {
 		fmt.Fprintf(&b, "\nExcluded from every figure above — §6 discards these rather than averaging them in:\n\n")
 		for _, reason := range c.Excluded {
@@ -457,6 +555,54 @@ func (c Comparison) Report() string {
 		}
 	}
 	return b.String()
+}
+
+// reportMechanism renders the second table: the TTFT percentiles each policy
+// produced, and the prefix cache hit rate it produced them with.
+//
+// Separate from the goodput table rather than more columns on it. Goodput is the
+// outcome and these are what produced it, so they are read as a group; and with
+// three policies, four figures apiece across one row would be twelve columns
+// nobody reads across.
+//
+// One row per policy per load point, and it is the mechanism half of the
+// comparison: goodput says which policy won, and this says whether it won by
+// keeping conversations warm. The two published findings §1 predicts against are
+// both statements about exactly this pair of columns — a load-aware router
+// beating consistent hashing on p99 despite a lower hit rate, and sticky routing
+// taking the highest hit rate and the lowest capacity — so a table that reported
+// only the outcome could neither confirm nor contradict them.
+func (c Comparison) reportMechanism(b *strings.Builder) {
+	fmt.Fprintf(b, "\n## What produced it — TTFT percentiles and prefix cache hit rate\n\n")
+	fmt.Fprintf(b, "The percentiles are each the median across a cell's repetitions of that repetition's own\n")
+	fmt.Fprintf(b, "percentile, pooled the way the goodput above is. The hit rate is vLLM's own counters,\n")
+	fmt.Fprintf(b, "summed across those repetitions rather than averaged, because a rate is a ratio of counts.\n")
+	fmt.Fprintf(b, "An em dash is no usable cell; a hit rate of — is a fleet whose counters were not read,\n")
+	fmt.Fprintf(b, "which is not the same as a cache that never hit.\n\n")
+
+	fmt.Fprintln(b, "| driver | load | policy | TTFT p50 | TTFT p99 | prefix cache hit rate |")
+	fmt.Fprintln(b, "|---|---:|---|---:|---:|---:|")
+	for _, row := range c.Rows {
+		for _, name := range c.Policies {
+			latency, ok := row.Latency[name]
+			cell := "— | —"
+			if ok {
+				cell = fmt.Sprintf("%s | %s", ms(latency.P50Ns), ms(latency.P99Ns))
+			}
+			fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n",
+				row.Load.Driver.Name(), row.Load, name, cell, prefixCacheHitRate(row.PrefixCache[name]))
+		}
+	}
+}
+
+// prefixCacheHitRate is a policy's prefix cache hit rate as a table cell, or an
+// em dash where there is no evidence for one. Zero is a real reading — a cache that was
+// queried and never hit — and a fleet nobody scraped must not be printed as it.
+func prefixCacheHitRate(p vllmmetrics.PrefixCache) string {
+	if !p.Evidenced() {
+		return "—"
+	}
+	return fmt.Sprintf("%.1f%%", p.HitRate()*100)
 }
 
 // usable reports whether any figure in the comparison rests on a cell that was

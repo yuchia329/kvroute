@@ -332,7 +332,7 @@ func drive(ctx context.Context, cfg Config, placements []Placement) ([]Probe, []
 					for _, reason := range contamination.Reasons() {
 						groupProbes[i].Flag(reason)
 					}
-					if reason := groupProbes[i].PrefixCache.reason(cfg.MaxPrefixHitRate); reason != "" {
+					if reason := prefixCacheReason(groupProbes[i].PrefixCache, cfg.MaxPrefixHitRate); reason != "" {
 						groupProbes[i].Flag(reason)
 					}
 					cfg.Log.Info("probe complete", "probe", groupProbes[i].ID,
@@ -456,7 +456,7 @@ func runProbe(ctx context.Context, cfg Config, p Placement, concurrency, repetit
 	if err != nil {
 		return Probe{}, nil, fmt.Errorf("characterize: probe %s: %w", id, err)
 	}
-	prefixCache := readPrefixCounters(ctx, nil, replica).since(before)
+	prefixCache := readPrefixCounters(ctx, nil, replica).Since(before)
 
 	probe := Probe{
 		ID:          id,
