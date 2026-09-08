@@ -1,0 +1,99 @@
+time=2026-09-08T12:22:08.774-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)" measured_at=2026-09-07T07:50:38.074Z
+time=2026-09-08T12:22:08.774-07:00 level=WARN msg="the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy" record=slo/characterization.json
+time=2026-09-08T12:22:08.774-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="replica symmetry is unresolved at one or more levels: at concurrency 32, TTFT p50 spread 22.1% over the 8.0% tolerance: replica-5 at 1.292s against replica-4 at 1.058s; at concurrency 32 that spread is not resolvable: one replica varies 36.3% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+time=2026-09-08T12:22:08.774-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="4 of 36 probes flagged: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-5-c32-r1 and 1 more)"
+time=2026-09-08T12:22:08.775-07:00 level=INFO msg="sampling GPUs for contamination" gpus=0,1,2,4,5 replica_pids="[473317 474680 475946 477141 478384]" interval=5s
+time=2026-09-08T12:22:08.775-07:00 level=INFO msg=offering workload="multiturn(sessions=307,skew=0,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1)"
+time=2026-09-08T12:22:08.777-07:00 level=INFO msg="router is up and running the policy these cells will name" router=http://127.0.0.1:8080 policy=session_affinity replicas=5
+time=2026-09-08T12:22:08.785-07:00 level=INFO msg="fleet is up" replicas=5
+time=2026-09-08T12:22:11.445-07:00 level=INFO msg="fleet warmed" replicas=5 requests_each=3
+time=2026-09-08T12:22:11.446-07:00 level=INFO msg="running cell" cell=session_affinity-a2-r1 driver=open_loop load="2 req/s" duration=1m30s
+time=2026-09-08T12:23:41.913-07:00 level=INFO msg="cell complete" cell=session_affinity-a2-r1 driver=open_loop requests=130 successes=130 dropped=0 failed=0 slo_violations=0 goodput_rps=2 clean=true flagged=false
+time=2026-09-08T12:23:51.918-07:00 level=INFO msg="running cell" cell=session_affinity-a2-r2 driver=open_loop load="2 req/s" duration=1m30s
+time=2026-09-08T12:25:22.437-07:00 level=INFO msg="cell complete" cell=session_affinity-a2-r2 driver=open_loop requests=130 successes=130 dropped=0 failed=0 slo_violations=0 goodput_rps=2 clean=true flagged=false
+time=2026-09-08T12:25:32.442-07:00 level=INFO msg="running cell" cell=session_affinity-a2-r3 driver=open_loop load="2 req/s" duration=1m30s
+time=2026-09-08T12:27:02.544-07:00 level=INFO msg="cell complete" cell=session_affinity-a2-r3 driver=open_loop requests=130 successes=130 dropped=0 failed=0 slo_violations=0 goodput_rps=2 clean=true flagged=false
+time=2026-09-08T12:27:12.549-07:00 level=INFO msg="running cell" cell=session_affinity-a4-r1 driver=open_loop load="4 req/s" duration=1m30s
+time=2026-09-08T12:28:43.455-07:00 level=INFO msg="cell complete" cell=session_affinity-a4-r1 driver=open_loop requests=260 successes=260 dropped=0 failed=0 slo_violations=0 goodput_rps=4 clean=true flagged=false
+time=2026-09-08T12:28:53.460-07:00 level=INFO msg="running cell" cell=session_affinity-a4-r2 driver=open_loop load="4 req/s" duration=1m30s
+time=2026-09-08T12:30:24.275-07:00 level=INFO msg="cell complete" cell=session_affinity-a4-r2 driver=open_loop requests=260 successes=260 dropped=0 failed=0 slo_violations=0 goodput_rps=4 clean=true flagged=false
+time=2026-09-08T12:30:34.281-07:00 level=INFO msg="running cell" cell=session_affinity-a4-r3 driver=open_loop load="4 req/s" duration=1m30s
+time=2026-09-08T12:32:05.044-07:00 level=INFO msg="cell complete" cell=session_affinity-a4-r3 driver=open_loop requests=260 successes=260 dropped=0 failed=0 slo_violations=1 goodput_rps=3.9846153846153847 clean=true flagged=false
+time=2026-09-08T12:32:15.049-07:00 level=INFO msg="running cell" cell=session_affinity-a6-r1 driver=open_loop load="6 req/s" duration=1m30s
+time=2026-09-08T12:33:46.333-07:00 level=INFO msg="cell complete" cell=session_affinity-a6-r1 driver=open_loop requests=391 successes=391 dropped=0 failed=0 slo_violations=0 goodput_rps=6.000000023999999 clean=true flagged=false
+time=2026-09-08T12:33:56.336-07:00 level=INFO msg="running cell" cell=session_affinity-a6-r2 driver=open_loop load="6 req/s" duration=1m30s
+time=2026-09-08T12:35:27.451-07:00 level=INFO msg="cell complete" cell=session_affinity-a6-r2 driver=open_loop requests=391 successes=391 dropped=0 failed=0 slo_violations=2 goodput_rps=5.969309486792839 clean=true flagged=false
+time=2026-09-08T12:35:37.456-07:00 level=INFO msg="running cell" cell=session_affinity-a6-r3 driver=open_loop load="6 req/s" duration=1m30s
+time=2026-09-08T12:37:08.564-07:00 level=INFO msg="cell complete" cell=session_affinity-a6-r3 driver=open_loop requests=391 successes=391 dropped=0 failed=0 slo_violations=1 goodput_rps=5.984654755396419 clean=true flagged=false
+time=2026-09-08T12:37:18.569-07:00 level=INFO msg="running cell" cell=session_affinity-a8-r1 driver=open_loop load="8 req/s" duration=1m30s
+time=2026-09-08T12:38:49.555-07:00 level=INFO msg="cell complete" cell=session_affinity-a8-r1 driver=open_loop requests=520 successes=520 dropped=0 failed=0 slo_violations=45 goodput_rps=7.3076923076923075 clean=true flagged=false
+time=2026-09-08T12:38:59.560-07:00 level=INFO msg="running cell" cell=session_affinity-a8-r2 driver=open_loop load="8 req/s" duration=1m30s
+time=2026-09-08T12:40:30.548-07:00 level=INFO msg="cell complete" cell=session_affinity-a8-r2 driver=open_loop requests=520 successes=520 dropped=0 failed=0 slo_violations=13 goodput_rps=7.8 clean=true flagged=false
+time=2026-09-08T12:40:40.553-07:00 level=INFO msg="running cell" cell=session_affinity-a8-r3 driver=open_loop load="8 req/s" duration=1m30s
+time=2026-09-08T12:42:11.379-07:00 level=INFO msg="cell complete" cell=session_affinity-a8-r3 driver=open_loop requests=520 successes=520 dropped=0 failed=0 slo_violations=24 goodput_rps=7.630769230769231 clean=true flagged=false
+time=2026-09-08T12:42:21.384-07:00 level=INFO msg="running cell" cell=session_affinity-a10-r1 driver=open_loop load="10 req/s" duration=1m30s
+time=2026-09-08T12:43:52.904-07:00 level=INFO msg="cell complete" cell=session_affinity-a10-r1 driver=open_loop requests=650 successes=650 dropped=0 failed=0 slo_violations=78 goodput_rps=8.8 clean=true flagged=false
+time=2026-09-08T12:44:02.909-07:00 level=INFO msg="running cell" cell=session_affinity-a10-r2 driver=open_loop load="10 req/s" duration=1m30s
+time=2026-09-08T12:45:33.965-07:00 level=INFO msg="cell complete" cell=session_affinity-a10-r2 driver=open_loop requests=650 successes=650 dropped=0 failed=0 slo_violations=32 goodput_rps=9.507692307692308 clean=true flagged=false
+time=2026-09-08T12:45:43.970-07:00 level=INFO msg="running cell" cell=session_affinity-a10-r3 driver=open_loop load="10 req/s" duration=1m30s
+time=2026-09-08T12:47:18.371-07:00 level=INFO msg="cell complete" cell=session_affinity-a10-r3 driver=open_loop requests=650 successes=650 dropped=0 failed=0 slo_violations=325 goodput_rps=5 clean=true flagged=false
+time=2026-09-08T12:47:28.376-07:00 level=INFO msg="running cell" cell=session_affinity-a12-r1 driver=open_loop load="12 req/s" duration=1m30s
+time=2026-09-08T12:48:59.862-07:00 level=INFO msg="cell complete" cell=session_affinity-a12-r1 driver=open_loop requests=781 successes=781 dropped=0 failed=0 slo_violations=153 goodput_rps=9.649167772271445 clean=true flagged=false
+time=2026-09-08T12:49:09.867-07:00 level=INFO msg="running cell" cell=session_affinity-a12-r2 driver=open_loop load="12 req/s" duration=1m30s
+time=2026-09-08T12:50:44.173-07:00 level=INFO msg="cell complete" cell=session_affinity-a12-r2 driver=open_loop requests=781 successes=781 dropped=0 failed=0 slo_violations=157 goodput_rps=9.587708104932137 clean=true flagged=false
+time=2026-09-08T12:50:54.178-07:00 level=INFO msg="running cell" cell=session_affinity-a12-r3 driver=open_loop load="12 req/s" duration=1m30s
+time=2026-09-08T12:52:26.167-07:00 level=INFO msg="cell complete" cell=session_affinity-a12-r3 driver=open_loop requests=781 successes=781 dropped=0 failed=0 slo_violations=263 goodput_rps=7.9590269204404605 clean=true flagged=false
+time=2026-09-08T12:52:36.173-07:00 level=INFO msg="running cell" cell=session_affinity-a14-r1 driver=open_loop load="14 req/s" duration=1m30s
+time=2026-09-08T12:54:08.567-07:00 level=INFO msg="cell complete" cell=session_affinity-a14-r1 driver=open_loop requests=911 successes=911 dropped=0 failed=0 slo_violations=387 goodput_rps=8.05268940067618 clean=true flagged=false
+time=2026-09-08T12:54:18.572-07:00 level=INFO msg="running cell" cell=session_affinity-a14-r2 driver=open_loop load="14 req/s" duration=1m30s
+time=2026-09-08T12:56:15.735-07:00 level=INFO msg="cell complete" cell=session_affinity-a14-r2 driver=open_loop requests=911 successes=911 dropped=0 failed=0 slo_violations=476 goodput_rps=6.68496162079034 clean=true flagged=true
+time=2026-09-08T12:56:25.740-07:00 level=INFO msg="running cell" cell=session_affinity-a14-r3 driver=open_loop load="14 req/s" duration=1m30s
+time=2026-09-08T12:58:08.457-07:00 level=INFO msg="cell complete" cell=session_affinity-a14-r3 driver=open_loop requests=911 successes=911 dropped=0 failed=0 slo_violations=284 goodput_rps=9.63556537065642 clean=true flagged=false
+time=2026-09-08T12:58:18.463-07:00 level=INFO msg="running cell" cell=session_affinity-a16-r1 driver=open_loop load="16 req/s" duration=1m30s
+time=2026-09-08T13:00:15.221-07:00 level=INFO msg="cell complete" cell=session_affinity-a16-r1 driver=open_loop requests=1040 successes=1040 dropped=0 failed=0 slo_violations=788 goodput_rps=3.876923076923077 clean=true flagged=false
+time=2026-09-08T13:00:25.226-07:00 level=INFO msg="running cell" cell=session_affinity-a16-r2 driver=open_loop load="16 req/s" duration=1m30s
+time=2026-09-08T13:02:31.522-07:00 level=INFO msg="cell complete" cell=session_affinity-a16-r2 driver=open_loop requests=1040 successes=1040 dropped=0 failed=0 slo_violations=777 goodput_rps=4.046153846153846 clean=true flagged=false
+time=2026-09-08T13:02:41.527-07:00 level=INFO msg="running cell" cell=session_affinity-a16-r3 driver=open_loop load="16 req/s" duration=1m30s
+time=2026-09-08T13:04:39.687-07:00 level=INFO msg="cell complete" cell=session_affinity-a16-r3 driver=open_loop requests=1040 successes=1040 dropped=0 failed=0 slo_violations=597 goodput_rps=6.815384615384615 clean=true flagged=true
+time=2026-09-08T13:04:49.693-07:00 level=INFO msg="running cell" cell=session_affinity-a20-r1 driver=open_loop load="20 req/s" duration=1m30s
+time=2026-09-08T13:07:07.954-07:00 level=INFO msg="cell complete" cell=session_affinity-a20-r1 driver=open_loop requests=1300 successes=1300 dropped=0 failed=0 slo_violations=1222 goodput_rps=1.2 clean=true flagged=false
+time=2026-09-08T13:07:17.960-07:00 level=INFO msg="running cell" cell=session_affinity-a20-r2 driver=open_loop load="20 req/s" duration=1m30s
+time=2026-09-08T13:09:28.874-07:00 level=INFO msg="cell complete" cell=session_affinity-a20-r2 driver=open_loop requests=1300 successes=1300 dropped=0 failed=0 slo_violations=1097 goodput_rps=3.123076923076923 clean=true flagged=false
+time=2026-09-08T13:09:38.877-07:00 level=INFO msg="running cell" cell=session_affinity-a20-r3 driver=open_loop load="20 req/s" duration=1m30s
+time=2026-09-08T13:12:00.331-07:00 level=INFO msg="cell complete" cell=session_affinity-a20-r3 driver=open_loop requests=1300 successes=1300 dropped=0 failed=0 slo_violations=1096 goodput_rps=3.1384615384615384 clean=true flagged=false
+
+| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|
+| open-loop | 2 req/s | 1 | 2.00 | 2.00 | 349ms | 410ms | 8ms | 130 | 130 | 0 | 0 | 0 | yes |  |
+| open-loop | 2 req/s | 2 | 2.00 | 2.00 | 350ms | 410ms | 8ms | 130 | 130 | 0 | 0 | 0 | yes |  |
+| open-loop | 2 req/s | 3 | 2.00 | 2.00 | 349ms | 408ms | 8ms | 130 | 130 | 0 | 0 | 0 | yes |  |
+| open-loop | 4 req/s | 1 | 4.00 | 4.00 | 348ms | 532ms | 9ms | 260 | 260 | 0 | 0 | 0 | yes |  |
+| open-loop | 4 req/s | 2 | 4.00 | 4.00 | 354ms | 557ms | 9ms | 260 | 260 | 0 | 0 | 0 | yes |  |
+| open-loop | 4 req/s | 3 | 3.98 | 4.00 | 356ms | 590ms | 9ms | 260 | 260 | 0 | 0 | 1 | yes |  |
+| open-loop | 6 req/s | 1 | 6.00 | 6.00 | 363ms | 810ms | 9ms | 391 | 391 | 0 | 0 | 0 | yes |  |
+| open-loop | 6 req/s | 2 | 5.97 | 6.00 | 360ms | 842ms | 9ms | 391 | 391 | 0 | 0 | 2 | yes |  |
+| open-loop | 6 req/s | 3 | 5.98 | 6.00 | 366ms | 866ms | 9ms | 391 | 391 | 0 | 0 | 1 | yes |  |
+| open-loop | 8 req/s | 1 | 7.31 | 8.00 | 376ms | 1229ms | 10ms | 520 | 520 | 0 | 0 | 45 | yes |  |
+| open-loop | 8 req/s | 2 | 7.80 | 8.00 | 368ms | 1135ms | 10ms | 520 | 520 | 0 | 0 | 13 | yes |  |
+| open-loop | 8 req/s | 3 | 7.63 | 8.00 | 360ms | 1272ms | 10ms | 520 | 520 | 0 | 0 | 24 | yes |  |
+| open-loop | 10 req/s | 1 | 8.80 | 10.00 | 373ms | 2022ms | 10ms | 650 | 650 | 0 | 0 | 78 | yes |  |
+| open-loop | 10 req/s | 2 | 9.51 | 10.00 | 363ms | 1520ms | 10ms | 650 | 650 | 0 | 0 | 32 | yes |  |
+| open-loop | 10 req/s | 3 | 5.00 | 10.00 | 660ms | 5718ms | 18ms | 650 | 650 | 0 | 0 | 325 | yes |  |
+| open-loop | 12 req/s | 1 | 9.65 | 12.00 | 426ms | 2490ms | 12ms | 781 | 781 | 0 | 0 | 153 | yes |  |
+| open-loop | 12 req/s | 2 | 9.59 | 12.00 | 408ms | 2773ms | 12ms | 781 | 781 | 0 | 0 | 157 | yes |  |
+| open-loop | 12 req/s | 3 | 7.96 | 12.00 | 435ms | 3368ms | 13ms | 781 | 781 | 0 | 0 | 263 | yes |  |
+| open-loop | 14 req/s | 1 | 8.05 | 14.00 | 531ms | 11170ms | 16ms | 911 | 911 | 0 | 0 | 387 | yes |  |
+| open-loop | 14 req/s | 2 | 6.68 | 14.00 | 782ms | 24808ms | 28ms | 911 | 911 | 0 | 0 | 476 | yes | **1** |
+| open-loop | 14 req/s | 3 | 9.64 | 14.00 | 422ms | 12429ms | 13ms | 911 | 911 | 0 | 0 | 284 | yes |  |
+| open-loop | 16 req/s | 1 | 3.88 | 16.00 | 3525ms | 29525ms | 81ms | 1040 | 1040 | 0 | 0 | 788 | yes |  |
+| open-loop | 16 req/s | 2 | 4.05 | 16.00 | 2529ms | 35356ms | 75ms | 1040 | 1040 | 0 | 0 | 777 | yes |  |
+| open-loop | 16 req/s | 3 | 6.82 | 16.00 | 1273ms | 27490ms | 47ms | 1040 | 1040 | 0 | 0 | 597 | yes | **1** |
+| open-loop | 20 req/s | 1 | 1.20 | 20.00 | 11934ms | 46664ms | 101ms | 1300 | 1300 | 0 | 0 | 1222 | yes |  |
+| open-loop | 20 req/s | 2 | 3.12 | 20.00 | 14410ms | 39572ms | 78ms | 1300 | 1300 | 0 | 0 | 1097 | yes |  |
+| open-loop | 20 req/s | 3 | 3.14 | 20.00 | 10766ms | 49135ms | 79ms | 1300 | 1300 | 0 | 0 | 1096 | yes |  |
+
+Flagged cells — these are not averaged in without being read first:
+
+- `session_affinity-a14-r2`: still warming up: the first half of the measured window was 33% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+- `session_affinity-a16-r3`: still warming up: the first half of the measured window was 619% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+time=2026-09-08T13:12:01.989-07:00 level=INFO msg="compacted the run" requests=74547 cells=81 requests_parquet=runs/mt-openloop-v2/goodput/requests.parquet cells_parquet=runs/mt-openloop-v2/goodput/cells.parquet results=runs/mt-openloop-v2/goodput/results.md

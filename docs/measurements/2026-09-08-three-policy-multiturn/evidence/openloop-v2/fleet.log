@@ -1,0 +1,66 @@
+preflight: 5 GPUs clean, all below 256 MiB
+starting replica-0 on GPU 0, port 8000, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-0 is up: http://127.0.0.1:8000 (PID 418252)
+fleet: settling for 15s before the next replica
+starting replica-1 on GPU 1, port 8001, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-1 is up: http://127.0.0.1:8001 (PID 419771)
+fleet: settling for 15s before the next replica
+starting replica-2 on GPU 2, port 8002, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-2 is up: http://127.0.0.1:8002 (PID 421082)
+fleet: settling for 15s before the next replica
+starting replica-4 on GPU 4, port 8004, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-4 is up: http://127.0.0.1:8004 (PID 422385)
+fleet: settling for 15s before the next replica
+starting replica-5 on GPU 5, port 8005, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-5 is up: http://127.0.0.1:8005 (PID 423734)
+fleet: 5 replicas up on GPUs 0 1 2 4 5
+replica-0=http://127.0.0.1:8000,replica-1=http://127.0.0.1:8001,replica-2=http://127.0.0.1:8002,replica-4=http://127.0.0.1:8004,replica-5=http://127.0.0.1:8005
+stopping replica-5 (PID 423734)
+stopping replica-4 (PID 422385)
+stopping replica-2 (PID 421082)
+stopping replica-1 (PID 419771)
+stopping replica-0 (PID 418252)
+preflight: 5 GPUs clean, all below 256 MiB
+starting replica-0 on GPU 0, port 8000, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-0 is up: http://127.0.0.1:8000 (PID 446810)
+fleet: settling for 15s before the next replica
+starting replica-1 on GPU 1, port 8001, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-1 is up: http://127.0.0.1:8001 (PID 448234)
+fleet: settling for 15s before the next replica
+starting replica-2 on GPU 2, port 8002, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-2 is up: http://127.0.0.1:8002 (PID 449536)
+fleet: settling for 15s before the next replica
+starting replica-4 on GPU 4, port 8004, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-4 is up: http://127.0.0.1:8004 (PID 450735)
+fleet: settling for 15s before the next replica
+starting replica-5 on GPU 5, port 8005, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-5 is up: http://127.0.0.1:8005 (PID 451942)
+fleet: 5 replicas up on GPUs 0 1 2 4 5
+replica-0=http://127.0.0.1:8000,replica-1=http://127.0.0.1:8001,replica-2=http://127.0.0.1:8002,replica-4=http://127.0.0.1:8004,replica-5=http://127.0.0.1:8005
+stopping replica-5 (PID 451942)
+stopping replica-4 (PID 450735)
+stopping replica-2 (PID 449536)
+stopping replica-1 (PID 448234)
+stopping replica-0 (PID 446810)
+preflight: 5 GPUs clean, all below 256 MiB
+starting replica-0 on GPU 0, port 8000, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-0 is up: http://127.0.0.1:8000 (PID 473317)
+fleet: settling for 15s before the next replica
+starting replica-1 on GPU 1, port 8001, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-1 is up: http://127.0.0.1:8001 (PID 474680)
+fleet: settling for 15s before the next replica
+starting replica-2 on GPU 2, port 8002, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-2 is up: http://127.0.0.1:8002 (PID 475946)
+fleet: settling for 15s before the next replica
+starting replica-4 on GPU 4, port 8004, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-4 is up: http://127.0.0.1:8004 (PID 477141)
+fleet: settling for 15s before the next replica
+starting replica-5 on GPU 5, port 8005, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-5 is up: http://127.0.0.1:8005 (PID 478384)
+fleet: 5 replicas up on GPUs 0 1 2 4 5
+replica-0=http://127.0.0.1:8000,replica-1=http://127.0.0.1:8001,replica-2=http://127.0.0.1:8002,replica-4=http://127.0.0.1:8004,replica-5=http://127.0.0.1:8005
+stopping replica-5 (PID 478384)
+stopping replica-4 (PID 477141)
+stopping replica-2 (PID 475946)
+stopping replica-1 (PID 474680)
+stopping replica-0 (PID 473317)
