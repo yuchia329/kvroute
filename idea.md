@@ -703,6 +703,37 @@ and you have a symmetry check for the README. If not, pin with `numactl --cpunod
 every replica to the same core count. If pinning doesn't fix it, **drop to GPUs 0–3 only**: four
 symmetric replicas beat six confounded ones.
 
+> ⚠️ **Measured, 2026-09-07: this method cannot detect the asymmetry this host actually has, and
+> the escalation ladder above is the wrong ladder.** Both corrections matter more than the NUMA
+> hypothesis they replace.
+>
+> **The method's blind spot.** "Drive each replica individually" is the one configuration in which
+> the effect cannot appear. Driven one at a time the six agree to **1.5%**, and two further
+> independent runs agree — 2.1% at bring-up, 2.3% in the solo characterization. Driven *all six at
+> once*, the spread is **12.7%** and grows with time on load. Whatever is asymmetric here is only
+> asymmetric when the whole fleet is busy, which is also the only condition the sweep ever runs in.
+> **Drive all six simultaneously, or the check passes vacuously.**
+>
+> **The cause is thermal, not topological.** GPU 3 is the only card predominantly limited by heat —
+> `SwThermal` in 67% of samples against 0–34% for the other five — clocking down to 960 MHz while
+> the rest hold 1305 MHz or better, and doing so at a *lower* core temperature (75 °C) than GPU 4
+> tolerates without throttling at all (83 °C). Its deficit grows 1.1% → 12.7% → 17.2% over three
+> minutes of sustained load. NUMA is ruled out: the effect does not follow the node boundary, and
+> pinning every replica to twelve disjoint local threads left it slowest in 39 of 41 five-second
+> slices, unchanged from unpinned's 38 of 41. See
+> [the measurement](measurements/2026-09-07-gpu3-thermal/).
+>
+> **So the fallback above is wrong for this box: GPUs 0–3 *includes* the bad card.** A symmetric
+> subset here is 0,1,2,4,5 or 0,1,4,5. The better escalation, which this ladder does not contain,
+> is a **uniform power cap** — `nvidia-smi -pl` at a wattage every card sustains, which equalises
+> the six by construction the way pinning was supposed to. It needs root, which we do not have on
+> this host.
+>
+> **And the asymmetry is time-varying**, which no rung of this ladder anticipates. A cell's result
+> depends on the thermal history of what ran before it, so it correlates with sweep order rather
+> than cancelling across policies. A throttled cell is as invalid as a contaminated one and must be
+> recorded as such — see the follow-up issue.
+
 **Phase 2 gate — the one that saves a wasted week:**
 - **Prefix cache hit rate differs measurably between policies.** If not, **the workload is wrong.
   Fix the workload, do not touch the policy.**

@@ -1,0 +1,1719 @@
+{
+  "at": "2026-09-08T03:20:58.197403997Z",
+  "model": "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
+  "workload": "fixed(prompt=2048B,output=64t,seed=2)",
+  "schedule": "together",
+  "capacity": {
+    "replicas": [
+      {
+        "replica_id": "replica-0",
+        "base_url": "http://127.0.0.1:8000",
+        "num_gpu_blocks": 7872,
+        "block_size": 16,
+        "tokens": 125952,
+        "engine_tokens": 125952,
+        "bytes": 16508780544
+      },
+      {
+        "replica_id": "replica-1",
+        "base_url": "http://127.0.0.1:8001",
+        "num_gpu_blocks": 7872,
+        "block_size": 16,
+        "tokens": 125952,
+        "engine_tokens": 125952,
+        "bytes": 16508780544
+      },
+      {
+        "replica_id": "replica-2",
+        "base_url": "http://127.0.0.1:8002",
+        "num_gpu_blocks": 7872,
+        "block_size": 16,
+        "tokens": 125952,
+        "engine_tokens": 125952,
+        "bytes": 16508780544
+      },
+      {
+        "replica_id": "replica-3",
+        "base_url": "http://127.0.0.1:8003",
+        "num_gpu_blocks": 7872,
+        "block_size": 16,
+        "tokens": 125952,
+        "engine_tokens": 125952,
+        "bytes": 16508780544
+      },
+      {
+        "replica_id": "replica-4",
+        "base_url": "http://127.0.0.1:8004",
+        "num_gpu_blocks": 7872,
+        "block_size": 16,
+        "tokens": 125952,
+        "engine_tokens": 125952,
+        "bytes": 16508780544
+      },
+      {
+        "replica_id": "replica-5",
+        "base_url": "http://127.0.0.1:8005",
+        "num_gpu_blocks": 7872,
+        "block_size": 16,
+        "tokens": 125952,
+        "engine_tokens": 125952,
+        "bytes": 16508780544
+      }
+    ],
+    "tokens": 755712,
+    "bytes": 99052683264,
+    "bytes_per_token": 131072,
+    "uniform": true,
+    "estimate": {
+      "Geometry": {
+        "Layers": 32,
+        "KVHeads": 8,
+        "HeadDim": 128,
+        "BytesPerElement": 2
+      },
+      "KVBudgetBytes": 15032385536
+    },
+    "estimated_tokens_per_replica": 114688,
+    "estimated_tokens": 688128,
+    "gap": 0.09821428571428581,
+    "implied_kv_bytes_per_replica": 16508780544
+  },
+  "session_tokens": 2048,
+  "working_sets": [
+    {
+      "ratio": 0.25,
+      "tokens": 188928,
+      "sessions": 92
+    },
+    {
+      "ratio": 1,
+      "tokens": 755712,
+      "sessions": 369
+    },
+    {
+      "ratio": 3,
+      "tokens": 2267136,
+      "sessions": 1107
+    },
+    {
+      "ratio": 8,
+      "tokens": 6045696,
+      "sessions": 2952
+    }
+  ],
+  "topology": {
+    "gpus": [
+      {
+        "index": 0,
+        "links": [
+          "X",
+          "PIX",
+          "NODE",
+          "NODE",
+          "SYS",
+          "SYS"
+        ],
+        "cpu_affinity": "0-23,48-71",
+        "cpu_threads": 48,
+        "numa_node": 0
+      },
+      {
+        "index": 1,
+        "links": [
+          "PIX",
+          "X",
+          "NODE",
+          "NODE",
+          "SYS",
+          "SYS"
+        ],
+        "cpu_affinity": "0-23,48-71",
+        "cpu_threads": 48,
+        "numa_node": 0
+      },
+      {
+        "index": 2,
+        "links": [
+          "NODE",
+          "NODE",
+          "X",
+          "PIX",
+          "SYS",
+          "SYS"
+        ],
+        "cpu_affinity": "0-23,48-71",
+        "cpu_threads": 48,
+        "numa_node": 0
+      },
+      {
+        "index": 3,
+        "links": [
+          "NODE",
+          "NODE",
+          "PIX",
+          "X",
+          "SYS",
+          "SYS"
+        ],
+        "cpu_affinity": "0-23,48-71",
+        "cpu_threads": 48,
+        "numa_node": 0
+      },
+      {
+        "index": 4,
+        "links": [
+          "SYS",
+          "SYS",
+          "SYS",
+          "SYS",
+          "X",
+          "PIX"
+        ],
+        "cpu_affinity": "24-47,72-95",
+        "cpu_threads": 48,
+        "numa_node": 1
+      },
+      {
+        "index": 5,
+        "links": [
+          "SYS",
+          "SYS",
+          "SYS",
+          "SYS",
+          "PIX",
+          "X"
+        ],
+        "cpu_affinity": "24-47,72-95",
+        "cpu_threads": 48,
+        "numa_node": 1
+      }
+    ],
+    "raw": "\t\u001b[4mGPU0\tGPU1\tGPU2\tGPU3\tGPU4\tGPU5\tCPU Affinity\tNUMA Affinity\tGPU NUMA ID\u001b[0m\nGPU0\t X \tPIX\tNODE\tNODE\tSYS\tSYS\t0-23,48-71\t0\t\tN/A\nGPU1\tPIX\t X \tNODE\tNODE\tSYS\tSYS\t0-23,48-71\t0\t\tN/A\nGPU2\tNODE\tNODE\t X \tPIX\tSYS\tSYS\t0-23,48-71\t0\t\tN/A\nGPU3\tNODE\tNODE\tPIX\t X \tSYS\tSYS\t0-23,48-71\t0\t\tN/A\nGPU4\tSYS\tSYS\tSYS\tSYS\t X \tPIX\t24-47,72-95\t1\t\tN/A\nGPU5\tSYS\tSYS\tSYS\tSYS\tPIX\t X \t24-47,72-95\t1\t\tN/A\n\nLegend:\n\n  X    = Self\n  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)\n  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node\n  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)\n  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)\n  PIX  = Connection traversing at most a single PCIe bridge\n  NV#  = Connection traversing a bonded set of # NVLinks\n"
+  },
+  "floor": {
+    "concurrency": 1,
+    "replicas": 6,
+    "prefix_cache": {
+      "hits": 22704,
+      "queries": 1750093,
+      "read": true
+    },
+    "max_prefix_hit_rate": 0.05,
+    "summary": {
+      "requests": 1013,
+      "warmup": 348,
+      "successes": 1013,
+      "failed": 0,
+      "dropped": 0,
+      "cancelled": 0,
+      "slo_violations": 0,
+      "window_ns": 177320206292,
+      "throughput_rps": 5.712828905307351,
+      "goodput_rps": 0,
+      "ttft_p50_ns": 340123062,
+      "ttft_p95_ns": 391541095,
+      "ttft_p99_ns": 409448835,
+      "total_p50_ns": 831467237,
+      "total_p99_ns": 957169050,
+      "itl_p50_ns": 7903135,
+      "itl_p95_ns": 8345420,
+      "slo_applied": false,
+      "slo_ttft_ns": 0,
+      "slo_itl_ns": 0,
+      "warmup_drift": -0.0531832390532739,
+      "scheduled": 0,
+      "schedule_lag_p50_ns": 0,
+      "schedule_lag_p99_ns": 0,
+      "schedule_lag_max_ns": 0,
+      "schedule_lag_threshold_ns": 100000000,
+      "failure_rate": 0,
+      "failure_threshold": 0.01,
+      "flagged": false
+    }
+  },
+  "slo": {
+    "multiple": 3,
+    "ttft": 1030000000,
+    "itl": 24000000,
+    "floor_ttft": 340123062,
+    "floor_itl": 7903135
+  },
+  "slo_candidates": [
+    {
+      "multiple": 2,
+      "ttft": 690000000,
+      "itl": 16000000,
+      "floor_ttft": 340123062,
+      "floor_itl": 7903135
+    },
+    {
+      "multiple": 3,
+      "ttft": 1030000000,
+      "itl": 24000000,
+      "floor_ttft": 340123062,
+      "floor_itl": 7903135
+    },
+    {
+      "multiple": 4,
+      "ttft": 1370000000,
+      "itl": 32000000,
+      "floor_ttft": 340123062,
+      "floor_itl": 7903135
+    },
+    {
+      "multiple": 5,
+      "ttft": 1710000000,
+      "itl": 40000000,
+      "floor_ttft": 340123062,
+      "floor_itl": 7903135
+    }
+  ],
+  "symmetry": {
+    "tolerance": 0.08,
+    "levels": [
+      {
+        "concurrency": 1,
+        "replicas": [
+          {
+            "placement": {
+              "replica_id": "replica-0",
+              "gpu_index": 0,
+              "numa_node": 0
+            },
+            "summary": {
+              "requests": 165,
+              "warmup": 57,
+              "successes": 165,
+              "failed": 0,
+              "dropped": 0,
+              "cancelled": 0,
+              "slo_violations": 0,
+              "window_ns": 176980253364,
+              "throughput_rps": 0.9323074007620507,
+              "goodput_rps": 0,
+              "ttft_p50_ns": 353044700,
+              "ttft_p95_ns": 374134046,
+              "ttft_p99_ns": 381381922,
+              "total_p50_ns": 851300220,
+              "total_p99_ns": 883631461,
+              "itl_p50_ns": 7968468,
+              "itl_p95_ns": 8058248,
+              "slo_applied": false,
+              "slo_ttft_ns": 0,
+              "slo_itl_ns": 0,
+              "warmup_drift": -0.08446130081849203,
+              "scheduled": 0,
+              "schedule_lag_p50_ns": 0,
+              "schedule_lag_p99_ns": 0,
+              "schedule_lag_max_ns": 0,
+              "schedule_lag_threshold_ns": 100000000,
+              "failure_rate": 0,
+              "failure_threshold": 0.01,
+              "flagged": false
+            }
+          },
+          {
+            "placement": {
+              "replica_id": "replica-1",
+              "gpu_index": 1,
+              "numa_node": 0
+            },
+            "summary": {
+              "requests": 171,
+              "warmup": 58,
+              "successes": 171,
+              "failed": 0,
+              "dropped": 0,
+              "cancelled": 0,
+              "slo_violations": 0,
+              "window_ns": 176425761349,
+              "throughput_rps": 0.9692462069738959,
+              "goodput_rps": 0,
+              "ttft_p50_ns": 337727627,
+              "ttft_p95_ns": 351514663,
+              "ttft_p99_ns": 360595515,
+              "total_p50_ns": 827167567,
+              "total_p99_ns": 857390966,
+              "itl_p50_ns": 7851486,
+              "itl_p95_ns": 8024017,
+              "slo_applied": false,
+              "slo_ttft_ns": 0,
+              "slo_itl_ns": 0,
+              "warmup_drift": -0.03224576098975893,
+              "scheduled": 0,
+              "schedule_lag_p50_ns": 0,
+              "schedule_lag_p99_ns": 0,
+              "schedule_lag_max_ns": 0,
+              "schedule_lag_threshold_ns": 100000000,
+              "failure_rate": 0,
+              "failure_threshold": 0.01,
+              "flagged": false
+            }
+          },
+          {
+            "placement": {
+              "replica_id": "replica-2",
+              "gpu_index": 2,
+              "numa_node": 0
+            },
+            "summary": {
+              "requests": 170,
+              "warmup": 58,
+              "successes": 170,
+              "failed": 0,
+              "dropped": 0,
+              "cancelled": 0,
+              "slo_violations": 0,
+              "window_ns": 176589757208,
+              "throughput_rps": 0.9626832421529515,
+              "goodput_rps": 0,
+              "ttft_p50_ns": 339547092,
+              "ttft_p95_ns": 372230764,
+              "ttft_p99_ns": 376123518,
+              "total_p50_ns": 824544613,
+              "total_p99_ns": 875966013,
+              "itl_p50_ns": 7844876,
+              "itl_p95_ns": 8008522,
+              "slo_applied": false,
+              "slo_ttft_ns": 0,
+              "slo_itl_ns": 0,
+              "warmup_drift": -0.09331648726577385,
+              "scheduled": 0,
+              "schedule_lag_p50_ns": 0,
+              "schedule_lag_p99_ns": 0,
+              "schedule_lag_max_ns": 0,
+              "schedule_lag_threshold_ns": 100000000,
+              "failure_rate": 0,
+              "failure_threshold": 0.01,
+              "flagged": false
+            }
+          },
+          {
+            "placement": {
+              "replica_id": "replica-3",
+              "gpu_index": 3,
+              "numa_node": 0
+            },
+            "summary": {
+              "requests": 163,
+              "warmup": 58,
+              "successes": 163,
+              "failed": 0,
+              "dropped": 0,
+              "cancelled": 0,
+              "slo_violations": 0,
+              "window_ns": 176637194144,
+              "throughput_rps": 0.9227954553394765,
+              "goodput_rps": 0,
+              "ttft_p50_ns": 379636905,
+              "ttft_p95_ns": 411380572,
+              "ttft_p99_ns": 423282357,
+              "total_p50_ns": 874680324,
+              "total_p99_ns": 980531298,
+              "itl_p50_ns": 8140151,
+              "itl_p95_ns": 8827532,
+              "slo_applied": false,
+              "slo_ttft_ns": 0,
+              "slo_itl_ns": 0,
+              "warmup_drift": -0.14448701960613486,
+              "scheduled": 0,
+              "schedule_lag_p50_ns": 0,
+              "schedule_lag_p99_ns": 0,
+              "schedule_lag_max_ns": 0,
+              "schedule_lag_threshold_ns": 100000000,
+              "failure_rate": 0,
+              "failure_threshold": 0.01,
+              "flagged": false
+            }
+          },
+          {
+            "placement": {
+              "replica_id": "replica-4",
+              "gpu_index": 4,
+              "numa_node": 1
+            },
+            "summary": {
+              "requests": 173,
+              "warmup": 59,
+              "successes": 173,
+              "failed": 0,
+              "dropped": 0,
+              "cancelled": 0,
+              "slo_violations": 0,
+              "window_ns": 176583742207,
+              "throughput_rps": 0.9797051406759805,
+              "goodput_rps": 0,
+              "ttft_p50_ns": 338736274,
+              "ttft_p95_ns": 350733460,
+              "ttft_p99_ns": 357723741,
+              "total_p50_ns": 831282695,
+              "total_p99_ns": 860065526,
+              "itl_p50_ns": 7913745,
+              "itl_p95_ns": 8034908,
+              "slo_applied": false,
+              "slo_ttft_ns": 0,
+              "slo_itl_ns": 0,
+              "warmup_drift": -0.028400065447960778,
+              "scheduled": 0,
+              "schedule_lag_p50_ns": 0,
+              "schedule_lag_p99_ns": 0,
+              "schedule_lag_max_ns": 0,
+              "schedule_lag_threshold_ns": 100000000,
+              "failure_rate": 0,
+              "failure_threshold": 0.01,
+              "flagged": false
+            }
+          },
+          {
+            "placement": {
+              "replica_id": "replica-5",
+              "gpu_index": 5,
+              "numa_node": 1
+            },
+            "summary": {
+              "requests": 171,
+              "warmup": 58,
+              "successes": 171,
+              "failed": 0,
+              "dropped": 0,
+              "cancelled": 0,
+              "slo_violations": 0,
+              "window_ns": 176717606456,
+              "throughput_rps": 0.9676455189119846,
+              "goodput_rps": 0,
+              "ttft_p50_ns": 337000573,
+              "ttft_p95_ns": 348396427,
+              "ttft_p99_ns": 351040370,
+              "total_p50_ns": 828581444,
+              "total_p99_ns": 851026522,
+              "itl_p50_ns": 7884660,
+              "itl_p95_ns": 7979313,
+              "slo_applied": false,
+              "slo_ttft_ns": 0,
+              "slo_itl_ns": 0,
+              "warmup_drift": -0.024427998482547612,
+              "scheduled": 0,
+              "schedule_lag_p50_ns": 0,
+              "schedule_lag_p99_ns": 0,
+              "schedule_lag_max_ns": 0,
+              "schedule_lag_threshold_ns": 100000000,
+              "failure_rate": 0,
+              "failure_threshold": 0.01,
+              "flagged": false
+            }
+          }
+        ],
+        "ttft_spread": 0.12651709052138616,
+        "itl_spread": 0.037639218261703564,
+        "fastest": "replica-5",
+        "slowest": "replica-3",
+        "numa": [
+          {
+            "node": 0,
+            "replicas": 4,
+            "mean_ttft_ns": 352489081,
+            "mean_itl_ns": 7951245,
+            "threads_per_gpu": 12
+          },
+          {
+            "node": 1,
+            "replicas": 2,
+            "mean_ttft_ns": 337868423,
+            "mean_itl_ns": 7899202,
+            "threads_per_gpu": 24
+          }
+        ],
+        "numa_spread": 0.04327323006447394,
+        "numa_repeat_spread": 0.1189854513163283,
+        "numa_resolved": false,
+        "numa_symmetric": true,
+        "repeat_spread": 0.21105422684244352,
+        "resolved": false,
+        "symmetric": false
+      }
+    ],
+    "symmetric": false,
+    "resolved": false,
+    "escalation": "none",
+    "findings": [
+      "at concurrency 1, TTFT p50 spread 12.7% over the 8.0% tolerance: replica-3 at 380ms against replica-5 at 337ms",
+      "at concurrency 1 that spread is not resolvable: one replica varies 21.1% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+    ]
+  },
+  "probes": [
+    {
+      "id": "replica-0-c1-r1",
+      "placement": {
+        "replica_id": "replica-0",
+        "gpu_index": 0,
+        "numa_node": 0
+      },
+      "base_url": "http://127.0.0.1:8000",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 1,
+      "order": 1,
+      "started_at_ns": 1788837660994812439,
+      "ended_at_ns": 1788837721198522889,
+      "prefix_cache": {
+        "hits": 1264,
+        "queries": 97839,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.6065573770491803,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 57,
+        "warmup": 19,
+        "successes": 57,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 44877352728,
+        "throughput_rps": 1.2701283951723918,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 329042894,
+        "ttft_p95_ns": 341080049,
+        "ttft_p99_ns": 349245694,
+        "total_p50_ns": 814506333,
+        "total_p99_ns": 839093817,
+        "itl_p50_ns": 7762364,
+        "itl_p95_ns": 7870511,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.014409430231377479,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-1-c1-r1",
+      "placement": {
+        "replica_id": "replica-1",
+        "gpu_index": 1,
+        "numa_node": 0
+      },
+      "base_url": "http://127.0.0.1:8001",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 1,
+      "order": 2,
+      "started_at_ns": 1788837660994783678,
+      "ended_at_ns": 1788837721333059612,
+      "prefix_cache": {
+        "hits": 1280,
+        "queries": 100304,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.5573770491803278,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 58,
+        "warmup": 20,
+        "successes": 58,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 44918495604,
+        "throughput_rps": 1.2912275716294268,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 328710483,
+        "ttft_p95_ns": 338017918,
+        "ttft_p99_ns": 341188723,
+        "total_p50_ns": 813042435,
+        "total_p99_ns": 826940761,
+        "itl_p50_ns": 7761505,
+        "itl_p95_ns": 7803865,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.011260972283477045,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-2-c1-r1",
+      "placement": {
+        "replica_id": "replica-2",
+        "gpu_index": 2,
+        "numa_node": 0
+      },
+      "base_url": "http://127.0.0.1:8002",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 1,
+      "order": 3,
+      "started_at_ns": 1788837660994719490,
+      "ended_at_ns": 1788837721726258547,
+      "prefix_cache": {
+        "hits": 1264,
+        "queries": 100372,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.4918032786885246,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 58,
+        "warmup": 20,
+        "successes": 58,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 45535127078,
+        "throughput_rps": 1.2737419157884007,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 326545888,
+        "ttft_p95_ns": 334094772,
+        "ttft_p99_ns": 337865262,
+        "total_p50_ns": 810724346,
+        "total_p99_ns": 825143268,
+        "itl_p50_ns": 7717274,
+        "itl_p95_ns": 7793969,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": 0.004899572651427927,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-3-c1-r1",
+      "placement": {
+        "replica_id": "replica-3",
+        "gpu_index": 3,
+        "numa_node": 0
+      },
+      "base_url": "http://127.0.0.1:8003",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 1,
+      "order": 4,
+      "started_at_ns": 1788837660994718574,
+      "ended_at_ns": 1788837721314793475,
+      "prefix_cache": {
+        "hits": 1312,
+        "queries": 101447,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.6229508196721312,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 59,
+        "warmup": 20,
+        "successes": 59,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 44542216490,
+        "throughput_rps": 1.3245860814592794,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 330199864,
+        "ttft_p95_ns": 355963284,
+        "ttft_p99_ns": 365759528,
+        "total_p50_ns": 814685139,
+        "total_p99_ns": 858381901,
+        "itl_p50_ns": 7806241,
+        "itl_p95_ns": 7914173,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.047936509133593055,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-4-c1-r1",
+      "placement": {
+        "replica_id": "replica-4",
+        "gpu_index": 4,
+        "numa_node": 1
+      },
+      "base_url": "http://127.0.0.1:8004",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 1,
+      "order": 5,
+      "started_at_ns": 1788837660994784249,
+      "ended_at_ns": 1788837721523947260,
+      "prefix_cache": {
+        "hits": 1360,
+        "queries": 101515,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.6229508196721312,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 59,
+        "warmup": 20,
+        "successes": 59,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 44970916673,
+        "throughput_rps": 1.3119590251853348,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 330331239,
+        "ttft_p95_ns": 340598302,
+        "ttft_p99_ns": 341880576,
+        "total_p50_ns": 816581086,
+        "total_p99_ns": 832824823,
+        "itl_p50_ns": 7806339,
+        "itl_p95_ns": 7913745,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.01918955984700549,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-5-c1-r1",
+      "placement": {
+        "replica_id": "replica-5",
+        "gpu_index": 5,
+        "numa_node": 1
+      },
+      "base_url": "http://127.0.0.1:8005",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 1,
+      "order": 6,
+      "started_at_ns": 1788837660994612287,
+      "ended_at_ns": 1788837721577325855,
+      "prefix_cache": {
+        "hits": 1296,
+        "queries": 100228,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.5245901639344263,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 58,
+        "warmup": 20,
+        "successes": 58,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 45487812127,
+        "throughput_rps": 1.2750668209336276,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 331837519,
+        "ttft_p95_ns": 340770599,
+        "ttft_p99_ns": 342700146,
+        "total_p50_ns": 821406020,
+        "total_p99_ns": 835700210,
+        "itl_p50_ns": 7797412,
+        "itl_p95_ns": 7869630,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.015669580299970447,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-0-c1-r2",
+      "placement": {
+        "replica_id": "replica-0",
+        "gpu_index": 0,
+        "numa_node": 0
+      },
+      "base_url": "http://127.0.0.1:8000",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 2,
+      "order": 7,
+      "started_at_ns": 1788837726745604462,
+      "ended_at_ns": 1788837787284507097,
+      "prefix_cache": {
+        "hits": 1264,
+        "queries": 95135,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.5245901639344263,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 54,
+        "warmup": 20,
+        "successes": 54,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 45321144656,
+        "throughput_rps": 1.1914968258166228,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 354419294,
+        "ttft_p95_ns": 368352145,
+        "ttft_p99_ns": 373187105,
+        "total_p50_ns": 853860007,
+        "total_p99_ns": 874499962,
+        "itl_p50_ns": 7999678,
+        "itl_p95_ns": 8058248,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.03142692475565892,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-1-c1-r2",
+      "placement": {
+        "replica_id": "replica-1",
+        "gpu_index": 1,
+        "numa_node": 0
+      },
+      "base_url": "http://127.0.0.1:8001",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 2,
+      "order": 8,
+      "started_at_ns": 1788837726747011807,
+      "ended_at_ns": 1788837786888965408,
+      "prefix_cache": {
+        "hits": 1216,
+        "queries": 95193,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.5901639344262295,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 55,
+        "warmup": 19,
+        "successes": 55,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 45044500259,
+        "throughput_rps": 1.221014767258093,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 338362696,
+        "ttft_p95_ns": 351514663,
+        "ttft_p99_ns": 353893164,
+        "total_p50_ns": 832891411,
+        "total_p99_ns": 852781586,
+        "itl_p50_ns": 7881087,
+        "itl_p95_ns": 7964897,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.011726406744125267,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-2-c1-r2",
+      "placement": {
+        "replica_id": "replica-2",
+        "gpu_index": 2,
+        "numa_node": 0
+      },
+      "base_url": "http://127.0.0.1:8002",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 2,
+      "order": 9,
+      "started_at_ns": 1788837726745429502,
+      "ended_at_ns": 1788837787414102878,
+      "prefix_cache": {
+        "hits": 1248,
+        "queries": 97689,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.5409836065573771,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 57,
+        "warmup": 19,
+        "successes": 57,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 45395979952,
+        "throughput_rps": 1.2556177895106495,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 343243805,
+        "ttft_p95_ns": 364367317,
+        "ttft_p99_ns": 366475513,
+        "total_p50_ns": 829448760,
+        "total_p99_ns": 863957249,
+        "itl_p50_ns": 7858730,
+        "itl_p95_ns": 7945450,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.06160600414146548,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-3-c1-r2",
+      "placement": {
+        "replica_id": "replica-3",
+        "gpu_index": 3,
+        "numa_node": 0
+      },
+      "base_url": "http://127.0.0.1:8003",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 2,
+      "order": 10,
+      "started_at_ns": 1788837726745508262,
+      "ended_at_ns": 1788837787216691348,
+      "prefix_cache": {
+        "hits": 1200,
+        "queries": 92529,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.5737704918032787,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 52,
+        "warmup": 20,
+        "successes": 52,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 45044417942,
+        "throughput_rps": 1.1544160714199068,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 381069339,
+        "ttft_p95_ns": 396430031,
+        "ttft_p99_ns": 400853843,
+        "total_p50_ns": 891628023,
+        "total_p99_ns": 937525425,
+        "itl_p50_ns": 8148988,
+        "itl_p95_ns": 8405330,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.0323233404468223,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-4-c1-r2",
+      "placement": {
+        "replica_id": "replica-4",
+        "gpu_index": 4,
+        "numa_node": 1
+      },
+      "base_url": "http://127.0.0.1:8004",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 2,
+      "order": 11,
+      "started_at_ns": 1788837726745654879,
+      "ended_at_ns": 1788837787530577823,
+      "prefix_cache": {
+        "hits": 1264,
+        "queries": 97816,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.5901639344262295,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 57,
+        "warmup": 19,
+        "successes": 57,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 45573170917,
+        "throughput_rps": 1.2507358793139736,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 342702653,
+        "ttft_p95_ns": 350490880,
+        "ttft_p99_ns": 353143164,
+        "total_p50_ns": 838676408,
+        "total_p99_ns": 857359830,
+        "itl_p50_ns": 7948271,
+        "itl_p95_ns": 8083117,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.01788452207207386,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-5-c1-r2",
+      "placement": {
+        "replica_id": "replica-5",
+        "gpu_index": 5,
+        "numa_node": 1
+      },
+      "base_url": "http://127.0.0.1:8005",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 2,
+      "order": 12,
+      "started_at_ns": 1788837726745331726,
+      "ended_at_ns": 1788837787476387663,
+      "prefix_cache": {
+        "hits": 1264,
+        "queries": 96412,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.5573770491803278,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 56,
+        "warmup": 19,
+        "successes": 56,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 45496965689,
+        "throughput_rps": 1.2308513139710187,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 338941842,
+        "ttft_p95_ns": 347127668,
+        "ttft_p99_ns": 350696109,
+        "total_p50_ns": 831458306,
+        "total_p99_ns": 848039275,
+        "itl_p50_ns": 7909099,
+        "itl_p95_ns": 7974130,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.016987541103817533,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-0-c1-r3",
+      "placement": {
+        "replica_id": "replica-0",
+        "gpu_index": 0,
+        "numa_node": 0
+      },
+      "base_url": "http://127.0.0.1:8000",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 3,
+      "order": 13,
+      "started_at_ns": 1788837792551989929,
+      "ended_at_ns": 1788837853301266629,
+      "prefix_cache": {
+        "hits": 1216,
+        "queries": 92648,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.5737704918032787,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 54,
+        "warmup": 18,
+        "successes": 54,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 45569051198,
+        "throughput_rps": 1.185014797990133,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 363926862,
+        "ttft_p95_ns": 379343548,
+        "ttft_p99_ns": 382872129,
+        "total_p50_ns": 867294050,
+        "total_p99_ns": 886314844,
+        "itl_p50_ns": 8006786,
+        "itl_p95_ns": 8092169,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": 0.0032910860771004627,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-1-c1-r3",
+      "placement": {
+        "replica_id": "replica-1",
+        "gpu_index": 1,
+        "numa_node": 0
+      },
+      "base_url": "http://127.0.0.1:8001",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 3,
+      "order": 14,
+      "started_at_ns": 1788837792551973586,
+      "ended_at_ns": 1788837852840277391,
+      "prefix_cache": {
+        "hits": 1280,
+        "queries": 98819,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.5901639344262295,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 58,
+        "warmup": 19,
+        "successes": 58,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 44903222364,
+        "throughput_rps": 1.2916667656907403,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 342525939,
+        "ttft_p95_ns": 357161012,
+        "ttft_p99_ns": 363701077,
+        "total_p50_ns": 842323256,
+        "total_p99_ns": 861961868,
+        "itl_p50_ns": 7966081,
+        "itl_p95_ns": 8046403,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.004554200325045917,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-2-c1-r3",
+      "placement": {
+        "replica_id": "replica-2",
+        "gpu_index": 2,
+        "numa_node": 0
+      },
+      "base_url": "http://127.0.0.1:8002",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 3,
+      "order": 15,
+      "started_at_ns": 1788837792551908706,
+      "ended_at_ns": 1788837852780961720,
+      "prefix_cache": {
+        "hits": 1200,
+        "queries": 95164,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.5901639344262295,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 55,
+        "warmup": 19,
+        "successes": 55,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 44920694933,
+        "throughput_rps": 1.2243799897137269,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 364562658,
+        "ttft_p95_ns": 374598930,
+        "ttft_p99_ns": 376531288,
+        "total_p50_ns": 860281943,
+        "total_p99_ns": 876031148,
+        "itl_p50_ns": 7949603,
+        "itl_p95_ns": 8029228,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.01878587346984282,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-3-c1-r3",
+      "placement": {
+        "replica_id": "replica-3",
+        "gpu_index": 3,
+        "numa_node": 0
+      },
+      "base_url": "http://127.0.0.1:8003",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 3,
+      "order": 16,
+      "started_at_ns": 1788837792552096266,
+      "ended_at_ns": 1788837853409730638,
+      "prefix_cache": {
+        "hits": 1184,
+        "queries": 90002,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.5245901639344263,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 52,
+        "warmup": 18,
+        "successes": 52,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 45524997635,
+        "throughput_rps": 1.142229603544712,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 399889941,
+        "ttft_p95_ns": 417440727,
+        "ttft_p99_ns": 425229477,
+        "total_p50_ns": 937285145,
+        "total_p99_ns": 982773257,
+        "itl_p50_ns": 8706476,
+        "itl_p95_ns": 9020673,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.02200534260739898,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-4-c1-r3",
+      "placement": {
+        "replica_id": "replica-4",
+        "gpu_index": 4,
+        "numa_node": 1
+      },
+      "base_url": "http://127.0.0.1:8004",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 3,
+      "order": 17,
+      "started_at_ns": 1788837792552195790,
+      "ended_at_ns": 1788837853136738247,
+      "prefix_cache": {
+        "hits": 1312,
+        "queries": 98954,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.5409836065573771,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 57,
+        "warmup": 20,
+        "successes": 57,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 45266212798,
+        "throughput_rps": 1.2592173384232939,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 342042713,
+        "ttft_p95_ns": 352915921,
+        "ttft_p99_ns": 357723741,
+        "total_p50_ns": 839813227,
+        "total_p99_ns": 860065526,
+        "itl_p50_ns": 7960028,
+        "itl_p95_ns": 8027054,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.005153651635290188,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    },
+    {
+      "id": "replica-5-c1-r3",
+      "placement": {
+        "replica_id": "replica-5",
+        "gpu_index": 5,
+        "numa_node": 1
+      },
+      "base_url": "http://127.0.0.1:8005",
+      "schedule": "together",
+      "concurrency": 1,
+      "repetition": 3,
+      "order": 18,
+      "started_at_ns": 1788837792551791157,
+      "ended_at_ns": 1788837852807144564,
+      "prefix_cache": {
+        "hits": 1280,
+        "queries": 98027,
+        "read": true
+      },
+      "engine_load": {
+        "samples": 61,
+        "mean_running": 0.5737704918032787,
+        "max_running": 1,
+        "mean_waiting": 0,
+        "max_waiting": 0,
+        "read": true
+      },
+      "summary": {
+        "requests": 57,
+        "warmup": 19,
+        "successes": 57,
+        "failed": 0,
+        "dropped": 0,
+        "cancelled": 0,
+        "slo_violations": 0,
+        "window_ns": 45213014721,
+        "throughput_rps": 1.2606989459060627,
+        "goodput_rps": 0,
+        "ttft_p50_ns": 341673071,
+        "ttft_p95_ns": 350679630,
+        "ttft_p99_ns": 356879102,
+        "total_p50_ns": 838927366,
+        "total_p99_ns": 851849502,
+        "itl_p50_ns": 7936743,
+        "itl_p95_ns": 8021233,
+        "slo_applied": false,
+        "slo_ttft_ns": 0,
+        "slo_itl_ns": 0,
+        "warmup_drift": -0.006808288709590935,
+        "scheduled": 0,
+        "schedule_lag_p50_ns": 0,
+        "schedule_lag_p99_ns": 0,
+        "schedule_lag_max_ns": 0,
+        "schedule_lag_threshold_ns": 100000000,
+        "failure_rate": 0,
+        "failure_threshold": 0.01,
+        "flagged": false
+      },
+      "contamination": {
+        "gpu_samples": 13,
+        "probe_errors": 0,
+        "max_foreign_gpu_mem_mib": 0,
+        "clean": true
+      }
+    }
+  ],
+  "flagged": true,
+  "flag_reasons": [
+    "replica symmetry is unresolved at one or more levels: at concurrency 1, TTFT p50 spread 12.7% over the 8.0% tolerance: replica-3 at 380ms against replica-5 at 337ms; at concurrency 1 that spread is not resolvable: one replica varies 21.1% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+  ]
+}

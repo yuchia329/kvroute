@@ -177,8 +177,18 @@ _Avoid_: run, trial, sample
 **Clean cell**:
 A cell during which no process outside the experiment held memory on any of the six GPUs. The
 box is shared, so cleanliness is recorded per cell and unclean cells are discarded and re-run,
-never averaged in.
+never averaged in. Cleanliness is about *foreign processes only*; a cell can be clean and still be
+thermally throttled, which is a separate defect with its own evidence.
 _Avoid_: valid run, good sample
+
+**Thermal throttle**:
+A GPU clocking itself down because it is too hot, rather than because it has hit its power limit.
+The driver reports the two separately, and the distinction is the whole point: every card in a
+loaded fleet is power-capped, which is normal and equal, while a card that is *thermally* limited
+is slower than its siblings for a reason that has nothing to do with the workload. Measured on GPU
+3 of this host, where it appears only when all six cards draw power at once and worsens with time
+on load. A throttled cell is as invalid as an unclean one and is not the same thing.
+_Avoid_: overheating, thermal issue, slow GPU
 
 **Closed-loop driver**:
 The load generator that holds a fixed number of virtual users, each sending its next request only

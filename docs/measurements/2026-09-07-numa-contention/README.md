@@ -56,6 +56,14 @@ repetitions a node's own mean moved 13.9% unpinned and 6.8% pinned at c32. The g
 barely moved (6.7% → 5.5%); what changed is how well it could be seen. The inter-token spread fell
 the same way, 16.0% → 3.0%, which is a second statistic pointing in the same direction.
 
+> **Withdrawn, 2026-09-07.** Do not cite the noise-halving above. It rests on a range statistic over
+> three repetitions, compared across two passes that are *separate runs* — and the fleet's own floor
+> moved 320 ms → 329 ms → 344 ms across the bring-up, solo and contention runs, a **7.5% between-run
+> drift** comparable to the 8% tolerance itself. That drift sits underneath the 13.9% → 6.8%
+> comparison and is large enough to produce it on its own. The claim is unsupported, not merely
+> unreplicated. What survives is the narrower statement that the two nodes are 5.5% apart at
+> concurrency 32 under pinning, inside the tolerance.
+
 **Pinning did nothing at concurrency 1**, as it should. Per-replica figures are near identical
 across the two passes — replica-0 measured 362.7ms unpinned and 363.0ms pinned — because one
 request at a time barely occupies a CPU, so a 12-thread budget is not a constraint.
@@ -66,8 +74,20 @@ CPU budget.
 
 **Replica-3 is persistently the slowest**, in both passes and at both levels: 391ms and 395ms at c1
 against a fleet best of 337ms, and 1275ms and 1321ms at c32. It also completes visibly fewer
-requests — 222–226 against ~245 at c1, and 419–426 against ~500 at c32. Four consistent
-observations, all inside the per-replica noise, so this is a lead rather than a result.
+requests — 222–226 against ~245 at c1, and 419–426 against ~500 at c32.
+
+> **Followed up, 2026-09-07, and explained.** This was recorded above as a lead inside the noise.
+> It is a result. Bucketing every request into 5-second slices shows replica-3 slowest in **38 of
+> 41** slices unpinned and **39 of 41** pinned at concurrency 1 — stable, not noise. At concurrency
+> 32 the slowest replica rotates (replica-3 slowest in 16 slices, fastest in 12), so *that* spread
+> genuinely is noise.
+>
+> The cause is **thermal throttling on GPU 3**, measured in
+> [the follow-up](../2026-09-07-gpu3-thermal/): it is the only card predominantly limited by heat
+> (SwThermal in 67% of samples against 0–34% for the rest), clocking down to 960 MHz while the
+> others hold 1305 MHz or better. It appears only when all six cards draw power at once, which is
+> why the solo characterization and the bring-up run both found the fleet symmetric to ~2%, and why
+> pinning did not touch it.
 
 ## Caveats, which are not small
 
