@@ -247,25 +247,43 @@ func (m *MultiTurn) SessionTokens() int {
 // OfferedTokens is the pool's whole working set: the token volume the WS ratio
 // names.
 //
-// It is the nominal figure — what the trace offers if every session is drawn.
-// Skew decides how much of that a cell of finite length actually reaches, and
-// at the top of the skew axis that is a large discount: a pool sized for WS 8
-// is not under WS 8 of memory pressure if α concentrates the draws onto a
-// tenth of it. The two pressures stay separately dialable, but they are not
-// separately *realised*, so the pressure grid has to report what a cell reached
-// as well as what it asked for. ExpectedDistinctSessions is that figure.
+// It is the nominal figure — what the trace offers if every session is drawn —
+// and two things stand between it and what a cell actually applies.
+//
+// The first is arithmetic: a cell that makes V session visits can never touch
+// more than V sessions, so a WS point calling for more sessions than that is
+// unreachable at that cell length whatever the pool is set to. At 4,864
+// requests of 4 turns, a cell makes 1,216 visits, which puts WS 8 — 2,952
+// sessions — out of reach; it realises about 2.7.
+//
+// The second is skew, and it is the larger one: concentrating the draws means
+// touching fewer distinct sessions. Measured at 1,216 visits, WS 1 realises
+// 0.97 at α=0 and 0.40 at α=1.4, and across the whole axis α=1.4 compresses a
+// 32-fold range of labels into a 2.4-fold range of realised pressure. So the
+// two pressures are separately dialable but not separately realised: turning
+// skew up turns memory pressure down.
+//
+// Not corrected for here, because it cannot be: inverting the discount needs
+// the cell's visit count, which depends on how fast the fleet answered, and a
+// WS point that moves with cell duration is not a point. The realised figure is
+// countable after the fact from the session column of the rows.
+// ExpectedDistinctSessions estimates it beforehand, which is what a cell should
+// be planned against rather than discovered to have missed.
 func (m *MultiTurn) OfferedTokens() int { return m.sessions * m.SessionTokens() }
 
 // ExpectedDistinctSessions is how much of the pool a cell of the given number
 // of session visits touches — one visit being one virtual user's run through
 // one conversation, so a cell of N requests makes N/TurnsPerSession of them.
 //
-// This is what keeps the WS label honest under skew. At α=0 it climbs to the
-// whole pool; at α=1.4 it saturates well short of it, and the difference is the
-// gap between the memory pressure a cell was configured for and the pressure it
-// applied. Reported rather than corrected for: rescaling the pool to hit a
-// realised WS would make the session count depend on cell duration, and a WS
-// point that moves when a cell gets longer is not a point.
+// This is what keeps the WS label honest. At α=0 it climbs to the whole pool
+// once the cell is long enough to reach it; at α=1.4 it saturates far short of
+// it, and the difference is the gap between the memory pressure a cell was
+// configured for and the pressure it applied.
+//
+// Inflating the pool to close that gap does not work above low skew: reaching
+// 369 touched sessions needs a pool of 386 at α=0, 941 at α=1, and more than
+// 147,000 at α=1.4. The discount is not a defect to be tuned out — it is what
+// concentrating traffic onto fewer conversations means.
 func (m *MultiTurn) ExpectedDistinctSessions(visits int) float64 {
 	if visits <= 0 {
 		return 0
