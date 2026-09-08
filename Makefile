@@ -8,6 +8,26 @@ LISTEN  ?= :8080
 REPLICAS ?= replica-0=http://127.0.0.1:8000
 POLICY  ?= round_robin
 
+# How many times each load level is repeated. Three is the floor: a p99 over one
+# run is noise, and a difference smaller than the spread across runs is a
+# difference between a policy and itself.
+#
+# session_affinity wants more than the others, and it is the one policy that
+# does. Its replica choice is a hash of the session id, so each repetition —
+# which sends a different slice of the workload's user space, and therefore
+# different session ids — lands the sessions on the replicas differently. Some
+# repetitions draw an even split and some draw a lumpy one, and that spread is
+# on top of the run-to-run noise every policy has. Left at three, a real
+# difference between session affinity and prefix affinity can land inside the
+# spread and be reported as too small to call, which is the one comparison this
+# project exists to make. Five narrows it.
+#
+#     make bench POLICY=session_affinity REPS=5
+#
+# Repetitions are their own cells, so raising this later adds runs rather than
+# redoing the ones already on disk.
+REPS    ?= 3
+
 # The concurrency sweep. RUN_DIR is where cells land and where an interrupted
 # sweep resumes from.
 #
@@ -118,6 +138,7 @@ bench: build ## Sweep concurrency against the running fleet, resuming from RUN_D
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
+		-repetitions $(REPS) \
 		$(if $(SLO_FROM),-slo-from $(SLO_FROM),) \
 		$(BENCH_ARGS)
 
@@ -128,6 +149,7 @@ goodput: build ## Offer a ladder of arrival rates open-loop and record goodput a
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
+		-repetitions $(REPS) \
 		$(if $(SLO_FROM),-slo-from $(SLO_FROM),) \
 		$(GOODPUT_ARGS)
 
