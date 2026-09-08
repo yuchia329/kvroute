@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/yuchia329/kvroute/internal/fleet"
@@ -44,6 +45,10 @@ type PrefixAffinity struct {
 	// into the first replica and this policy's cold path would differ from the
 	// baseline it is compared against for a reason that is not the mechanism.
 	cold *LeastOutstanding
+	// next rotates between replicas that tie on both match length and load, so
+	// that an idle fleet — where every candidate sits at zero inflight — spreads
+	// those requests instead of funnelling them onto one replica.
+	next atomic.Uint64
 }
 
 // NewPrefixAffinity builds the prefix-affinity policy over a calibrated index.
@@ -80,23 +85,24 @@ func (p *PrefixAffinity) Choose(req Request, state fleet.State) (Choice, error) 
 
 // choose picks the replica, leaving the index untouched.
 func (p *PrefixAffinity) choose(chain prefix.Chain, state fleet.State) (Choice, error) {
-	for _, match := range p.index.Match(chain) {
-		candidate, present := state.Candidate(match.Replica)
-		if !present {
-			// A replica the index believes in but the fleet no longer has. The
-			// next best match is a better answer than a drop, and than falling
-			// straight to load: a shorter match is still a match.
-			continue
-		}
+	tied, bytes := p.bestHolders(chain, state)
+	if len(tied) > 0 {
+		// Among replicas believed to hold the same leading run, load is the only
+		// thing left to choose on, and choosing the idle one costs no cache
+		// locality: they are all believed to hold the same bytes.
+		//
+		// This is not the spill rule. Spill declines the best match and pays a
+		// prefill to escape a loaded replica; this sacrifices nothing, because
+		// there is no better match to decline.
+		chosen := leastLoadedOf(tied, &p.next)
 		return Choice{
-			Replica: candidate.Replica,
+			Replica: chosen.Replica,
 			Reason:  ReasonPrefixAffinity,
-			// Reported even though it was not weighed, for the same reason
-			// session affinity reports it: how badly a cache-aware policy leaves
-			// the fleet imbalanced is the comparison, and it has to be a figure
-			// the rows can show.
-			Inflight:         candidate.Inflight,
-			PrefixMatchBytes: match.Bytes,
+			// Reported even though the match, not the load, selected the group:
+			// how balanced a cache-aware policy leaves the fleet is the
+			// comparison, and it has to be a figure the rows can show.
+			Inflight:         chosen.Inflight,
+			PrefixMatchBytes: bytes,
 		}, nil
 	}
 
@@ -111,4 +117,40 @@ func (p *PrefixAffinity) choose(chain prefix.Chain, state fleet.State) (Choice, 
 	}
 	choice.Reason = ReasonCold
 	return choice, nil
+}
+
+// bestHolders returns every replica tied for the longest leading run of this
+// prompt, and how many bytes that run is.
+//
+// Tied rather than the single best, because ties are the common case here
+// rather than the exception, and breaking them the wrong way is a
+// load-balancing failure with no symptom in the cache figures. Every request of
+// this workload shares its opening bytes — the chat envelope, and a shared
+// system prompt on a configurable fraction of sessions — so a great many
+// requests match several replicas equally. Taking the index's own deterministic
+// order there sends all of them to whichever replica sorts first: measured over
+// the multi-turn workload, that put 45% of requests on one replica of five.
+// idea.md §5 strikes shared system prompts from the list of places this policy
+// should win for exactly that reason, and says concentrating them would be
+// worse than scattering them.
+//
+// A replica the fleet no longer has is skipped, so a shorter run on a replica
+// that is still there beats a longer one on a replica that is gone.
+func (p *PrefixAffinity) bestHolders(chain prefix.Chain, state fleet.State) ([]fleet.Candidate, int) {
+	var tied []fleet.Candidate
+	blocks, bytes := 0, 0
+	for _, match := range p.index.Match(chain) {
+		// Match is ordered longest first, so the first shorter run ends the
+		// tied group.
+		if len(tied) > 0 && match.Blocks != blocks {
+			break
+		}
+		candidate, present := state.Candidate(match.Replica)
+		if !present {
+			continue
+		}
+		blocks, bytes = match.Blocks, match.Bytes
+		tied = append(tied, candidate)
+	}
+	return tied, bytes
 }

@@ -328,3 +328,70 @@ func TestPrefixAffinityIsComparedAfterTheBaselines(t *testing.T) {
 		t.Errorf("the comparison covers %d policies, want the four idea.md §5 numbers", len(policy.Order))
 	}
 }
+
+// Several replicas commonly hold the same leading run — every request of this
+// workload shares its chat envelope, and a configurable fraction of sessions
+// share a system prompt. Taking the index's own deterministic order there would
+// send every one of those requests to whichever replica sorts first, which
+// idea.md §5 calls out as strictly worse than scattering them.
+func TestReplicasTiedOnMatchAreSeparatedByLoad(t *testing.T) {
+	p := policy.NewPrefixAffinity(prefixIndex(t))
+	state := fleetOf(t, 3)
+
+	// Teach every replica the same opening, by routing it while each in turn is
+	// the only one available.
+	shared := conversation("shared", 0)
+	for i := range state.Replicas {
+		only := fleet.State{Replicas: []fleet.Candidate{state.Replicas[i]}}
+		if _, err := p.Choose(policy.Request{Body: shared}, only); err != nil {
+			t.Fatalf("seeding %s: %v", state.Replicas[i].ID, err)
+		}
+	}
+
+	// All three now hold it equally, and one of them is idle while the others
+	// are buried. The idle one is the only sensible answer: the cache is a wash.
+	state.Replicas[0].Inflight = 40
+	state.Replicas[1].Inflight = 40
+	state.Replicas[2].Inflight = 0
+
+	got, err := p.Choose(policy.Request{Body: shared}, state)
+	if err != nil {
+		t.Fatalf("Choose: %v", err)
+	}
+	if got.Reason != policy.ReasonPrefixAffinity {
+		t.Errorf("reason = %q, want %q — every replica holds this", got.Reason, policy.ReasonPrefixAffinity)
+	}
+	if got.Replica.ID != "replica-2" {
+		t.Errorf("a tie between equal holders went to %s at %d inflight, want the idle replica-2", got.Replica.ID, got.Inflight)
+	}
+}
+
+// A longer match still wins outright. Load separates equals; it never buys a
+// shorter match, because that would be the spill rule and this policy does not
+// have one.
+func TestALongerMatchStillBeatsAnIdleReplica(t *testing.T) {
+	p := policy.NewPrefixAffinity(prefixIndex(t))
+	state := fleetOf(t, 2)
+
+	// replica-0 learns the whole conversation; replica-1 only its opening.
+	long := conversation("deep", 4)
+	if _, err := p.Choose(policy.Request{Body: long},
+		fleet.State{Replicas: []fleet.Candidate{state.Replicas[0]}}); err != nil {
+		t.Fatalf("seeding replica-0: %v", err)
+	}
+	if _, err := p.Choose(policy.Request{Body: conversation("deep", 0)},
+		fleet.State{Replicas: []fleet.Candidate{state.Replicas[1]}}); err != nil {
+		t.Fatalf("seeding replica-1: %v", err)
+	}
+
+	state.Replicas[0].Inflight = 64
+	state.Replicas[1].Inflight = 0
+
+	got, err := p.Choose(policy.Request{Body: long}, state)
+	if err != nil {
+		t.Fatalf("Choose: %v", err)
+	}
+	if got.Replica.ID != "replica-0" {
+		t.Errorf("the deeper match was declined for an idle replica: went to %s. That is the spill rule, which #16 owns", got.Replica.ID)
+	}
+}

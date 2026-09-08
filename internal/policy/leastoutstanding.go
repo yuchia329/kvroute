@@ -47,25 +47,38 @@ func (p *LeastOutstanding) Choose(_ Request, state fleet.State) (Choice, error) 
 		return Choice{}, ErrNoReplica
 	}
 
-	fewest := state.Replicas[0].Inflight
-	for _, c := range state.Replicas[1:] {
-		fewest = min(fewest, c.Inflight)
-	}
-	// Every replica tied at the minimum is an equally good answer, and which of
-	// them is taken is decided by the rotation rather than by position in the
-	// fleet.
-	tied := make([]fleet.Candidate, 0, len(state.Replicas))
-	for _, c := range state.Replicas {
-		if c.Inflight == fewest {
-			tied = append(tied, c)
-		}
-	}
-
-	turn := p.next.Add(1) - 1
-	chosen := tied[turn%uint64(len(tied))]
+	chosen := leastLoadedOf(state.Replicas, &p.next)
 	return Choice{
 		Replica:  chosen.Replica,
 		Reason:   ReasonLeastOutstanding,
 		Inflight: chosen.Inflight,
 	}, nil
+}
+
+// leastLoadedOf returns the least loaded of these candidates, rotating between
+// those tied at the minimum.
+//
+// The rotation is why an idle fleet does not funnel into one replica: with every
+// candidate at zero inflight there is nothing to choose between them, and the
+// whole low-concurrency end of the sweep runs in that state. next is taken by
+// pointer and advanced atomically so that requests choosing at the same instant
+// take different turns rather than reading the same offset.
+//
+// Shared with prefix affinity, which needs the same answer over the subset of
+// replicas tied on prefix match. Two implementations would be two tie-breaks,
+// and a cold request placed differently by the two policies would be a
+// difference between them that is not the mechanism.
+func leastLoadedOf(candidates []fleet.Candidate, next *atomic.Uint64) fleet.Candidate {
+	fewest := candidates[0].Inflight
+	for _, c := range candidates[1:] {
+		fewest = min(fewest, c.Inflight)
+	}
+	tied := make([]fleet.Candidate, 0, len(candidates))
+	for _, c := range candidates {
+		if c.Inflight == fewest {
+			tied = append(tied, c)
+		}
+	}
+	turn := next.Add(1) - 1
+	return tied[turn%uint64(len(tied))]
 }
