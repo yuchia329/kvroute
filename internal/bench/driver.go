@@ -83,6 +83,13 @@ type DriverConfig struct {
 	// schedule it fires on whether or not earlier requests have finished — and
 	// RunClosedLoop ignores it.
 	ArrivalRate float64
+	// ThinkTime is how long a session waits between its turns, and with
+	// ArrivalRate it sets how many conversations an open-loop cell holds open at
+	// once. Zero uses DefaultThinkTime. RunClosedLoop ignores it: there a
+	// session's next turn is offered when its last response arrives, which is
+	// the closed loop's own definition of think time and is zero by
+	// construction.
+	ThinkTime time.Duration
 	// Duration is how long users keep starting new turns. A request already in
 	// flight when it expires is allowed to finish.
 	Duration time.Duration

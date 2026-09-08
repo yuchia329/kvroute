@@ -89,10 +89,24 @@ guessed at.
   otherwise land on 8 req/s's slice. Within one sweep the whole partition is checked before the
   first cell runs; the bound is what holds across two sweeps into one directory, which is a
   supported way to run both axes and which no single check can see.
-- An open-loop cell can fire more requests than the 4,096-wide slice it draws from, so arrivals wrap
-  onto later turns of the same sessions rather than running off the end. Under the fixed workload a
-  session is only a header; when the multi-turn generator lands it will want a say in how arrivals
-  map onto sessions, which is a change to the mapping and not to the schedule.
+- Arrivals rotate through a pool of conversations — rate times think time, by Little's law — and the
+  k-th arrival is the next turn of the k-th of them. This is the same walk a closed-loop virtual
+  user makes, deliberately: the two drivers then offer traffic of one shape and differ only in what
+  paces it, so a goodput gap between their tables is the pacing, which is what the pair is read for.
+
+  The first version of this gave every arrival its own slot, which was correct for the fixed
+  workload and silently wrong for the multi-turn generator that landed after it: measured over 600
+  ms, closed-loop produced turns 0–5 evenly and open-loop produced 60 rows all on turn 0. A load
+  model that discards the workload's sessions leaves a cache-aware policy nothing to be aware of.
+  The pool is bounded by the cell's slice of the workload's user space, and a pool larger than half
+  the cell's arrivals is warned about rather than refused, since for the fixed workload — whose
+  turns share no prefix — first turns only is honest.
+
+  Think time is five seconds by default, between two bounds. Below a turn's own latency a session's
+  next turn would be offered before the previous was answered, which is not a conversation, and the
+  measured floor puts a 64-token reply at about 0.8 s with nothing in the way. Above roughly a
+  quarter of a cell no session reaches its later turns. Five seconds sits between them at every rate
+  on the ladder.
 - `cmd/bench -driver open_loop` runs the rate ladder, `-driver both` runs both axes into one
   directory. The default ladder — 4, 8, 12, 16, 24, 32, 48 req/s — brackets the 11.6 req/s the
   bring-up sweep reached at concurrency 8. It is a starting ladder for a fleet measured once, not a

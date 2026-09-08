@@ -225,3 +225,90 @@ func slowingFleet(t *testing.T, step time.Duration) (string, *inflight) {
 	counted := &inflight{Handler: &slowing{Handler: replica.Handler(), step: step}}
 	return routerOver(t, counted), counted
 }
+
+// Arrivals have to advance conversations, not restart them. A driver that
+// offered every session's first turn and no session's second would hand the
+// policies a workload with no growing prefix to be aware of — the multi-turn
+// generator's whole point, silently discarded by the load model.
+func TestOpenLoopArrivalsAdvanceConversationsInsteadOfRepeatingFirstTurns(t *testing.T) {
+	target, _, _ := fleetUnderTest(t, fakereplica.Config{OutputTokens: 1})
+	sessions, err := bench.NewMultiTurn(bench.MultiTurnWorkload{
+		Model: testModel, Sessions: 32, TurnsPerSession: 4, Skew: 1, OutputTokens: 1,
+	})
+	if err != nil {
+		t.Fatalf("build the multi-turn workload: %v", err)
+	}
+
+	// 100/s for 600ms is 60 arrivals; a 100ms think time holds ten
+	// conversations open, so each should walk several turns.
+	results := openLoop(t, bench.DriverConfig{
+		Target: target, ArrivalRate: 100, Duration: 600 * time.Millisecond,
+		ThinkTime: 100 * time.Millisecond, Workload: sessions,
+	})
+
+	turns := map[int]int{}
+	perSession := map[string]map[int]bool{}
+	for _, r := range results {
+		turns[r.Turn]++
+		if perSession[r.Session] == nil {
+			perSession[r.Session] = map[int]bool{}
+		}
+		perSession[r.Session][r.Turn] = true
+	}
+	if len(results) == 0 {
+		t.Fatal("no rows")
+	}
+	if turns[0] == len(results) {
+		t.Fatalf("every one of %d arrivals was a first turn: the load model discards the multi-turn workload's sessions", len(results))
+	}
+	// Some session was carried through successive turns, which is what gives a
+	// prefix-aware policy something to preserve.
+	deepest := 0
+	for _, seen := range perSession {
+		deepest = max(deepest, len(seen))
+	}
+	if deepest < 2 {
+		t.Errorf("no session was offered more than one of its turns: turn histogram %v", turns)
+	}
+}
+
+// The pool is a think time rather than a count, because the gap between a
+// session's turns means the same thing at every rate and a count does not.
+func TestTheConversationPoolFollowsTheRateAndTheThinkTime(t *testing.T) {
+	target, _, _ := fleetUnderTest(t, fakereplica.Config{OutputTokens: 1})
+
+	// 50/s with a 200ms think time is ten conversations, so ten distinct
+	// sessions carry all forty arrivals.
+	results := openLoop(t, bench.DriverConfig{
+		Target: target, ArrivalRate: 50, Duration: 800 * time.Millisecond,
+		ThinkTime: 200 * time.Millisecond,
+	})
+
+	sessions := map[string]bool{}
+	for _, r := range results {
+		sessions[r.Session] = true
+	}
+	if len(sessions) != 10 {
+		t.Errorf("%d arrivals were spread over %d conversations, want the 10 that 50/s at a 200ms think time makes", len(results), len(sessions))
+	}
+}
+
+// ADR-0004: a cell's slice of the workload's user space is finite, and a pool
+// past the end of it would send the next cell's prompts.
+func TestAConversationPoolPastTheCellsSliceOfTheWorkloadIsRefused(t *testing.T) {
+	target, _, _ := fleetUnderTest(t, fakereplica.Config{})
+
+	_, err := bench.RunOpenLoop(context.Background(), bench.DriverConfig{
+		Target: target, ArrivalRate: 500, Duration: time.Second,
+		ThinkTime: time.Minute,
+		Workload:  bench.NewFixedWorkload(bench.FixedWorkload{Model: testModel}),
+		Log:       discardLog(),
+	})
+
+	if err == nil {
+		t.Fatal("a conversation pool larger than the cell's slice of the workload was accepted")
+	}
+	if !strings.Contains(err.Error(), "pool") {
+		t.Errorf("the error does not say what was too large: %v", err)
+	}
+}

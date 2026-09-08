@@ -298,6 +298,11 @@ type SweepConfig struct {
 	// Settle is how long to wait between cells, so one cell's tail does not
 	// land inside the next one's window.
 	Settle time.Duration
+	// ThinkTime is how long a session waits between its turns under the
+	// open-loop driver, which with the arrival rate sets how many conversations
+	// a cell holds open. Zero uses DefaultThinkTime. Closed-loop cells ignore
+	// it: there a session's next turn goes out when its last response arrives.
+	ThinkTime time.Duration
 
 	// Replicas are the base URLs of every replica the router fronts. Each is
 	// asked for /health before the first cell runs. Empty skips the check.
@@ -618,6 +623,7 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		Target:      cfg.Target,
 		Concurrency: load.Concurrency,
 		ArrivalRate: load.ArrivalRate,
+		ThinkTime:   cfg.ThinkTime,
 		Duration:    cfg.CellDuration,
 		Warmup:      cfg.Warmup,
 		// Each cell gets its own slice of the workload's user space, keyed on

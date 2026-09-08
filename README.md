@@ -121,6 +121,9 @@ cmd/characterize ─────────────► replica-0..5, one at
     number comes from. Every row records when it was *due* beside when it was sent, and a cell whose
     driver fell behind its own schedule is flagged rather than reporting a rate the fleet was never
     offered — [ADR-0005](docs/adr/0005-open-loop-fires-on-schedule-and-records-its-own-lateness.md).
+    Arrivals rotate through a pool of conversations, `-think-time` wide by the arrival rate, so
+    sessions advance a turn at a time as they do under the closed-loop driver: the two offer traffic
+    of one shape and differ only in what paces it.
 - **`cmd/characterize`** — establishes the measured facts every other number scales off, in one
   pass: aggregate KV capacity read off all six replicas' own `num_gpu_blocks`, the host's GPU
   topology and NUMA placement, the hardware latency floor, the SLO derived from that floor as a

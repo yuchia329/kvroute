@@ -61,6 +61,7 @@ func run() error {
 		driver       = flag.String("driver", string(bench.ClosedLoopDriver), "which axis to run: closed_loop holds virtual users at each -concurrency level, open_loop fires at each -arrival-rates level, both runs the two in one directory")
 		levels       = flag.String("concurrency", bench.FormatLevels(bench.ConcurrencySweep), "closed-loop axis: concurrency levels to sweep, holding that many virtual users")
 		rates        = flag.String("arrival-rates", bench.FormatRates(bench.ArrivalRateSweep), "open-loop axis: arrival rates in requests per second, fired on a fixed schedule whether or not earlier requests have finished")
+		thinkTime    = flag.Duration("think-time", bench.DefaultThinkTime, "open-loop axis: how long a session waits between its turns. With the arrival rate this sets how many conversations a cell holds open at once — rate x think time, by Little's law — and so whether sessions reach their later turns at all. Ignored by the closed-loop axis, where a session's next turn goes out when its last response arrives")
 		repetitions  = flag.Int("repetitions", 3, "repetitions per level; p99 is noisy at low sample counts")
 		duration     = flag.Duration("cell-duration", 60*time.Second, "how long each cell keeps starting new turns")
 		warmup       = flag.Duration("warmup", 10*time.Second, "slice at the start of each cell whose rows are recorded but excluded from the summary; a duration, so every load level forfeits the same share of its window")
@@ -153,7 +154,10 @@ func run() error {
 		if ok, why := c.SLOUsable(); !ok {
 			// Every cell would be judged against this threshold and none of them
 			// would record that its derivation was in doubt.
-			return fmt.Errorf("bench: the SLO in the characterization at %s must not be applied: %s", *sloFrom, why)
+			return fmt.Errorf("bench: the SLO in the characterization at %s must not be applied: %s. "+
+				"The SLO is a stated multiple of that floor, so every cell of this sweep would inherit the problem. Re-run the characterization — "+
+				"and if its floor read the replicas' prefix cache instead of prefilling, bring the fleet down first, because a floor measured against prompts the replicas already hold is not a floor (ADR-0004)",
+				*sloFrom, why)
 		}
 		slo = c.SLO.SLO()
 		log.Info("SLO read from the characterization rather than retyped",
@@ -244,6 +248,7 @@ func run() error {
 		Warmup:               *warmup,
 		FleetWarmup:          *fleetWarmup,
 		Settle:               *settle,
+		ThinkTime:            *thinkTime,
 		SLO:                  slo,
 		FailureThreshold:     *failureAt,
 		WarmupDriftThreshold: *driftAt,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"sort"
 	"sync"
@@ -21,6 +22,21 @@ import (
 // rate ladder the standard library's default of two idle connections per host
 // would have the driver measuring connection setup as though it were inference.
 const openLoopPoolSeconds = 30
+
+// DefaultThinkTime is how long a session waits between its turns when the
+// open-loop driver is not told otherwise.
+//
+// It sets the size of the conversation pool by Little's law — arrival rate times
+// think time is the number of conversations in flight — so it is chosen against
+// two bounds. Below a turn's own latency, a session's next turn would be offered
+// before the previous one was answered, which is not a conversation; the
+// measured floor is a 329 ms TTFT and 7.8 ms per token, so a 64-token reply
+// costs about 0.8 s with nothing in the way and multiples of that under load.
+// Above roughly a quarter of a cell, a session never reaches its later turns and
+// the run measures first turns only. Five seconds sits between them at every
+// rate on the ladder: a four-turn session finishes in 20 s inside a 60 s cell,
+// and even at 4 req/s the pool holds twenty conversations.
+const DefaultThinkTime = 5 * time.Second
 
 // OpenLoopClient dispatches an open-loop cell to the router.
 func OpenLoopClient(rate float64) *http.Client {
@@ -50,6 +66,12 @@ func OpenLoopClient(rate float64) *http.Client {
 // generator's state: every row carries the time it was due beside the time it
 // was sent, so a driver that failed to hold its own schedule says so in the
 // record instead of quietly reporting a rate it never offered.
+//
+// Arrivals are spread over a pool of conversations rather than each being its
+// own: the pool is ArrivalRate x ThinkTime conversations, and the k-th arrival
+// is the next turn of the k-th of them in rotation. Without that this driver
+// offers every session's first turn and no session's second, which is a workload
+// with no growing prefix for a cache-aware policy to be aware of.
 func RunOpenLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 	if cfg.Target == "" {
 		return nil, errors.New("bench: a target router URL is required")
@@ -67,6 +89,13 @@ func RunOpenLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 	if interval <= 0 {
 		return nil, fmt.Errorf("bench: an arrival rate of %g requests per second is finer than the clock this schedule is kept on", cfg.ArrivalRate)
 	}
+	if cfg.ThinkTime <= 0 {
+		cfg.ThinkTime = DefaultThinkTime
+	}
+	conversations, err := conversationPool(cfg.ArrivalRate, cfg.ThinkTime)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.Client == nil {
 		cfg.Client = OpenLoopClient(cfg.ArrivalRate)
 	}
@@ -82,6 +111,15 @@ func RunOpenLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 	// driver concurrency is an outcome, and a row that labelled one as an input
 	// would be a row disagreeing with the run that produced it.
 	cfg.Labels.Concurrency = 0
+
+	// A pool larger than the cell has arrivals leaves every conversation on its
+	// first turn, which is the degenerate case this pool exists to prevent. It
+	// is honest for the fixed workload, whose turns share no prefix anyway, so
+	// it is said out loud rather than refused.
+	if arrivals := int(cfg.Duration.Seconds() * cfg.ArrivalRate); arrivals < 2*conversations {
+		cfg.Log.Warn("the conversation pool is larger than half this cell's arrivals, so few sessions will reach a second turn",
+			"conversations", conversations, "arrivals", arrivals, "think_time", cfg.ThinkTime)
+	}
 
 	start := time.Now()
 	deadline := start.Add(cfg.Duration)
@@ -102,7 +140,7 @@ func RunOpenLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 		if !waitUntil(ctx, due) {
 			break
 		}
-		user, turn := arrival(k)
+		user, turn := arrival(k, conversations)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -124,16 +162,40 @@ func RunOpenLoop(ctx context.Context, cfg DriverConfig) ([]Result, error) {
 	return results, nil
 }
 
+// conversationPool is how many conversations an open-loop cell holds open at
+// once: arrival rate times think time, which is Little's law read as a
+// conversation count.
+//
+// Expressed as a think time rather than a count because the count is not
+// portable between rates and the gap between a session's turns is. A pool of one
+// hundred means something different at 4 req/s and at 48; "each session turns
+// every five seconds" means the same thing at both.
+func conversationPool(rate float64, thinkTime time.Duration) (int, error) {
+	n := max(1, int(math.Round(rate*thinkTime.Seconds())))
+	if n >= WorkloadStride {
+		// The cell's slice of the workload's user space is WorkloadStride wide,
+		// so a pool this size would run off the end of it and into the next
+		// cell's prompts. ADR-0004: that cell would then read the replicas'
+		// prefix caches rather than measure prefill.
+		return 0, fmt.Errorf("bench: %g requests per second with a %v think time is a pool of %d conversations, past the %d a cell's slice of the workload holds",
+			rate, thinkTime, n, WorkloadStride)
+	}
+	return n, nil
+}
+
 // arrival maps the k-th arrival onto the workload's (user, turn) space.
 //
-// A cell's slice of that space is WorkloadStride wide and an open-loop cell can
-// fire more requests than that, so arrivals wrap onto turns rather than running
-// off the end into the next cell's slice. The workload is deterministic in the
-// pair, so every arrival still sends bytes no other arrival in the cell sends —
-// which is what ADR-0004 requires and what keeps a cell measuring prefill rather
-// than the replicas' prefix caches.
-func arrival(k int) (user, turn int) {
-	return k % WorkloadStride, k / WorkloadStride
+// Arrivals rotate through the pool, so arrival k is the next turn of
+// conversation k mod n. That is the same walk a closed-loop virtual user makes
+// — the workload draws a session per slot and advances it a turn at a time —
+// and it is deliberately the same walk, so the two drivers offer traffic of one
+// shape and differ only in what paces it. A goodput gap between their tables is
+// then the pacing, which is what the pair is read for.
+//
+// The workload is deterministic in the pair, so every arrival still sends bytes
+// no other arrival in the cell sends, which is what ADR-0004 requires.
+func arrival(k, conversations int) (user, turn int) {
+	return k % conversations, k / conversations
 }
 
 // waitUntil blocks until due, reporting false if the run was cancelled first.

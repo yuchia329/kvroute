@@ -209,6 +209,15 @@ fleet: a cell offered 32 requests per second offered exactly that whether the fl
 four. Written into the cell id as `a32`, against `c32` for a concurrency.
 _Avoid_: offered load (that is the quantity, not the axis), throughput, RPS
 
+**Think time**:
+How long a session waits between its turns under the open-loop driver. With the arrival rate it
+sets how many conversations a cell holds open at once — rate times think time — so it is what
+decides whether sessions reach their later turns at all, and therefore whether there is a growing
+prefix for a policy to be aware of. Stated as a duration rather than a conversation count because
+a count means something different at every rate and a gap between turns does not. The closed-loop
+driver has no such knob: there the next turn goes out when the last response arrives.
+_Avoid_: delay, pacing, user delay, session pool size
+
 **Schedule lag**:
 How long after its due time a request was actually sent. It is the open-loop driver auditing
 itself: a driver that fell behind its own schedule offered less than the cell claims, which is
