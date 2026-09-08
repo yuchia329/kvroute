@@ -36,10 +36,19 @@ _Avoid_: fairness, balance, uniformity
 ### Conversation state
 
 **Session**:
-A multi-turn conversation, identified by the `X-Session-Id` header the client supplies. Turns of
-one session share a growing prefix; the session is the unit that cache locality is preserved
-for.
+A multi-turn conversation, identified by the `X-Session-Id` header the client supplies, or by its
+own opening where the client supplies none — see session identity below. Turns of one session
+share a growing prefix; the session is the unit that cache locality is preserved for.
 _Avoid_: conversation, chat, thread, dialogue
+
+**Session identity**:
+The answer to which session a request belongs to, and where that answer came from. **Supplied**
+identity is the `X-Session-Id` header a client sent; **derived** identity is a hash of the
+conversation's opening — its first system and first user message — which every turn resends
+unchanged and which therefore needs no client cooperation. The two are recorded separately
+because they are different experiments: routing on a supplied key gives a policy a perfect
+oracle, and routing on a derived one is what the same policy is worth without one.
+_Avoid_: session key, conversation id, session hash
 
 **Turn**:
 One request/response exchange within a session. Turn N resends the full history of turns 1..N-1,
@@ -112,6 +121,17 @@ its own KV pressure, which is a different thing at a different layer. Never call
 **Affinity**:
 The router's decision to route to the replica with the best prefix match.
 _Avoid_: stickiness, pinning
+
+**Session affinity**:
+Routing every turn of a session to one replica by hashing its session identity onto a ring of the
+replicas. Named for the session rather than for the prefix, because it is the *other* kind of
+affinity and the two are the comparison: this one knows nothing about what a replica holds and
+only that a conversation went there before. Consistent hashing rather than hash-modulo-count, so
+that a replica leaving moves only the sessions that lived on it instead of nearly all of them.
+It is deliberately blind to load — that blindness is the mechanism prefix affinity has to beat,
+not a defect to be patched.
+_Avoid_: sticky sessions, session pinning, affinity (unqualified — that is the prefix-match
+decision above)
 
 ### Measurement
 

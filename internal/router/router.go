@@ -23,6 +23,7 @@ import (
 	"github.com/yuchia329/kvroute/internal/fleet"
 	"github.com/yuchia329/kvroute/internal/policy"
 	"github.com/yuchia329/kvroute/internal/record"
+	"github.com/yuchia329/kvroute/internal/session"
 	"github.com/yuchia329/kvroute/internal/stats"
 )
 
@@ -189,7 +190,14 @@ func (rt *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request
 	_ = json.Unmarshal(body, &shape)
 	row.Model, row.Stream = shape.Model, shape.Stream
 
-	choice, err := rt.policy.Choose(policy.Request{Header: req.Header, Body: body}, rt.fleet.State())
+	// Resolved once, here, and then both recorded and handed to the policy. A
+	// policy that worked its own identity out could route on a session the row
+	// does not mention, and no later analysis could reconstruct why a request
+	// went where it did.
+	conversation := session.Identify(req.Header, body)
+	row.Session, row.SessionDerived = conversation.ID, conversation.Derived
+
+	choice, err := rt.policy.Choose(policy.Request{Header: req.Header, Body: body, Session: conversation}, rt.fleet.State())
 	if err != nil {
 		rt.drop(w, &row, http.StatusServiceUnavailable, err)
 		return

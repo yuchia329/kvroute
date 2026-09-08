@@ -48,6 +48,19 @@ type Request struct {
 	RequestID string    `json:"request_id" parquet:"request_id"`
 	StartedAt time.Time `json:"started_at" parquet:"started_at"`
 
+	// Session is the conversation this request belonged to, and SessionDerived
+	// says whether the client supplied that identity or the router derived it
+	// from the request's opening messages.
+	//
+	// Both are on the row because a session-affinity policy's whole claim is
+	// that it kept a conversation on one replica, and a row naming only the
+	// replica cannot be read to check it. The derived flag travels with it
+	// because routing on a supplied key and routing on a derived one are two
+	// different measurements (idea.md §4.2), and a run that recorded only the
+	// key could not say which of them it was.
+	Session        string `json:"session" parquet:"session"`
+	SessionDerived bool   `json:"session_derived" parquet:"session_derived"`
+
 	Policy         string `json:"policy" parquet:"policy"`
 	Replica        string `json:"replica" parquet:"replica"`
 	DecisionReason string `json:"decision_reason" parquet:"decision_reason"`

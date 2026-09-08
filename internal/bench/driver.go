@@ -14,10 +14,17 @@ import (
 
 	"github.com/yuchia329/kvroute/internal/record"
 	"github.com/yuchia329/kvroute/internal/router"
+	"github.com/yuchia329/kvroute/internal/session"
 )
 
 // SessionHeader carries the session identity to the router.
-const SessionHeader = "X-Session-Id"
+//
+// Aliased rather than spelled out again: the router reads this header to decide
+// which conversation a request belongs to, and a second copy of the string here
+// could drift from it without any test failing — the harness would simply stop
+// telling the router what it knows, and every session-aware policy would fall
+// back to deriving an identity while the run still called itself header-routed.
+const SessionHeader = session.Header
 
 // Driver names which load generator produced a row or a cell, so no table can be
 // read without knowing which one produced it.

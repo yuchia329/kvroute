@@ -12,6 +12,7 @@ import (
 	"net/http"
 
 	"github.com/yuchia329/kvroute/internal/fleet"
+	"github.com/yuchia329/kvroute/internal/session"
 )
 
 // ErrNoReplica means no replica could be chosen, so the request is dropped.
@@ -25,6 +26,16 @@ const (
 	ReasonRoundRobin Reason = "ROUND_ROBIN"
 	// ReasonLeastOutstanding is the replica with the fewest inflight requests.
 	ReasonLeastOutstanding Reason = "LEAST_OUTSTANDING"
+	// ReasonSessionAffinity is the replica the request's session hashes to.
+	ReasonSessionAffinity Reason = "SESSION_AFFINITY"
+	// ReasonSessionUnidentified is a request no session could be identified for,
+	// rotated because there was nothing to hash.
+	//
+	// It is its own reason rather than folded into session affinity because the
+	// two are different decisions: a pile of unidentified requests on one replica
+	// looks exactly like one hot session, and the decision mix is a reported
+	// result.
+	ReasonSessionUnidentified Reason = "SESSION_UNIDENTIFIED"
 )
 
 // Order is the order the policies are compared in: the naive baseline first, then
@@ -36,6 +47,7 @@ const (
 var Order = []string{
 	RoundRobinName,
 	LeastOutstandingName,
+	SessionAffinityName,
 }
 
 // Request is everything a policy may know about an incoming request. The body
@@ -44,6 +56,16 @@ var Order = []string{
 type Request struct {
 	Header http.Header
 	Body   []byte
+	// Session is the conversation this request belongs to, resolved by the
+	// router before any policy sees it.
+	//
+	// Resolved once at ingress rather than by each policy that wants it, because
+	// the router writes the same identity onto the request's row: a policy that
+	// derived its own could route on a session the record does not mention, and
+	// no later analysis could reconstruct why a request went where it did. It is
+	// zero when the request identified no conversation, which a policy that
+	// routes on it has to handle rather than treat as a session named "".
+	Session session.Session
 }
 
 // Choice is a policy's decision.
@@ -77,6 +99,8 @@ func ByName(name string) (Policy, error) {
 		return NewRoundRobin(), nil
 	case LeastOutstandingName:
 		return NewLeastOutstanding(), nil
+	case SessionAffinityName:
+		return NewSessionAffinity(), nil
 	default:
 		return nil, fmt.Errorf("policy: unknown policy %q", name)
 	}
