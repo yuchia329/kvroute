@@ -15,6 +15,7 @@ package gpu
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -196,7 +197,58 @@ func (s Snapshot) descendsFrom(pid int, own map[int]bool) bool {
 	return false
 }
 
-// Indexes are the device indexes of a fleet of n GPUs, for Limit.
+// ParseIndexes reads an explicit list of card indexes, "0,1,2,4,5".
+//
+// Explicit rather than a count, because the fleet this project runs on is not
+// the first n cards. GPU 3 thermally throttles under simultaneous load (#25) and
+// the policy comparison runs without it, so the fleet is 0,1,2,4,5 — a set a
+// count cannot name. A count would quietly mean 0..4 here, which keeps the
+// throttling card and drops a healthy one, and would point the contamination
+// sampler at a card the fleet no longer owns while leaving one it does own
+// unwatched. Both failures are silent, and one of them discards good cells.
+//
+// Whitespace around an entry is allowed so a shell list can be pasted in.
+func ParseIndexes(spec string) ([]int, error) {
+	if strings.TrimSpace(spec) == "" {
+		return nil, errors.New("gpu: no card indexes given")
+	}
+	// Commas or spaces: versions.env holds a shell list and the flags take a
+	// comma-separated one, and requiring the caller to convert between them is a
+	// step that will eventually be skipped.
+	fields := strings.FieldsFunc(spec, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' })
+	seen := make(map[int]bool, len(fields))
+	out := make([]int, 0, len(fields))
+	for _, f := range fields {
+		i, err := strconv.Atoi(f)
+		if err != nil {
+			return nil, fmt.Errorf("gpu: %q is not a card index", f)
+		}
+		if i < 0 {
+			return nil, fmt.Errorf("gpu: card index %d is negative", i)
+		}
+		if seen[i] {
+			return nil, fmt.Errorf("gpu: card index %d is listed twice", i)
+		}
+		seen[i] = true
+		out = append(out, i)
+	}
+	return out, nil
+}
+
+// FormatIndexes renders a card list the way ParseIndexes reads one, so a record
+// or a log line names the fleet in the form the flags take.
+func FormatIndexes(indexes []int) string {
+	parts := make([]string, 0, len(indexes))
+	for _, i := range indexes {
+		parts = append(parts, strconv.Itoa(i))
+	}
+	return strings.Join(parts, ",")
+}
+
+// Indexes are the device indexes of a fleet of the first n GPUs, for Limit.
+//
+// Only correct for a fleet that is the first n cards, which this one is not:
+// prefer ParseIndexes, which can name 0,1,2,4,5.
 func Indexes(n int) []int {
 	out := make([]int, 0, n)
 	for i := range n {

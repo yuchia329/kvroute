@@ -53,30 +53,44 @@ preflight_bin() {
 preflight() {
   local bin
   bin="$(preflight_bin)"
-  "$bin" -gpus "$REPLICA_COUNT" -threshold-mib "$GPU_DIRTY_THRESHOLD_MIB" \
+  "$bin" -gpu-indexes "$REPLICA_GPUS" -threshold-mib "$GPU_DIRTY_THRESHOLD_MIB" \
     || die "preflight refused. Wait for the cards to clear, or bring down whatever is holding them."
+}
+
+# fleet_gpus reads REPLICA_GPUS into an array. The fleet is named card by card
+# rather than counted, because it is not the first n cards: GPU 3 throttles
+# thermally under simultaneous load and is left out (#25), so a count would name
+# 0..4 and keep the very card the fleet exists to exclude.
+fleet_gpus() {
+  read -r -a _fleet_gpus <<< "$REPLICA_GPUS"
+  (( ${#_fleet_gpus[@]} > 0 )) || die "REPLICA_GPUS is empty in ops/versions.env; it names the cards the fleet runs on"
+  (( ${#_fleet_gpus[@]} == REPLICA_COUNT )) \
+    || die "REPLICA_GPUS lists ${#_fleet_gpus[@]} cards ($REPLICA_GPUS) but REPLICA_COUNT is $REPLICA_COUNT; one of the two is stale"
 }
 
 up() {
   preflight
+  fleet_gpus
 
-  local index
-  for (( index = 0; index < REPLICA_COUNT; index++ )); do
+  local i index
+  for i in "${!_fleet_gpus[@]}"; do
+    index="${_fleet_gpus[$i]}"
     "$here/replica.sh" up "$index"
-    if (( index + 1 < REPLICA_COUNT )); then
+    if (( i + 1 < ${#_fleet_gpus[@]} )); then
       echo "fleet: settling for ${STARTUP_STAGGER_SECONDS}s before the next replica"
       sleep "$STARTUP_STAGGER_SECONDS"
     fi
   done
-  echo "fleet: $REPLICA_COUNT replicas up"
+  echo "fleet: ${#_fleet_gpus[@]} replicas up on GPUs $REPLICA_GPUS"
   replicas
 }
 
 down() {
   # Reverse order, purely so the log reads as the mirror of bring-up.
-  local index
-  for (( index = REPLICA_COUNT - 1; index >= 0; index-- )); do
-    "$here/replica.sh" down "$index"
+  fleet_gpus
+  local i
+  for (( i = ${#_fleet_gpus[@]} - 1; i >= 0; i-- )); do
+    "$here/replica.sh" down "${_fleet_gpus[$i]}"
   done
 }
 
@@ -95,9 +109,14 @@ pids() {
 }
 
 # replicas prints the -replicas spec the router and the harness take.
+# A replica is named for the card it runs on, so replica-4 is GPU 4 on port 8004
+# and the ids skip 3 exactly as the fleet does. Renumbering them 0..4 would make
+# "replica-3" mean GPU 4, and silently disagree with every measurement already
+# recorded against the six-card fleet.
 replicas() {
+  fleet_gpus
   local index specs=()
-  for (( index = 0; index < REPLICA_COUNT; index++ )); do
+  for index in "${_fleet_gpus[@]}"; do
     specs+=("replica-$index=http://127.0.0.1:$(( BASE_PORT + index ))")
   done
   local IFS=,

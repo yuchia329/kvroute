@@ -92,7 +92,7 @@ func run() error {
 		branching    = flag.Float64("branching", 0, "fraction of sessions descending from a common ancestor rather than opening on their own content")
 
 		sampleGPUs = flag.Bool("sample-gpus", true, "sample nvidia-smi during each cell for contamination evidence")
-		gpus       = flag.Int("gpus", 0, "how many GPUs the fleet uses; no default, it is REPLICA_COUNT in ops/versions.env")
+		gpus       = flag.String("gpu-indexes", "", "the cards the fleet uses, by index, e.g. \"0,1,2,4,5\"; no default, it is REPLICA_GPUS in ops/versions.env. A list rather than a count because this fleet is not the first n cards: sampling 0..n-1 would watch a card the fleet no longer owns and miss one it does")
 		interval   = flag.Duration("sample-interval", bench.DefaultSampleInterval, "how often to sample the GPUs")
 		pidGlob    = flag.String("replica-pids", "run/replica-*.pid", "glob of the fleet's pid files, used to tell our own processes from foreign ones")
 
@@ -193,11 +193,15 @@ func run() error {
 
 	contamination := bench.ContaminationConfig{Interval: *interval}
 	if *sampleGPUs {
-		if *gpus <= 0 {
-			return fmt.Errorf("bench: -gpus is required when sampling: pass \"$(ops/fleet.sh env REPLICA_COUNT)\", or run via make bench which does it for you")
+		if *gpus == "" {
+			return fmt.Errorf("bench: -gpu-indexes is required when sampling: pass \"$(ops/fleet.sh env REPLICA_GPUS)\", or run via make bench which does it for you")
 		}
 		contamination.Prober = gpu.New()
-		contamination.GPUs = gpu.Indexes(*gpus)
+		indexes, err := gpu.ParseIndexes(*gpus)
+		if err != nil {
+			return err
+		}
+		contamination.GPUs = indexes
 		if contamination.OwnPIDs, err = replicaPIDs(*pidGlob); err != nil {
 			return err
 		}
@@ -207,7 +211,7 @@ func run() error {
 			// than not sampling: it looks like evidence.
 			return fmt.Errorf("bench: no replica pid files matched %q. Start the fleet with ops/fleet.sh up, or pass -sample-gpus=false to run without contamination evidence", *pidGlob)
 		}
-		log.Info("sampling GPUs for contamination", "gpus", *gpus, "replica_pids", contamination.OwnPIDs, "interval", *interval)
+		log.Info("sampling GPUs for contamination", "gpus", gpu.FormatIndexes(contamination.GPUs), "replica_pids", contamination.OwnPIDs, "interval", *interval)
 	} else {
 		log.Warn("GPU sampling is off: every cell will record that its cleanliness is unproven")
 	}

@@ -6,6 +6,9 @@ BIN     := bin
 INDEX   ?= 0
 LISTEN  ?= :8080
 REPLICAS ?= replica-0=http://127.0.0.1:8000
+# The policy the router runs. Only this varies between benchmark runs.
+#
+# prefix_affinity additionally needs PREFIX_CALIBRATION to exist — see below.
 POLICY  ?= round_robin
 
 # How many times each load level is repeated. Three is the floor: a p99 over one
@@ -90,6 +93,29 @@ WORKLOAD_ARGS ?= -workload multiturn \
 # could not report router overhead per request or, later, belief divergence.
 RECORDS ?= $(RUN_DIR)/router.jsonl
 
+# The prefix index's calibration: aggregate fleet KV capacity, the measured
+# prompt bytes-per-token ratio, and the engines' own idle-before-evict
+# distribution. `make calibrate` writes it and the router is started against it.
+#
+# prefix_affinity will not run without it. Its node cap and TTL are modelling
+# decisions about hardware the router does not own, and idea.md §4.3 is explicit
+# that sizing them to the fleet is what makes them defensible rather than
+# arbitrary — so they are measured off the fleet rather than defaulted in the
+# source, and a router asked for that policy with no calibration refuses to
+# start.
+#
+# CALIBRATE_FROM is a sweep to measure the bytes-per-token ratio from. The
+# baselines run before prefix affinity does, so by the time this is needed there
+# are cells to take it off.
+#
+# ⚠️ The idle-before-evict histogram needs --kv-cache-metrics and stays empty
+# until the fleet has actually evicted blocks, so this runs against a fleet that
+# has been under load — not one that has just come up. Never enable that flag
+# mid-experiment to make this command work: it changes the engine configuration
+# every cell is supposed to share, and invalidates every completed cell.
+PREFIX_CALIBRATION ?= runs/prefix-calibration.json
+CALIBRATE_FROM ?= $(RUN_DIR)
+
 # The live replica the contract test runs against, or the whole fleet's spec —
 # `ops/fleet.sh replicas` — to assert the contract against every replica. Point
 # it at replicas of the pinned engine version during bring-up.
@@ -139,6 +165,7 @@ linux: ## Cross-compile every command for the GPU box, which has no Go toolchain
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/preflight-linux-amd64 ./cmd/preflight
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/characterize-linux-amd64 ./cmd/characterize
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/compare-linux-amd64 ./cmd/compare
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/calibrate-linux-amd64 ./cmd/calibrate
 
 .PHONY: test
 test: ## Run the full suite under the race detector
@@ -179,7 +206,7 @@ fleet-status: ## Show which replicas are running
 bench: build ## Sweep concurrency against the running fleet, resuming from RUN_DIR
 	$(BIN)/bench -router $(ROUTER) -dir $(RUN_DIR) -policy $(POLICY) \
 		-model "$$(ops/fleet.sh env MODEL)" \
-		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
+		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
 		-repetitions $(REPS) \
 		$(WORKLOAD_ARGS) \
@@ -191,7 +218,7 @@ goodput: build ## Offer a ladder of arrival rates open-loop and record goodput a
 	$(BIN)/bench -router $(ROUTER) -dir $(GOODPUT_DIR) -policy $(POLICY) -driver open_loop \
 		$(if $(GOODPUT_RATES),-arrival-rates $(GOODPUT_RATES),) \
 		-model "$$(ops/fleet.sh env MODEL)" \
-		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
+		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
 		-repetitions $(REPS) \
 		$(WORKLOAD_ARGS) \
@@ -213,7 +240,7 @@ compare: build ## Put the swept policies' goodput in one comparison table
 characterize: build ## Measure KV capacity, the latency floor, the SLO and replica symmetry
 	$(BIN)/characterize -dir $(CHAR_DIR) \
 		-model "$$(ops/fleet.sh env MODEL)" \
-		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
+		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
 		$(CHAR_ARGS)
 
@@ -221,7 +248,7 @@ characterize: build ## Measure KV capacity, the latency floor, the SLO and repli
 contention: build ## Drive all six replicas at once and compare NUMA nodes
 	$(BIN)/characterize -dir $(CONTENTION_DIR) -schedule together \
 		-model "$$(ops/fleet.sh env MODEL)" \
-		-gpus "$$(ops/fleet.sh env REPLICA_COUNT)" \
+		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
 		$(CONTENTION_ARGS)
 
@@ -237,10 +264,17 @@ replica-down: ## Stop the replica on GPU INDEX
 replica-status: ## Show which replicas are running
 	ops/replica.sh status
 
+.PHONY: calibrate
+calibrate: build ## Measure the prefix index's node cap and TTL off the fleet and a sweep
+	$(BIN)/calibrate -replicas "$$(ops/fleet.sh replicas)" \
+		-from $(CALIBRATE_FROM) \
+		-out $(PREFIX_CALIBRATION)
+
 .PHONY: run-router
 run-router: build ## Run the router against REPLICAS, keeping its own rows in RECORDS
 	@mkdir -p $(dir $(RECORDS))
-	$(BIN)/router -listen $(LISTEN) -replicas $(REPLICAS) -policy $(POLICY) -records $(RECORDS)
+	$(BIN)/router -listen $(LISTEN) -replicas $(REPLICAS) -policy $(POLICY) -records $(RECORDS) \
+		$(if $(wildcard $(PREFIX_CALIBRATION)),-prefix-calibration $(PREFIX_CALIBRATION),)
 
 .PHONY: run-fake
 run-fake: build ## Run one fake replica on :8000, for driving the router without a GPU

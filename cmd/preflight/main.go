@@ -6,7 +6,7 @@
 // afterwards that it did. So the check is on the way in, and it exits non-zero
 // rather than warning.
 //
-//	preflight -gpus 6 -threshold-mib 256
+//	preflight -gpu-indexes 0,1,2,4,5 -threshold-mib 256
 //
 // It is deliberately not exempting our own processes: at preflight time there
 // is no fleet yet, so every process on a card is contamination whoever started
@@ -34,7 +34,7 @@ func main() {
 
 func run() error {
 	var (
-		gpus      = flag.Int("gpus", 0, "how many GPUs the fleet uses, checked as indexes 0..n-1; no default, it is REPLICA_COUNT in ops/versions.env")
+		gpus      = flag.String("gpu-indexes", "", "the cards the fleet uses, by index, e.g. \"0,1,2,4,5\"; no default, it is REPLICA_GPUS in ops/versions.env. A list rather than a count because this fleet is not the first n cards")
 		threshold = flag.Int("threshold-mib", 0, "a GPU holding at least this much memory is dirty; no default, it is GPU_DIRTY_THRESHOLD_MIB in ops/versions.env")
 		timeout   = flag.Duration("timeout", 30*time.Second, "how long to wait for nvidia-smi")
 		asJSON    = flag.Bool("json", false, "print the snapshot as JSON instead of a report")
@@ -45,21 +45,25 @@ func run() error {
 	// the single source of truth for everything held constant between cells, and
 	// ops/fleet.sh passes them in. A default here would be a second copy that
 	// could quietly disagree with the file the fleet was actually built from.
-	if *gpus <= 0 || *threshold <= 0 {
-		return fmt.Errorf("-gpus and -threshold-mib are required; run this through 'ops/fleet.sh preflight', which reads both from ops/versions.env")
+	if *gpus == "" || *threshold <= 0 {
+		return fmt.Errorf("-gpu-indexes and -threshold-mib are required; run this through 'ops/fleet.sh preflight', which reads both from ops/versions.env")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
-	indexes := gpu.Indexes(*gpus)
+	indexes, err := gpu.ParseIndexes(*gpus)
+	if err != nil {
+		return err
+	}
 	snapshot, err := gpu.New().Snapshot(ctx)
 	if err != nil {
 		return err
 	}
 	fleet := snapshot.Limit(indexes)
-	if len(fleet.Devices) != *gpus {
-		return fmt.Errorf("found %d of the %d expected GPUs; the host is not the one this fleet is configured for", len(fleet.Devices), *gpus)
+	if len(fleet.Devices) != len(indexes) {
+		return fmt.Errorf("found %d of the %d cards this fleet is configured for (%s); the host is not the one it expects",
+			len(fleet.Devices), len(indexes), gpu.FormatIndexes(indexes))
 	}
 
 	if *asJSON {
