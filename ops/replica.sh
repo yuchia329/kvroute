@@ -74,9 +74,15 @@ gpu_numa_node() {
 # given one. It is what makes the thread split disjoint: a replica's share is
 # decided by its position among its own node's cards, not by the card's index.
 gpus_on_node() {
-  local index="$1" node peers=() i
+  local index="$1" node peers=() i fleet=()
   node="$(gpu_numa_node "$index")"
-  for (( i = 0; i < REPLICA_COUNT; i++ )); do
+  # The fleet's own cards, named. Counting 0..REPLICA_COUNT-1 here would be wrong
+  # twice over on this host: with GPU 3 excluded (#25) it would inspect a card the
+  # fleet does not run on and miss GPU 5, which it does — so replica-5 would not
+  # find itself among its own node's peers and would be given some other replica's
+  # threads, or none.
+  read -r -a fleet <<< "$REPLICA_GPUS"
+  for i in "${fleet[@]}"; do
     if [[ "$(gpu_numa_node "$i")" == "$node" ]]; then peers+=("$i"); fi
   done
   echo "${peers[*]}"

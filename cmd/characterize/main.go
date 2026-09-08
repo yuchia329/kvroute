@@ -9,7 +9,7 @@
 //
 //	characterize -replicas "$(ops/fleet.sh replicas)" \
 //	             -model "$(ops/fleet.sh env MODEL)" \
-//	             -gpus "$(ops/fleet.sh env REPLICA_COUNT)" \
+//	             -gpu-indexes "$(ops/fleet.sh env REPLICA_GPUS)" \
 //	             -dir docs/measurements/characterization
 //
 // It drives replicas directly rather than through the router: every question it
@@ -86,7 +86,7 @@ func run() error {
 		seed         = flag.Uint64("seed", 1, "workload seed; the same seed sends the same bytes")
 
 		sampleGPUs = flag.Bool("sample-gpus", true, "read the host topology and sample nvidia-smi during each probe")
-		gpus       = flag.Int("gpus", 0, "how many GPUs the fleet uses; no default, it is REPLICA_COUNT in ops/versions.env")
+		gpus       = flag.String("gpu-indexes", "", "the cards the fleet uses, by index, e.g. \"0,1,2,4,5\"; no default, it is REPLICA_GPUS in ops/versions.env. A list rather than a count, for the reason gpu.ParseIndexes gives: this fleet is not the first n cards")
 		interval   = flag.Duration("sample-interval", bench.DefaultSampleInterval, "how often to sample the GPUs")
 		pidGlob    = flag.String("replica-pids", "run/replica-*.pid", "glob of the fleet's pid files, used to tell our own processes from foreign ones")
 
@@ -152,12 +152,16 @@ func run() error {
 	contamination := bench.ContaminationConfig{Interval: *interval}
 	var prober *gpu.Prober
 	if *sampleGPUs {
-		if *gpus <= 0 {
-			return fmt.Errorf("characterize: -gpus is required when sampling: pass \"$(ops/fleet.sh env REPLICA_COUNT)\", or run via make characterize")
+		if *gpus == "" {
+			return fmt.Errorf("characterize: -gpu-indexes is required when sampling: pass \"$(ops/fleet.sh env REPLICA_GPUS)\", or run via make characterize")
 		}
 		prober = gpu.New()
 		contamination.Prober = prober
-		contamination.GPUs = gpu.Indexes(*gpus)
+		indexes, err := gpu.ParseIndexes(*gpus)
+		if err != nil {
+			return err
+		}
+		contamination.GPUs = indexes
 		if contamination.OwnPIDs, err = replicaPIDs(*pidGlob); err != nil {
 			return err
 		}
