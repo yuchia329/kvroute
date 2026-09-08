@@ -356,6 +356,9 @@ func RunSweep(ctx context.Context, cfg SweepConfig) ([]Cell, error) {
 	}
 	cfg.Contamination.Log = cfg.Log
 
+	if err := checkRouter(ctx, cfg); err != nil {
+		return nil, err
+	}
 	if err := checkFleet(ctx, cfg); err != nil {
 		return nil, err
 	}
@@ -542,6 +545,60 @@ func warmOnce(ctx context.Context, client *http.Client, base string, turn Turn) 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("status %d", resp.StatusCode)
 	}
+	return nil
+}
+
+// checkRouter refuses to start a sweep against a router that is not there, or that
+// is running a policy other than the one the cells will be labelled with.
+//
+// The label is this harness's weakest link. A router is started with its policy and
+// the sweep is only told which one that was — SweepConfig.Policy says as much — so
+// nothing else stands between a mistyped -policy and a directory of cells naming a
+// policy that never ran. Two policies' cells would then differ in nothing at all,
+// and the comparison drawn from them would be fiction made of real numbers: one
+// policy measured twice. No later analysis can detect that, which is why it is
+// checked before the first cell rather than reported after the last.
+//
+// A router that is not running is the cheaper failure and the same argument: it
+// refuses every connection, the driver books each as a dropped request, and the
+// sweep runs to its full length producing nothing else. On a box that is only idle
+// until the 20th that is a wasted night.
+//
+// The router's own /router/stats is the only party that knows, which is why the
+// harness asks it rather than inferring anything.
+func checkRouter(ctx context.Context, cfg SweepConfig) error {
+	if cfg.Target == "" {
+		return errors.New("bench: a router to drive is required")
+	}
+	url := strings.TrimSuffix(cfg.Target, "/") + "/router/stats"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("bench: %w", err)
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return fmt.Errorf("bench: the router at %s did not answer, so every request of this sweep would be a dropped one: %w", cfg.Target, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bench: the router at %s answered %s with status %d, so this is not a kvroute router", cfg.Target, url, resp.StatusCode)
+	}
+
+	var stats router.Stats
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+		return fmt.Errorf("bench: %s did not return a router's stats, so this is not a kvroute router: %w", url, err)
+	}
+	if stats.Policy != cfg.Policy {
+		return fmt.Errorf("bench: the router at %s is running %q, but this sweep would label its cells %q. "+
+			"The router is started with its policy and the sweep is only told which one, so one of the two is wrong — and cells naming a policy that never ran would make a comparison of one policy against itself that no later analysis could catch",
+			cfg.Target, stats.Policy, cfg.Policy)
+	}
+	if len(cfg.Replicas) > 0 && len(stats.Replicas) != len(cfg.Replicas) {
+		return fmt.Errorf("bench: the router at %s fronts %d replicas but this sweep was given %d, so the harness and the router are pointed at different fleets",
+			cfg.Target, len(stats.Replicas), len(cfg.Replicas))
+	}
+	cfg.Log.Info("router is up and running the policy these cells will name",
+		"router", cfg.Target, "policy", stats.Policy, "replicas", len(stats.Replicas))
 	return nil
 }
 
