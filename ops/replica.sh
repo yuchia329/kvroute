@@ -70,20 +70,47 @@ gpu_numa_node() {
   cat "/sys/bus/pci/devices/$sysfs/numa_node" 2>/dev/null || echo -1
 }
 
-# take_threads prints the first n threads of a "0-23,48-71" list, comma
-# separated. Which n does not matter as long as every replica gets the same
-# count; that they are contiguous and local is what makes them the right ones.
-take_threads() {
-  local list="$1" want="$2" parts=() out=() part low high cpu
+# gpus_on_node prints, in index order, the GPUs sharing a NUMA node with the
+# given one. It is what makes the thread split disjoint: a replica's share is
+# decided by its position among its own node's cards, not by the card's index.
+gpus_on_node() {
+  local index="$1" node peers=() i
+  node="$(gpu_numa_node "$index")"
+  for (( i = 0; i < REPLICA_COUNT; i++ )); do
+    if [[ "$(gpu_numa_node "$i")" == "$node" ]]; then peers+=("$i"); fi
+  done
+  echo "${peers[*]}"
+}
+
+# slice_threads prints replica `ordinal`'s share of a "0-23,48-71" cpu list:
+# `want` threads, disjoint from every other replica on the same node.
+#
+# The share is taken evenly from EACH range rather than as the first n threads
+# of the whole list, because on this host the two ranges are the node's physical
+# cores and then their SMT siblings — cpu0's sibling is cpu48, cpu12's is cpu60.
+# An even slice per range therefore gives every replica whole cores: six cores
+# and those same six cores' siblings. Taking the first n would hand the early
+# replicas twelve real cores and the later ones nothing but hyperthreads of
+# cores already busy serving another replica.
+slice_threads() {
+  local list="$1" ordinal="$2" want="$3" siblings="$4"
+  local parts=() out=() part low high span per_range start i
   IFS=',' read -r -a parts <<< "$list"
+  (( ${#parts[@]} > 0 )) || die "GPU reports an empty cpu list"
+  (( want % ${#parts[@]} == 0 )) \
+    || die "$want threads per replica does not divide evenly into the ${#parts[@]} cpu ranges of: $list"
+  per_range=$(( want / ${#parts[@]} ))
   for part in "${parts[@]}"; do
     low="${part%%-*}"
     high="${part##*-}"
-    for (( cpu = low; cpu <= high && ${#out[@]} < want; cpu++ )); do
-      out+=("$cpu")
+    span=$(( high - low + 1 ))
+    (( span >= per_range * siblings )) \
+      || die "cpu range $part holds $span threads, too few for $siblings replicas at $per_range each. Lower CPU_THREADS_PER_REPLICA."
+    start=$(( low + ordinal * per_range ))
+    for (( i = 0; i < per_range; i++ )); do
+      out+=( "$(( start + i ))" )
     done
   done
-  (( ${#out[@]} == want )) || die "GPU has only ${#out[@]} threads local to it, fewer than the $want asked for: $list"
   local IFS=,
   echo "${out[*]}"
 }
@@ -96,15 +123,27 @@ take_threads() {
 # interconnect, which this host measures at roughly twice the local cost. The
 # point of pinning is to make the six replicas equal, and half-pinning makes
 # them less equal rather than more.
+#
+# The thread sets are disjoint across a node's replicas. Overlapping sets would
+# be worse than no pinning at all: node 0's four cards would share one twelve
+# thread set while node 1's two shared another, which is both less CPU than they
+# have unpinned and still unequal between the nodes.
 pin_prefix() {
-  local index="$1" cpus node threads
+  local index="$1" cpus node threads peers=() ordinal=-1 i
   [[ "$CPU_PINNING" == "1" ]] || return 0
   command -v numactl >/dev/null || die "CPU_PINNING is on but numactl is not installed"
 
   node="$(gpu_numa_node "$index")"
   [[ "$node" != "-1" ]] || die "GPU $index reports no NUMA node, so it cannot be pinned to one"
+
+  read -r -a peers <<< "$(gpus_on_node "$index")"
+  for i in "${!peers[@]}"; do
+    if [[ "${peers[$i]}" == "$index" ]]; then ordinal="$i"; fi
+  done
+  (( ordinal >= 0 )) || die "GPU $index is not among the cards on its own NUMA node $node"
+
   cpus="$(gpu_cpulist "$index")"
-  threads="$(take_threads "$cpus" "$CPU_THREADS_PER_REPLICA")"
+  threads="$(slice_threads "$cpus" "$ordinal" "$CPU_THREADS_PER_REPLICA" "${#peers[@]}")"
 
   echo "numactl --physcpubind=$threads --membind=$node"
 }
