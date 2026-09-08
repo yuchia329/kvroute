@@ -73,9 +73,20 @@ func run() error {
 		lagAt     = flag.Duration("schedule-lag-threshold", bench.DefaultScheduleLagThreshold, "how late an open-loop cell's requests may be sent against the schedule that asked for them, at p99, before the cell is flagged as not having offered the rate it reports; negative disables the check")
 
 		model        = flag.String("model", "", "the model the replicas serve; no default, it is pinned in ops/versions.env")
-		promptBytes  = flag.Int("prompt-bytes", 2048, "approximate prompt size per request")
-		outputTokens = flag.Int("output-tokens", 64, "max_tokens per request")
+		outputTokens = flag.Int("output-tokens", 64, "max_tokens per request, and the size of the reply written back into a multi-turn history")
 		seed         = flag.Uint64("seed", 1, "workload seed; the same seed sends the same bytes")
+
+		workload    = flag.String("workload", workloadFixed, "what to offer: "+workloadFixed+", independent single-turn requests sharing no prefix, or "+workloadMultiTurn+", the multi-turn generator with both pressure knobs")
+		promptBytes = flag.Int("prompt-bytes", 2048, "approximate prompt size per request, for the fixed workload")
+
+		sessions     = flag.Int("sessions", 0, "size of the multi-turn session pool; leave it zero and pass -working-set to derive it from measured capacity instead")
+		workingSet   = flag.Float64("working-set", 0, "WS point to offer: session tokens over aggregate fleet KV. Needs -kv-capacity")
+		kvCapacity   = flag.Int("kv-capacity", 0, "measured aggregate fleet KV in tokens, read from the characterization gates' capacity record rather than estimated; every WS point moves with this denominator, and the by-hand estimate was 9.8% low")
+		turns        = flag.Int("turns-per-session", 0, "turns per multi-turn session; zero takes the generator's default")
+		promptTokens = flag.Int("prompt-tokens", 0, "new user text each multi-turn turn contributes, on top of the history it resends; zero takes the generator's default")
+		skew         = flag.Float64("skew", 0, "Zipf skew over the session pool: 0 is uniform, and concentration rises from there. The axis that creates load imbalance")
+		sharedSystem = flag.Float64("shared-system-prompt", 0, "fraction of sessions carrying the shared system prompt")
+		branching    = flag.Float64("branching", 0, "fraction of sessions descending from a common ancestor rather than opening on their own content")
 
 		sampleGPUs = flag.Bool("sample-gpus", true, "sample nvidia-smi during each cell for contamination evidence")
 		gpus       = flag.Int("gpus", 0, "how many GPUs the fleet uses; no default, it is REPLICA_COUNT in ops/versions.env")
@@ -168,6 +179,23 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	offered, err := buildWorkload(workloadConfig{
+		kind: *workload, model: *model, outputTokens: *outputTokens, seed: *seed,
+		promptBytes:  *promptBytes,
+		sessions:     *sessions,
+		workingSet:   *workingSet,
+		kvCapacity:   *kvCapacity,
+		turns:        *turns,
+		promptTokens: *promptTokens,
+		skew:         *skew,
+		sharedSystem: *sharedSystem,
+		branching:    *branching,
+	})
+	if err != nil {
+		return err
+	}
+	log.Info("offering", "workload", offered.Name())
+
 	cells, sweepErr := bench.RunSweep(ctx, bench.SweepConfig{
 		Dir:                  *dir,
 		Target:               *target,
@@ -184,14 +212,9 @@ func run() error {
 		FailureThreshold:     *failureAt,
 		WarmupDriftThreshold: *driftAt,
 		ScheduleLagThreshold: *lagAt,
-		Workload: bench.NewFixedWorkload(bench.FixedWorkload{
-			Model:        *model,
-			PromptBytes:  *promptBytes,
-			OutputTokens: *outputTokens,
-			Seed:         *seed,
-		}),
-		Contamination: contamination,
-		Log:           log,
+		Workload:             offered,
+		Contamination:        contamination,
+		Log:                  log,
 	})
 
 	// Report and compact whatever finished, even if the sweep stopped early:
@@ -214,6 +237,62 @@ func run() error {
 			"results", path)
 	}
 	return sweepErr
+}
+
+// The two workloads the sweep can offer.
+const (
+	workloadFixed     = "fixed"
+	workloadMultiTurn = "multiturn"
+)
+
+type workloadConfig struct {
+	kind         string
+	model        string
+	outputTokens int
+	seed         uint64
+
+	promptBytes int
+
+	sessions     int
+	workingSet   float64
+	kvCapacity   int
+	turns        int
+	promptTokens int
+	skew         float64
+	sharedSystem float64
+	branching    float64
+}
+
+// buildWorkload settles what the sweep offers.
+//
+// It runs before the first cell rather than inside the sweep, because a
+// configuration the generator refuses is worth refusing before the fleet has
+// been warmed and the first hour of GPU time spent.
+func buildWorkload(cfg workloadConfig) (bench.Workload, error) {
+	switch cfg.kind {
+	case workloadFixed:
+		return bench.NewFixedWorkload(bench.FixedWorkload{
+			Model:        cfg.model,
+			PromptBytes:  cfg.promptBytes,
+			OutputTokens: cfg.outputTokens,
+			Seed:         cfg.seed,
+		}), nil
+	case workloadMultiTurn:
+		return bench.NewMultiTurn(bench.MultiTurnWorkload{
+			Model:                cfg.model,
+			Sessions:             cfg.sessions,
+			WorkingSet:           cfg.workingSet,
+			CapacityTokens:       cfg.kvCapacity,
+			TurnsPerSession:      cfg.turns,
+			PromptTokens:         cfg.promptTokens,
+			OutputTokens:         cfg.outputTokens,
+			Skew:                 cfg.skew,
+			SystemPromptFraction: cfg.sharedSystem,
+			BranchFraction:       cfg.branching,
+			Seed:                 cfg.seed,
+		})
+	}
+	return nil, fmt.Errorf("bench: unknown -workload %q; it is %s or %s", cfg.kind, workloadFixed, workloadMultiTurn)
 }
 
 // header states what produced the table, because a latency table without its
