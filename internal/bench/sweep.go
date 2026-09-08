@@ -33,13 +33,31 @@ var ConcurrencySweep = []int{1, 4, 8, 16, 32, 64, 128, 256}
 // It brackets the knee rather than climbing to an arbitrary ceiling: goodput
 // rises with offered load until the SLO starts failing and then falls, so the
 // figure only means anything if the ladder has points on both sides of the
-// turn. The bring-up sweep put the fleet at 11.6 completed requests per second
-// at concurrency 8 with none of them missing the SLO, so the turn is somewhere
-// above that — the low rungs are there to be comfortably under it and the top
-// two to be past it. It is a starting ladder for a fleet that has been measured
-// once, not a constant: a run that turns before 12 or has not turned by 48
-// should move it rather than reporting the edge of the range as the answer.
-var ArrivalRateSweep = []float64{4, 8, 12, 16, 24, 32, 48}
+// turn. It is a ladder for a measured fleet rather than a constant, and it has
+// been re-cut once already on exactly the terms the first version set for
+// itself: a run that turns before its second rung should move it rather than
+// report the edge of the range as the answer.
+//
+// The first ladder was 4, 8, 12, 16, 24, 32, 48, chosen before the fleet had
+// been driven open-loop. The 2026-09-08 two-policy run turned between 12 and 16
+// — round-robin held 12.00 of an offered 12 and collapsed to 2.69 at 16 — so
+// 24, 32 and 48 all returned exactly 0.00 goodput on every repetition of both
+// policies. Three of seven rungs measured nothing, and one rung sat anywhere
+// near the turn.
+//
+// This ladder is re-cut for the multi-turn workload, which is heavier than the
+// fixed one that produced those numbers. A fixed request is ~512 prompt tokens;
+// a multi-turn request averages ~1,250 across a four-turn session, because each
+// turn resends the history before it. That is ~2.4x the prefill for a policy
+// that does not keep a conversation together, which should pull round-robin's
+// turn down towards 5, while a policy that does keep one together pays for the
+// new text only and should turn nearer the old 12 to 16. The rungs span both,
+// evenly, so whichever end a policy turns at there are points either side of it.
+//
+// Every policy in one comparison has to climb the same ladder. A rung one policy
+// skipped is a gap in that row of the table, not a lower score, so this is
+// settled before the first sweep rather than tuned between them.
+var ArrivalRateSweep = []float64{2, 4, 6, 8, 10, 12, 14, 16}
 
 // FormatLevels renders concurrency levels into the comma-separated spec the
 // commands take, so a flag's default can be the package's own value rather than
