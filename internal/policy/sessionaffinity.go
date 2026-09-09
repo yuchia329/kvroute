@@ -80,11 +80,26 @@ func (p *SessionAffinity) Choose(req Request, state fleet.State) (Choice, error)
 		return Choice{Replica: chosen.Replica, Reason: ReasonSessionUnidentified, Inflight: chosen.Inflight}, nil
 	}
 
-	chosen := p.ringFor(state).lookup(req.Session.ID)
+	replica := p.ringFor(state).lookup(req.Session.ID)
 	// The load is reported even though the hash did not weigh it. How badly this
 	// policy leaves the fleet imbalanced under skew is the comparison §5 is
 	// about, and it has to be a figure the rows can show rather than a claim
 	// about this policy's code.
+	//
+	// Read off the snapshot rather than off the ring. The ring is rebuilt only
+	// when the replica set changes, so anything it carried besides identity
+	// would be frozen at whichever request first built it — an idle fleet — and
+	// every row would report zero however loaded the fleet became. That is the
+	// one figure this policy contributes to §5's imbalance claim, so it failing
+	// silently is the whole cost of the mistake.
+	chosen, present := state.Candidate(replica.ID)
+	if !present {
+		// Unreachable: the ring is rebuilt whenever the replica set changes, so
+		// it can only name a replica of this snapshot. Handled rather than
+		// asserted, because the alternative to a defined answer here is a
+		// dropped request on a fleet that is fine.
+		return Choice{Replica: replica, Reason: ReasonSessionAffinity}, nil
+	}
 	return Choice{Replica: chosen.Replica, Reason: ReasonSessionAffinity, Inflight: chosen.Inflight}, nil
 }
 
@@ -129,21 +144,26 @@ func topologyOf(replicas []fleet.Candidate) string {
 // lived on the replica that left. That difference is what §7's chaos recovery
 // measures, so the policy has to actually have the property rather than
 // approximate it.
+//
+// It carries replicas rather than candidates: a candidate holds load as well as
+// identity, and load read off a structure rebuilt only on topology change would
+// be frozen at whichever request first built it. Keeping identity alone here
+// makes that mistake unrepresentable rather than merely fixed.
 type ring struct {
 	topology  string
 	positions []uint64
-	owners    []fleet.Candidate
+	owners    []fleet.Replica
 }
 
 func newRing(replicas []fleet.Candidate) *ring {
 	type node struct {
 		position uint64
-		owner    fleet.Candidate
+		owner    fleet.Replica
 	}
 	nodes := make([]node, 0, len(replicas)*virtualNodesPerReplica)
 	for _, r := range replicas {
 		for v := range virtualNodesPerReplica {
-			nodes = append(nodes, node{position: hash(fmt.Sprintf("%s#%d", r.ID, v)), owner: r})
+			nodes = append(nodes, node{position: hash(fmt.Sprintf("%s#%d", r.ID, v)), owner: r.Replica})
 		}
 	}
 	// Ties are broken by replica id so that the ring is a function of the
@@ -160,7 +180,7 @@ func newRing(replicas []fleet.Candidate) *ring {
 	r := &ring{
 		topology:  topologyOf(replicas),
 		positions: make([]uint64, len(nodes)),
-		owners:    make([]fleet.Candidate, len(nodes)),
+		owners:    make([]fleet.Replica, len(nodes)),
 	}
 	for i, n := range nodes {
 		r.positions[i], r.owners[i] = n.position, n.owner
@@ -170,7 +190,7 @@ func newRing(replicas []fleet.Candidate) *ring {
 
 // lookup walks clockwise from the session's position to the first virtual node,
 // wrapping at the end of the ring.
-func (r *ring) lookup(sessionID string) fleet.Candidate {
+func (r *ring) lookup(sessionID string) fleet.Replica {
 	i, _ := slices.BinarySearch(r.positions, hash(sessionID))
 	return r.owners[i%len(r.owners)]
 }

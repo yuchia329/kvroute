@@ -257,3 +257,47 @@ func TestSessionAffinityWithNoReplicasCannotChoose(t *testing.T) {
 		t.Errorf("err = %v, want %v", err, policy.ErrNoReplica)
 	}
 }
+
+// The load on the row has to be the load at the decision, not the load when the
+// ring happened to be built.
+//
+// The ring is rebuilt only when the replica set changes, so a ring that carried
+// load would freeze it at whichever request built it first — an idle fleet — and
+// every row would report zero however loaded the fleet became. That is the one
+// figure this policy contributes to §5's imbalance claim, and it would have
+// failed silently: routing is unaffected, because the hash ignores load by
+// design, so nothing else in the record would look wrong.
+//
+// TestTheChoiceRecordsTheLoadTheHashIgnored does not catch it: it loads the
+// fleet before the first Choose, so the ring is built already-loaded and the
+// frozen copy is correct by accident. The load has to change after the ring
+// exists, which is every real request after the first.
+func TestTheRecordedLoadFollowsTheFleetAfterTheRingIsBuilt(t *testing.T) {
+	f := newFleet(t, 3)
+	p := policy.NewSessionAffinity()
+
+	// First request builds the ring against an idle fleet.
+	first, err := p.Choose(forSession("chat-1"), f.State())
+	if err != nil {
+		t.Fatalf("choose: %v", err)
+	}
+	if first.Inflight != 0 {
+		t.Fatalf("an idle fleet recorded inflight = %d", first.Inflight)
+	}
+
+	// The fleet fills up. The ring does not change, because the replica set has
+	// not changed.
+	load(t, f, first.Replica.ID, 7)
+
+	again, err := p.Choose(forSession("chat-1"), f.State())
+	if err != nil {
+		t.Fatalf("choose: %v", err)
+	}
+	if again.Replica.ID != first.Replica.ID {
+		t.Fatalf("the session moved from %s to %s", first.Replica.ID, again.Replica.ID)
+	}
+	if again.Inflight != 7 {
+		t.Errorf("decision recorded inflight = %d against a replica holding 7. "+
+			"A ring that carries load reports what it held when it was built, which is always an idle fleet", again.Inflight)
+	}
+}
