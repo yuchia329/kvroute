@@ -1,9 +1,10 @@
 // Package fleet owns the set of replicas and the load state the router knows
 // about them.
 //
-// State is the whole of what a policy is allowed to see, so later work can add
-// scraped KV utilization here without any policy or the router's ingress needing
-// to change shape.
+// State is the whole of what a policy is allowed to see. It carries two load
+// signals of different kinds and they are never confused for one another:
+// inflight is counted locally and exactly, and KV utilization is scraped and
+// therefore up to one polling window old.
 //
 // Inflight is counted here rather than read from anywhere: the router is the
 // sole ingress, so it knows exactly what it dispatched and what has not come
@@ -19,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/yuchia329/kvroute/internal/vllmmetrics"
 )
 
 // Replica is one vLLM process serving one model on one GPU.
@@ -50,6 +53,18 @@ type Candidate struct {
 	// and the ones it has queued, because the router cannot tell those apart and
 	// does not need to.
 	Inflight int
+	// KV is the replica's last scraped KV utilization, or an unread reading
+	// when no scrape has answered for it.
+	//
+	// Scraped rather than counted, because it is the one load signal the router
+	// cannot derive locally: the router knows what it dispatched, not how much
+	// cache that work is occupying. It therefore carries a polling window that
+	// Inflight does not — a reading is up to one scrape interval old — which is
+	// why the spill rule uses it as a pressure threshold to cross rather than as
+	// a quantity to sort replicas by. Sorting on a stale figure is the classic
+	// stale load-balancer stampede, and Inflight is the exact signal that exists
+	// to avoid it.
+	KV vllmmetrics.KVUtilization
 }
 
 // State is a snapshot of the fleet, taken once per routing decision.
@@ -98,6 +113,12 @@ type Fleet struct {
 	// rather than compacting these slices under it.
 	inflight []atomic.Int64
 	index    map[string]int
+	// kv is indexed as replicas, and holds the last reading the scraper took of
+	// each. A nil pointer is a replica nobody has scraped yet, which is not the
+	// same as one whose cache is empty — see vllmmetrics.KVUtilization. Written
+	// once per replica per scrape interval and read on every routing decision,
+	// so it is a pointer swap rather than anything held under the fleet's mutex.
+	kv []atomic.Pointer[vllmmetrics.KVUtilization]
 }
 
 // New builds a fleet. It rejects duplicate ids and unusable base URLs, because
@@ -132,6 +153,7 @@ func New(replicas []Replica) (*Fleet, error) {
 	return &Fleet{
 		replicas: append([]Replica(nil), replicas...),
 		inflight: make([]atomic.Int64, len(replicas)),
+		kv:       make([]atomic.Pointer[vllmmetrics.KVUtilization], len(replicas)),
 		index:    index,
 	}, nil
 }
@@ -144,6 +166,9 @@ func (f *Fleet) State() State {
 	candidates := make([]Candidate, len(f.replicas))
 	for i, r := range f.replicas {
 		candidates[i] = Candidate{Replica: r, Inflight: int(f.inflight[i].Load())}
+		if reading := f.kv[i].Load(); reading != nil {
+			candidates[i].KV = *reading
+		}
 	}
 	return State{Replicas: candidates}
 }

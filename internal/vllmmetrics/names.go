@@ -65,7 +65,7 @@ func (f Family) SeriesNames() []string {
 // Adding a dependency on a new metric means adding it here, so that the
 // contract test starts checking for it.
 var Required = []Family{
-	{"vllm:kv_cache_usage_perc", Gauge, "KV-cache usage as a fraction of capacity. NOT gpu_cache_usage_perc."},
+	{KVCacheUsage, Gauge, "KV-cache usage as a fraction of capacity. The spill rule's signal. NOT gpu_cache_usage_perc."},
 	{NumRequestsRunning, Gauge, "Requests currently in model execution batches. This is the engine's actual batch."},
 	{NumRequestsWaiting, Gauge, "Requests waiting in the engine queue. Never call this inflight."},
 	{PrefixCacheHits, Counter, "Prefix-cache block hits. Ground truth for the router's prefix match."},
