@@ -53,7 +53,7 @@ func fleetOf(t *testing.T, n int) fleet.State {
 // The mechanism the whole project is about: once a conversation has been served
 // somewhere, its next turn goes back to the replica already holding its prefix.
 func TestALaterTurnGoesBackToTheReplicaHoldingItsPrefix(t *testing.T) {
-	p := policy.NewPrefixAffinity(prefixIndex(t))
+	p := policy.NewPrefixAffinity(prefixIndex(t), policy.Spill{})
 	state := fleetOf(t, 6)
 
 	first, err := p.Choose(policy.Request{Body: conversation("alpha", 0)}, state)
@@ -85,7 +85,7 @@ func TestALaterTurnGoesBackToTheReplicaHoldingItsPrefix(t *testing.T) {
 // figure on the row there is nothing to plot the engine's actual prefill
 // against, which is the measurement this index exists to make possible.
 func TestTheDecisionCarriesThePrefixMatchItWasMadeOn(t *testing.T) {
-	p := policy.NewPrefixAffinity(prefixIndex(t))
+	p := policy.NewPrefixAffinity(prefixIndex(t), policy.Spill{})
 	state := fleetOf(t, 6)
 
 	cold, _ := p.Choose(policy.Request{Body: conversation("beta", 0)}, state)
@@ -111,7 +111,7 @@ func TestTheDecisionCarriesThePrefixMatchItWasMadeOn(t *testing.T) {
 // replica. Routing it by anything else would be inventing a preference: there is
 // no cache to preserve, so the only signal left is load.
 func TestAColdRequestGoesToTheLeastLoadedReplica(t *testing.T) {
-	p := policy.NewPrefixAffinity(prefixIndex(t))
+	p := policy.NewPrefixAffinity(prefixIndex(t), policy.Spill{})
 	state := fleetOf(t, 3)
 	state.Replicas[0].Inflight = 9
 	state.Replicas[1].Inflight = 4
@@ -129,12 +129,12 @@ func TestAColdRequestGoesToTheLeastLoadedReplica(t *testing.T) {
 	}
 }
 
-// This policy is deliberately blind to load once it has a match — declining
-// affinity under pressure is the spill rule, which is a separate piece of work
-// with its own thresholds and its own reasons. Without this, the comparison the
-// project rests on would be measuring two changes at once.
-func TestAffinityIsTakenRegardlessOfLoadUntilSpillExists(t *testing.T) {
-	p := policy.NewPrefixAffinity(prefixIndex(t))
+// With no spill rule configured, this policy is blind to load once it has a
+// match. That is the policy the four-policy comparison measured, and it stays
+// reachable as the zero Spill so the grid has a point to be read against:
+// spill_test.go covers what happens when a threshold is set.
+func TestAffinityIsTakenRegardlessOfLoadWhenNoSpillIsConfigured(t *testing.T) {
+	p := policy.NewPrefixAffinity(prefixIndex(t), policy.Spill{})
 	state := fleetOf(t, 3)
 
 	first, _ := p.Choose(policy.Request{Body: conversation("delta", 0)}, state)
@@ -159,7 +159,7 @@ func TestAffinityIsTakenRegardlessOfLoadUntilSpillExists(t *testing.T) {
 // names this as one of the places policy 4 should separate from policy 3, so it
 // is tested rather than assumed.
 func TestBranchedConversationsFindTheirCommonAncestor(t *testing.T) {
-	p := policy.NewPrefixAffinity(prefixIndex(t))
+	p := policy.NewPrefixAffinity(prefixIndex(t), policy.Spill{})
 	state := fleetOf(t, 6)
 
 	root := conversation("epsilon", 2)
@@ -184,7 +184,7 @@ func TestBranchedConversationsFindTheirCommonAncestor(t *testing.T) {
 // fleet is not a candidate however good its match, and the request falls to the
 // next best rather than being dropped.
 func TestAMatchOnAReplicaThatHasLeftFallsToTheNextBest(t *testing.T) {
-	p := policy.NewPrefixAffinity(prefixIndex(t))
+	p := policy.NewPrefixAffinity(prefixIndex(t), policy.Spill{})
 	full := fleetOf(t, 3)
 
 	first, _ := p.Choose(policy.Request{Body: conversation("eta", 0)}, full)
@@ -211,7 +211,7 @@ func TestAMatchOnAReplicaThatHasLeftFallsToTheNextBest(t *testing.T) {
 // An empty fleet is the one case with no answer, and it is a drop rather than a
 // panic.
 func TestAnEmptyFleetIsADropRatherThanAChoice(t *testing.T) {
-	p := policy.NewPrefixAffinity(prefixIndex(t))
+	p := policy.NewPrefixAffinity(prefixIndex(t), policy.Spill{})
 	if _, err := p.Choose(policy.Request{Body: conversation("theta", 0)}, fleet.State{}); err == nil {
 		t.Error("a request was routed to an empty fleet")
 	}
@@ -220,7 +220,7 @@ func TestAnEmptyFleetIsADropRatherThanAChoice(t *testing.T) {
 // A prompt too short to fill one block has no chain to match on, and is routed
 // on load like any other cold request rather than treated as an error.
 func TestAPromptTooShortToChunkIsRoutedOnLoad(t *testing.T) {
-	p := policy.NewPrefixAffinity(prefixIndex(t))
+	p := policy.NewPrefixAffinity(prefixIndex(t), policy.Spill{})
 	state := fleetOf(t, 3)
 	state.Replicas[1].Inflight = 7
 
@@ -239,7 +239,7 @@ func TestAPromptTooShortToChunkIsRoutedOnLoad(t *testing.T) {
 // The router is the sole ingress to six replicas and handles requests
 // concurrently. Run under -race.
 func TestThePolicyIsSafeUnderConcurrentUse(t *testing.T) {
-	p := policy.NewPrefixAffinity(prefixIndex(t))
+	p := policy.NewPrefixAffinity(prefixIndex(t), policy.Spill{})
 	state := fleetOf(t, 6)
 
 	var wg sync.WaitGroup
@@ -270,7 +270,7 @@ func TestTheIndexLookupStaysInsideTheRouterOverheadBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prefix.New: %v", err)
 	}
-	p := policy.NewPrefixAffinity(ix)
+	p := policy.NewPrefixAffinity(ix, policy.Spill{})
 	state := fleetOf(t, 6)
 
 	// Fill the index to its cap, the state the router runs in for all but the
@@ -335,7 +335,7 @@ func TestPrefixAffinityIsComparedAfterTheBaselines(t *testing.T) {
 // send every one of those requests to whichever replica sorts first, which
 // idea.md §5 calls out as strictly worse than scattering them.
 func TestReplicasTiedOnMatchAreSeparatedByLoad(t *testing.T) {
-	p := policy.NewPrefixAffinity(prefixIndex(t))
+	p := policy.NewPrefixAffinity(prefixIndex(t), policy.Spill{})
 	state := fleetOf(t, 3)
 
 	// Teach every replica the same opening, by routing it while each in turn is
@@ -367,10 +367,10 @@ func TestReplicasTiedOnMatchAreSeparatedByLoad(t *testing.T) {
 }
 
 // A longer match still wins outright. Load separates equals; it never buys a
-// shorter match, because that would be the spill rule and this policy does not
-// have one.
+// shorter match. Only the spill rule declines a match for load, and it is not
+// configured here.
 func TestALongerMatchStillBeatsAnIdleReplica(t *testing.T) {
-	p := policy.NewPrefixAffinity(prefixIndex(t))
+	p := policy.NewPrefixAffinity(prefixIndex(t), policy.Spill{})
 	state := fleetOf(t, 2)
 
 	// replica-0 learns the whole conversation; replica-1 only its opening.
@@ -392,6 +392,6 @@ func TestALongerMatchStillBeatsAnIdleReplica(t *testing.T) {
 		t.Fatalf("Choose: %v", err)
 	}
 	if got.Replica.ID != "replica-0" {
-		t.Errorf("the deeper match was declined for an idle replica: went to %s. That is the spill rule, which #16 owns", got.Replica.ID)
+		t.Errorf("the deeper match was declined for an idle replica: went to %s, with no spill rule configured", got.Replica.ID)
 	}
 }

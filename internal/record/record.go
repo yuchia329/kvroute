@@ -80,6 +80,28 @@ type Request struct {
 	// weighed, recorded so that how balanced a policy left the fleet is a figure
 	// the rows can show rather than a claim about the policy's code.
 	Inflight int `json:"inflight" parquet:"inflight"`
+	// KVUtilization is the chosen replica's scraped KV cache utilization when
+	// the decision was made, and KVUtilizationRead says whether any scrape had
+	// answered for it.
+	//
+	// Two fields rather than one, for the reason the outcome taxonomy is four
+	// columns rather than three: an unscraped replica and an empty cache are
+	// different states, and only the flag can tell them apart. A run whose
+	// scrapes were failing routed with the KV spill condition silently
+	// disabled, and a column of bare zeros would read as a fleet with plenty of
+	// cache room rather than as a fleet nobody could measure.
+	KVUtilization     float64 `json:"kv_utilization" parquet:"kv_utilization"`
+	KVUtilizationRead bool    `json:"kv_utilization_read" parquet:"kv_utilization_read"`
+	// DeclinedMatchBytes is the prefix match the spill rule gave up on this
+	// request, in bytes. Zero on every decision that was not a spill.
+	//
+	// PrefixMatchBytes says what the replica that served the request was
+	// believed to hold; this says what was on the table when the rule declined
+	// to use it. The pair is what makes a threshold's cost countable: a grid
+	// point that spills often but forfeits almost nothing is cheap, and one
+	// that spills rarely but gives up whole conversations is not, and the
+	// spill count alone cannot tell those apart.
+	DeclinedMatchBytes int `json:"declined_match_bytes" parquet:"declined_match_bytes"`
 
 	Model  string `json:"model" parquet:"model"`
 	Stream bool   `json:"stream" parquet:"stream"`

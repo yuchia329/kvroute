@@ -71,7 +71,16 @@ type Router struct {
 
 // Stats is what the router reports about itself.
 type Stats struct {
-	Policy         string         `json:"policy"`
+	Policy string `json:"policy"`
+	// Spill is the grid point the running policy is tuned to, when it has
+	// tunables at all. Absent for the three policies that have none.
+	//
+	// Published for the same reason the policy name is: the router is started
+	// with its configuration and the harness is only told what that was, so this
+	// is the only party that knows. A grid of cells labelled with thresholds the
+	// router was never running would be a tradeoff curve drawn from one point
+	// measured nine times, and no later analysis could detect it.
+	Spill          *policy.Spill  `json:"spill,omitempty"`
 	Replicas       []ReplicaStats `json:"replicas"`
 	Requests       int64          `json:"requests"`
 	RouterOverhead stats.Summary  `json:"router_overhead"`
@@ -85,6 +94,13 @@ type Stats struct {
 type ReplicaStats struct {
 	ID       string `json:"id"`
 	Inflight int    `json:"inflight"`
+	// KVUtilization is the replica's last scraped cache utilization, and
+	// KVUtilizationRead whether any scrape has answered for it. Reported here as
+	// well as on the rows so that a fleet whose scrapes have stopped answering
+	// is visible while a run is happening rather than only afterwards: the spill
+	// rule degrades silently by design, and this is where that shows.
+	KVUtilization     float64 `json:"kv_utilization"`
+	KVUtilizationRead bool    `json:"kv_utilization_read"`
 }
 
 // DefaultClient dispatches to replicas.
@@ -147,10 +163,21 @@ func (rt *Router) Stats() Stats {
 	state := rt.fleet.State()
 	replicas := make([]ReplicaStats, 0, len(state.Replicas))
 	for _, c := range state.Replicas {
-		replicas = append(replicas, ReplicaStats{ID: c.ID, Inflight: c.Inflight})
+		replicas = append(replicas, ReplicaStats{
+			ID:                c.ID,
+			Inflight:          c.Inflight,
+			KVUtilization:     c.KV.Fraction,
+			KVUtilizationRead: c.KV.Read,
+		})
+	}
+	var spill *policy.Spill
+	if tuned, ok := rt.policy.(policy.Tuned); ok {
+		s := tuned.Tunables()
+		spill = &s
 	}
 	return Stats{
 		Policy:         rt.policy.Name(),
+		Spill:          spill,
 		Replicas:       replicas,
 		Requests:       rt.requests.Load(),
 		RouterOverhead: rt.overhead.Summary(),
@@ -212,6 +239,8 @@ func (rt *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request
 	row.DecisionReason = string(choice.Reason)
 	row.Inflight = choice.Inflight
 	row.PrefixMatchBytes = choice.PrefixMatchBytes
+	row.KVUtilization, row.KVUtilizationRead = choice.KV.Fraction, choice.KV.Read
+	row.DeclinedMatchBytes = choice.DeclinedMatchBytes
 
 	// The request is now committed to a replica, so it counts against that
 	// replica from here. Released by a defer rather than at each return, because
@@ -257,7 +286,9 @@ func (rt *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request
 		"replica", choice.Replica.ID,
 		"reason", choice.Reason,
 		"inflight", choice.Inflight,
+		"kv", choice.KV,
 		"prefix_match_b", choice.PrefixMatchBytes,
+		"declined_match_b", choice.DeclinedMatchBytes,
 		"stream", row.Stream,
 		"overhead_us", float64(row.RouterOverheadNs)/1000,
 	)

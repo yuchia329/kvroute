@@ -213,9 +213,54 @@ fleet-down: ## Stop every replica
 fleet-status: ## Show which replicas are running
 	ops/fleet.sh status
 
+# The spill grid point the router runs and the cells are labelled with. Empty
+# runs prefix affinity with no spill rule, which is the policy the four-policy
+# comparison measured and the baseline the grid is read against.
+#
+# It has to be passed to both `run-router` and `bench`: the router applies it and
+# the sweep labels its cells with it, and the harness refuses to start when the
+# two disagree. That refusal is the whole reason it is spelled twice rather than
+# inferred once — see checkGridPoint.
+#
+#	make run-router POLICY=prefix_affinity KV_HIGH_WATER=0.80 LOAD_IMBALANCE=2.0
+#	make tunables   KV_HIGH_WATER=0.80 LOAD_IMBALANCE=2.0
+KV_HIGH_WATER ?=
+LOAD_IMBALANCE ?=
+SPILL_ARGS = $(if $(KV_HIGH_WATER),-kv-high-water $(KV_HIGH_WATER),) $(if $(LOAD_IMBALANCE),-load-imbalance-factor $(LOAD_IMBALANCE),)
+# Each half defaults to 0 — the value that disables that condition — so a
+# one-sided grid point reaches the sweep as it reaches the router. Interpolating
+# an empty half would emit "-spill 0.80/" and fail in ParseSpill, leaving a rule
+# the router will happily run unreachable from the harness.
+SPILL_LABEL = $(if $(KV_HIGH_WATER)$(LOAD_IMBALANCE),-spill $(if $(KV_HIGH_WATER),$(KV_HIGH_WATER),0)/$(if $(LOAD_IMBALANCE),$(LOAD_IMBALANCE),0),)
+
+# Where the tunable sweep's cells land. Its own directory rather than a slice of
+# the concurrency sweep's, because its cells vary an axis those do not and a
+# reader of one directory should not have to filter out the other's.
+TUNABLES_DIR ?= runs/tunables
+
+.PHONY: tunables
+tunables: build ## Run one point of the spill grid at a single concurrency
+	@test -n "$(KV_HIGH_WATER)" || { echo "tunables: KV_HIGH_WATER is required; the grid points are in bench.KVHighWaterGrid" >&2; exit 1; }
+	@test -n "$(LOAD_IMBALANCE)" || { echo "tunables: LOAD_IMBALANCE is required; the grid points are in bench.LoadImbalanceGrid" >&2; exit 1; }
+	$(BIN)/bench -router $(ROUTER) -dir $(TUNABLES_DIR) -policy prefix_affinity $(SPILL_LABEL) \
+		-concurrency $(TUNABLES_CONCURRENCY) \
+		-model "$$(ops/fleet.sh env MODEL)" \
+		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
+		-replicas "$$(ops/fleet.sh replicas)" \
+		-repetitions $(REPS) \
+		$(WORKLOAD_ARGS) \
+		$(if $(SLO_FROM),-slo-from $(SLO_FROM),) \
+		$(BENCH_ARGS)
+
+# idea.md §6 budgets the tunable sweep at a single concurrency, which is what
+# keeps it to ~3 GPU-hours. One rung, chosen where the fleet is loaded enough for
+# both spill conditions to be reachable: an idle fleet never crosses a
+# high-water mark and has no load imbalance to speak of.
+TUNABLES_CONCURRENCY ?= 32
+
 .PHONY: bench
 bench: build ## Sweep concurrency against the running fleet, resuming from RUN_DIR
-	$(BIN)/bench -router $(ROUTER) -dir $(RUN_DIR) -policy $(POLICY) \
+	$(BIN)/bench -router $(ROUTER) -dir $(RUN_DIR) -policy $(POLICY) $(SPILL_LABEL) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
@@ -226,7 +271,7 @@ bench: build ## Sweep concurrency against the running fleet, resuming from RUN_D
 
 .PHONY: goodput
 goodput: build ## Offer a ladder of arrival rates open-loop and record goodput at each, resuming from GOODPUT_DIR
-	$(BIN)/bench -router $(ROUTER) -dir $(GOODPUT_DIR) -policy $(POLICY) -driver open_loop \
+	$(BIN)/bench -router $(ROUTER) -dir $(GOODPUT_DIR) -policy $(POLICY) -driver open_loop $(SPILL_LABEL) \
 		$(if $(GOODPUT_RATES),-arrival-rates $(GOODPUT_RATES),) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
@@ -285,7 +330,8 @@ calibrate: build ## Measure the prefix index's node cap and TTL off the fleet an
 run-router: build ## Run the router against REPLICAS, keeping its own rows in RECORDS
 	@mkdir -p $(dir $(RECORDS))
 	$(BIN)/router -listen $(LISTEN) -replicas $(REPLICAS) -policy $(POLICY) -records $(RECORDS) \
-		$(if $(wildcard $(PREFIX_CALIBRATION)),-prefix-calibration $(PREFIX_CALIBRATION),)
+		$(if $(wildcard $(PREFIX_CALIBRATION)),-prefix-calibration $(PREFIX_CALIBRATION),) \
+		$(SPILL_ARGS)
 
 .PHONY: run-fake
 run-fake: build ## Run one fake replica on :8000, for driving the router without a GPU

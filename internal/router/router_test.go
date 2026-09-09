@@ -896,7 +896,7 @@ func TestThePrefixMatchReachesBothTheRowAndTheResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prefix.New: %v", err)
 	}
-	rt := startRouterWith(t, policy.NewPrefixAffinity(index), "replica-0="+base)
+	rt := startRouterWith(t, policy.NewPrefixAffinity(index, policy.Spill{}), "replica-0="+base)
 
 	// A prompt long enough to fill several blocks, sent twice: the first turn
 	// teaches the index, the second is the one with something to match.

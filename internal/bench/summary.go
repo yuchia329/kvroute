@@ -165,6 +165,10 @@ type Summary struct {
 	// has nothing to do with them.
 	PromptBytes int64 `json:"prompt_bytes" parquet:"prompt_bytes"`
 
+	// Decisions is how this cell's requests were routed, counted by the reason
+	// the policy gave. It is a reported result: see DecisionMix.
+	Decisions DecisionMix `json:"decisions" parquet:"decisions"`
+
 	// FailureRate is dropped plus failed over every measured request.
 	FailureRate      float64 `json:"failure_rate" parquet:"failure_rate"`
 	FailureThreshold float64 `json:"failure_threshold" parquet:"failure_threshold"`
@@ -200,6 +204,7 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 		}
 		s.Requests++
 		s.PromptBytes += r.PromptBytes
+		s.Decisions.count(r.Decision)
 
 		started := time.Unix(0, r.StartedAtNs)
 		if first.IsZero() || started.Before(first) {

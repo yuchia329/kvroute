@@ -31,13 +31,15 @@ const DecisionBudget = 100 * time.Microsecond
 // session id describes: conversations that branch from a common ancestor under a
 // new session id, and shared context blocks that lead a prompt.
 //
-// It has no spill rule yet, and that absence is deliberate rather than
-// unfinished. Declining affinity under KV or load pressure is a separate change
-// with its own thresholds and its own decision reasons, and landing the two
-// together would leave the comparison unable to say which of them moved the
-// result.
+// The spill rule is what stops that from being unconditional: a match on a
+// replica that is out of cache room or buried under work is a match that costs
+// more to take than to forfeit. Spill is configured rather than assumed, and its
+// zero value declines nothing — which is exactly the policy measured before the
+// rule existed, and the baseline this one is read against.
 type PrefixAffinity struct {
 	index *prefix.Index
+	// spill is the pressure at which a match is declined. Zero declines nothing.
+	spill Spill
 	// cold routes the requests no replica holds anything for. It is a whole
 	// least-outstanding policy rather than a reimplementation of one, so that a
 	// cold request is placed exactly as policy 2 would place it — including its
@@ -51,12 +53,18 @@ type PrefixAffinity struct {
 	next atomic.Uint64
 }
 
-// NewPrefixAffinity builds the prefix-affinity policy over a calibrated index.
-func NewPrefixAffinity(index *prefix.Index) *PrefixAffinity {
-	return &PrefixAffinity{index: index, cold: NewLeastOutstanding()}
+// NewPrefixAffinity builds the prefix-affinity policy over a calibrated index,
+// declining matches at the given pressure. A zero Spill declines nothing.
+func NewPrefixAffinity(index *prefix.Index, spill Spill) *PrefixAffinity {
+	return &PrefixAffinity{index: index, spill: spill, cold: NewLeastOutstanding()}
 }
 
 func (p *PrefixAffinity) Name() string { return PrefixAffinityName }
+
+// Tunables reports the thresholds this policy is running, so the router can
+// publish them and the harness can refuse to label cells with a grid point the
+// router is not actually at.
+func (p *PrefixAffinity) Tunables() Spill { return p.spill }
 
 // Choose sends the request to the replica with the best prefix match, and to
 // the least loaded replica when nothing matches.
@@ -85,38 +93,89 @@ func (p *PrefixAffinity) Choose(req Request, state fleet.State) (Choice, error) 
 
 // choose picks the replica, leaving the index untouched.
 func (p *PrefixAffinity) choose(chain prefix.Chain, state fleet.State) (Choice, error) {
-	tied, bytes := p.bestHolders(chain, state)
-	if len(tied) > 0 {
-		// Among replicas believed to hold the same leading run, load is the only
-		// thing left to choose on, and choosing the idle one costs no cache
-		// locality: they are all believed to hold the same bytes.
-		//
-		// This is not the spill rule. Spill declines the best match and pays a
-		// prefill to escape a loaded replica; this sacrifices nothing, because
-		// there is no better match to decline.
-		chosen := leastLoadedOf(tied, &p.next)
-		return Choice{
-			Replica: chosen.Replica,
-			Reason:  ReasonPrefixAffinity,
-			// Reported even though the match, not the load, selected the group:
-			// how balanced a cache-aware policy leaves the fleet is the
-			// comparison, and it has to be a figure the rows can show.
-			Inflight:         chosen.Inflight,
-			PrefixMatchBytes: bytes,
-		}, nil
+	matches := p.index.Match(chain)
+	tied, bytes := bestHolders(matches, state)
+	if len(tied) == 0 {
+		// Nothing anybody holds. There is no cache to preserve, so the only
+		// signal left is load, and the reason says the request was cold rather
+		// than that affinity was considered and declined. The two are different
+		// decisions: a grid point producing nothing but cold decisions has an
+		// index that is not finding anything, which is not a threshold set too
+		// low, and no goodput figure beside it would tell them apart.
+		return p.placeOnLoad(state, ReasonCold, matches, 0)
 	}
 
-	// Nothing anybody holds. There is no cache to preserve, so the only signal
-	// left is load, and the reason says the request was cold rather than that
-	// affinity was considered and declined — those become different decisions
-	// once the spill rule exists, and a record that collapsed them now could not
-	// be read against one that does not.
+	// Among replicas believed to hold the same leading run, load is the only
+	// thing left to choose on, and choosing the idle one costs no cache
+	// locality: they are all believed to hold the same bytes.
+	//
+	// This is not the spill rule. Spill declines the best match and pays a
+	// prefill to escape a loaded replica; this sacrifices nothing, because there
+	// is no better match to decline.
+	best := leastLoadedOf(tied, &p.next)
+
+	// A spill has to relieve the pressure it fired on, or it is not a spill.
+	// Where it can find no relief the match is kept: declining it would pay a
+	// prefill, forfeit the locality and record a decision in the column the grid
+	// is read from, all for nothing.
+	if reason, declined := p.spill.Declines(best, state); declined {
+		if elsewhere := p.spill.targets(state, best, reason); len(elsewhere.Replicas) > 0 {
+			// The match is real and is being given up, so the row records what
+			// it was worth as well as where the request went instead.
+			return p.placeOnLoad(elsewhere, reason, matches, bytes)
+		}
+	}
+
+	return Choice{
+		Replica: best.Replica,
+		Reason:  ReasonPrefixAffinity,
+		// Reported even though the match, not the load, selected the group:
+		// how balanced a cache-aware policy leaves the fleet is the comparison,
+		// and it has to be a figure the rows can show.
+		Inflight:         best.Inflight,
+		KV:               best.KV,
+		PrefixMatchBytes: bytes,
+	}, nil
+}
+
+// placeOnLoad puts a request on the least loaded replica and labels it with the
+// reason it ended up there rather than on a match.
+//
+// Cold requests and spilled ones share this path deliberately. A cold request
+// has to be placed exactly as policy 2 would place it — including its tie
+// rotation, without which an idle fleet would funnel every cold request into
+// the first replica — and a spilled one has to be placed the same way for the
+// grid to be reading the threshold rather than a second tie-break.
+//
+// The match reported is the target's own, never the declined replica's. This
+// field is the router's prediction of the prefix cache hit the engine will
+// record for the replica that actually serves the request, and a spilled row
+// carrying the forfeited match would predict a hit on a replica the request
+// never reached — which is the exact quantity the belief-divergence measurement
+// is drawn from. What was given up is recorded separately.
+func (p *PrefixAffinity) placeOnLoad(state fleet.State, reason Reason, matches []prefix.Match, declined int) (Choice, error) {
 	choice, err := p.cold.Choose(Request{}, state)
 	if err != nil {
 		return Choice{}, err
 	}
-	choice.Reason = ReasonCold
+	choice.Reason = reason
+	choice.PrefixMatchBytes = matchBytes(matches, choice.Replica.ID)
+	choice.DeclinedMatchBytes = declined
+	if target, present := state.Candidate(choice.Replica.ID); present {
+		choice.KV = target.KV
+	}
 	return choice, nil
+}
+
+// matchBytes is one replica's own match against this prompt, or zero if it is
+// believed to hold none of it.
+func matchBytes(matches []prefix.Match, replica string) int {
+	for _, m := range matches {
+		if m.Replica == replica {
+			return m.Bytes
+		}
+	}
+	return 0
 }
 
 // bestHolders returns every replica tied for the longest leading run of this
@@ -136,10 +195,10 @@ func (p *PrefixAffinity) choose(chain prefix.Chain, state fleet.State) (Choice, 
 //
 // A replica the fleet no longer has is skipped, so a shorter run on a replica
 // that is still there beats a longer one on a replica that is gone.
-func (p *PrefixAffinity) bestHolders(chain prefix.Chain, state fleet.State) ([]fleet.Candidate, int) {
+func bestHolders(matches []prefix.Match, state fleet.State) ([]fleet.Candidate, int) {
 	var tied []fleet.Candidate
 	blocks, bytes := 0, 0
-	for _, match := range p.index.Match(chain) {
+	for _, match := range matches {
 		// Match is ordered longest first, so the first shorter run ends the
 		// tied group.
 		if len(tied) > 0 && match.Blocks != blocks {

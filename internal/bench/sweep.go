@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yuchia329/kvroute/internal/policy"
 	"github.com/yuchia329/kvroute/internal/prefix"
 	"github.com/yuchia329/kvroute/internal/record"
 	"github.com/yuchia329/kvroute/internal/router"
@@ -217,6 +218,16 @@ type Cell struct {
 	ArrivalRate float64 `json:"arrival_rate" parquet:"arrival_rate"`
 	Repetition  int     `json:"repetition" parquet:"repetition"`
 	Workload    string  `json:"workload" parquet:"workload"`
+	// KVHighWater and LoadImbalanceFactor are the spill grid point this cell
+	// ran at, flattened for the reason the load axis is. Both zero under a
+	// policy with no spill rule, and under prefix affinity run without one.
+	//
+	// On the cell rather than only in the sweep's configuration because the
+	// tunable sweep is a table whose rows are these two numbers: a directory of
+	// cells that did not each carry the point they ran at could not be read as
+	// a grid at all, and two grid points' cells would differ in nothing.
+	KVHighWater         float64 `json:"kv_high_water" parquet:"kv_high_water"`
+	LoadImbalanceFactor float64 `json:"load_imbalance_factor" parquet:"load_imbalance_factor"`
 	// ArrivalPlan is how an open-loop cell mapped its arrivals onto
 	// conversations; empty for a closed-loop cell, which has no pool to rotate
 	// through. See bench.ArrivalPlan for why the workload name cannot carry it.
@@ -407,7 +418,17 @@ type SweepConfig struct {
 	// DefaultScheduleLagThreshold. It says nothing about a closed-loop cell.
 	ScheduleLagThreshold time.Duration
 	Workload             Workload
-	Contamination        ContaminationConfig
+	// Spill is the grid point the router is running, and the one these cells
+	// will be labelled with. Its zero value is a router with no spill rule,
+	// which is every policy but prefix affinity and prefix affinity before the
+	// grid is swept.
+	//
+	// The sweep is told it rather than setting it: the router is a separate
+	// process started with its own flags, exactly as it is for the policy. That
+	// is why checkRouter verifies it against what the router reports, and why
+	// this cannot be left to be inferred.
+	Spill         policy.Spill
+	Contamination ContaminationConfig
 
 	Log *slog.Logger
 }
@@ -432,6 +453,9 @@ func RunSweep(ctx context.Context, cfg SweepConfig) ([]Cell, error) {
 		cfg.Repetitions = 1
 	}
 	if err := checkWorkloadPartition(cfg.Policy, loads, cfg.Repetitions); err != nil {
+		return nil, err
+	}
+	if err := checkCachedWorkload(cfg); err != nil {
 		return nil, err
 	}
 	if cfg.FailureThreshold <= 0 {
@@ -637,6 +661,57 @@ func warmOnce(ctx context.Context, client *http.Client, base string, turn Turn) 
 	return nil
 }
 
+// checkCachedWorkload refuses a sweep that would resume into cells which sent
+// different bytes from the ones it is about to send.
+//
+// A cell is cached on its id, and an id names the policy, the load point and the
+// repetition — deliberately nothing about what was offered, so that two policies
+// at one load point resolve to the same slice of the workload's user space and are
+// therefore comparable. The cost of that is this: change the workload and the same
+// directory happily mixes the old cells with the new ones, and the resulting
+// comparison would be drawn across two different traces.
+//
+// The workload name is what catches it. It carries every knob that changes the
+// bytes for exactly this reason (ADR-0004), and `compare` already refuses cells
+// whose names differ — but it refuses at the end, after the GPU time is spent. On
+// a shared box that is a wasted night, so the same disagreement is caught here,
+// before the first cell.
+//
+// It refuses rather than discarding. A contaminated cell is the fleet's failure
+// and re-running it is the only repair; a workload that changed is somebody's
+// decision, and deleting hours of good cells is not this function's to make. The
+// repair is a new -dir, and the error says so.
+func checkCachedWorkload(cfg SweepConfig) error {
+	offered := cfg.Workload.Name()
+	paths, err := filepath.Glob(filepath.Join(cfg.Dir, "cells", "*.json"))
+	if err != nil {
+		return fmt.Errorf("bench: %s: %w", cfg.Dir, err)
+	}
+	for _, path := range paths {
+		contents, readErr := os.ReadFile(path)
+		if readErr != nil {
+			continue
+		}
+		var cached Cell
+		if json.Unmarshal(contents, &cached) != nil {
+			// Not a cell record, or a truncated one. loadCell treats that as an
+			// absent cell and re-runs it, and refusing the whole sweep over it
+			// would be a harsher answer to a half-written file than the resume
+			// path itself gives.
+			continue
+		}
+		if cached.Workload == "" || cached.Workload == offered {
+			continue
+		}
+		return fmt.Errorf("bench: %s already holds cells of a different workload, so resuming here would mix two traces into one directory and the comparison drawn from them would span both.\n"+
+			"  cell %s offered: %s\n"+
+			"  this sweep offers: %s\n"+
+			"Sweep into a new -dir. Two cells that sent different bytes are not two measurements of one thing (ADR-0004), and compare refuses them — but only after the GPU time has been spent, which is why this refuses now",
+			cfg.Dir, cached.ID, cached.Workload, offered)
+	}
+	return nil
+}
+
 // checkRouter refuses to start a sweep against a router that is not there, or that
 // is running a policy other than the one the cells will be labelled with.
 //
@@ -682,13 +757,42 @@ func checkRouter(ctx context.Context, cfg SweepConfig) error {
 			"The router is started with its policy and the sweep is only told which one, so one of the two is wrong — and cells naming a policy that never ran would make a comparison of one policy against itself that no later analysis could catch",
 			cfg.Target, stats.Policy, cfg.Policy)
 	}
+	if err := checkGridPoint(cfg, stats); err != nil {
+		return err
+	}
 	if len(cfg.Replicas) > 0 && len(stats.Replicas) != len(cfg.Replicas) {
 		return fmt.Errorf("bench: the router at %s fronts %d replicas but this sweep was given %d, so the harness and the router are pointed at different fleets",
 			cfg.Target, len(stats.Replicas), len(cfg.Replicas))
 	}
 	cfg.Log.Info("router is up and running the policy these cells will name",
-		"router", cfg.Target, "policy", stats.Policy, "replicas", len(stats.Replicas))
+		"router", cfg.Target, "policy", stats.Policy, "spill", cfg.Spill, "replicas", len(stats.Replicas))
 	return nil
+}
+
+// checkGridPoint refuses a sweep whose cells would be labelled with spill
+// thresholds the router is not running.
+//
+// The same argument as the policy check above, one level finer. The tunable
+// sweep's whole output is a table indexed by these two numbers, and they reach
+// the router as flags on a separate process; if the label and the flag disagree,
+// the grid is one point measured nine times and every number in it is real. A
+// router that reports no thresholds at all is running a policy that has none, so
+// a sweep naming one there is the same mistake in the other direction.
+func checkGridPoint(cfg SweepConfig, stats router.Stats) error {
+	running := policy.Spill{}
+	if stats.Spill != nil {
+		running = *stats.Spill
+	}
+	if running == cfg.Spill {
+		return nil
+	}
+	if stats.Spill == nil {
+		return fmt.Errorf("bench: the router at %s reports no spill thresholds, because %s has none to report, but this sweep would label its cells %v",
+			cfg.Target, stats.Policy, cfg.Spill)
+	}
+	return fmt.Errorf("bench: the router at %s is spilling at %v, but this sweep would label its cells %v. "+
+		"The thresholds reach the router as its own flags and the sweep is only told what they were, so one of the two is wrong — and a grid of cells labelled with a point that never ran is one point measured nine times, in numbers that are all real",
+		cfg.Target, running, cfg.Spill)
 }
 
 // checkFleet refuses to start a sweep unless every replica answers /health.
@@ -797,6 +901,8 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 	}
 	contamination := watcher.Stop()
 	served := prefixCache.Stop(ctx)
+	// Read after the cell rather than before it, because the question is how much
+	// belief the run built up and not how much it started with.
 	ended := time.Now()
 
 	if closeErr := rows.Close(); closeErr != nil && runErr == nil {
@@ -825,6 +931,10 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		ArrivalRate: load.ArrivalRate,
 		Repetition:  repetition,
 		Workload:    cfg.Workload.Name(),
+
+		KVHighWater:         cfg.Spill.KVHighWater,
+		LoadImbalanceFactor: cfg.Spill.LoadImbalanceFactor,
+
 		ArrivalPlan: arrivalPlanFor(load),
 		StartedAtNs: started.UnixNano(),
 		EndedAtNs:   ended.UnixNano(),

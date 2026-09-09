@@ -7,6 +7,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -39,6 +40,14 @@ func run() error {
 		calibration = flag.String("prefix-calibration", "",
 			"path to the prefix index's calibration, as written by cmd/calibrate. Required by "+policy.PrefixAffinityName+
 				", which will not run on an index whose bounds were guessed")
+		kvHighWater = flag.Float64("kv-high-water", 0,
+			"KV utilization above which "+policy.PrefixAffinityName+" declines the best prefix match and routes on load, as a fraction. "+
+				"0 disables the condition, which is the policy as it was measured before the spill rule existed")
+		loadImbalanceFactor = flag.Float64("load-imbalance-factor", 0,
+			"multiple of the fleet's minimum inflight above which "+policy.PrefixAffinityName+" declines the best prefix match and routes on load. "+
+				"0 disables the condition")
+		kvScrapeInterval = flag.Duration("kv-scrape-interval", fleet.DefaultKVScrapeInterval,
+			"how often each replica's KV utilization is re-read. Only -kv-high-water reads it")
 		recordsPath  = flag.String("records", "", "path to append per-request JSONL rows to; empty discards them")
 		logLevel     = flag.String("log-level", "info", "log level: debug, info, warn or error. debug logs every routing decision")
 		shutdownWait = flag.Duration("shutdown-grace", 30*time.Second, "how long to let in-flight requests finish on shutdown")
@@ -63,6 +72,16 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	options.Spill = policy.Spill{KVHighWater: *kvHighWater, LoadImbalanceFactor: *loadImbalanceFactor}
+	// A threshold handed to a policy that has no spill rule is refused rather
+	// than ignored. The flags are how a grid point is set, and a run that
+	// silently dropped them would produce cells labelled with thresholds nothing
+	// applied — the same failure the harness's policy check exists to prevent,
+	// one layer earlier.
+	if options.Spill.Enabled() && *policyName != policy.PrefixAffinityName {
+		return fmt.Errorf("-kv-high-water and -load-imbalance-factor configure the spill rule, which only %s has: %s would ignore them and its cells would be labelled with thresholds nothing applied",
+			policy.PrefixAffinityName, *policyName)
+	}
 	chosen, err := policy.ByName(*policyName, options)
 	if err != nil {
 		return err
@@ -72,6 +91,21 @@ func run() error {
 		return err
 	}
 	defer records.Close()
+
+	// The KV signal is scraped only when something reads it. A fleet polled for a
+	// gauge no policy consults is six extra HTTP round trips per interval against
+	// the same engines the measurement comes off, which is a cost the run should
+	// not pay to populate a column nothing decides on.
+	if options.Spill.KVHighWater > 0 {
+		ctx, stopScraping := context.WithCancel(context.Background())
+		defer stopScraping()
+		go fleet.ScrapeKVUtilization(ctx, fleet.KVScrapeConfig{
+			Fleet:    f,
+			Interval: *kvScrapeInterval,
+			Log:      log,
+		})
+		log.Info("scraping KV utilization", "interval", *kvScrapeInterval, "replicas", len(replicas))
+	}
 
 	rt, err := router.New(router.Config{
 		Fleet:   f,
@@ -83,9 +117,15 @@ func run() error {
 		return err
 	}
 
+	// The spill thresholds are logged with the policy because they are part of
+	// what a cell measured: two runs of prefix_affinity at different grid points
+	// are two different policies as far as the results table is concerned, and a
+	// run whose thresholds live only in somebody's shell history cannot be read
+	// back.
 	log.Info("router listening",
 		"addr", *listen,
 		"policy", chosen.Name(),
+		"spill", options.Spill,
 		"replicas", len(replicas),
 		"records", *recordsPath,
 	)

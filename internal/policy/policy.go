@@ -14,6 +14,7 @@ import (
 	"github.com/yuchia329/kvroute/internal/fleet"
 	"github.com/yuchia329/kvroute/internal/prefix"
 	"github.com/yuchia329/kvroute/internal/session"
+	"github.com/yuchia329/kvroute/internal/vllmmetrics"
 )
 
 // ErrNoReplica means no replica could be chosen, so the request is dropped.
@@ -49,7 +50,25 @@ const (
 	// nothing but cold decisions has an index that is not working, which no
 	// goodput figure beside it would reveal.
 	ReasonCold Reason = "COLD"
+	// ReasonSpillKV is an affinity declined because the best match's KV cache
+	// was over its high-water mark, and the request placed on load instead.
+	ReasonSpillKV Reason = "SPILL_KV"
+	// ReasonSpillLoad is an affinity declined because the best match was buried
+	// under inflight relative to the fleet, and the request placed on load
+	// instead.
+	//
+	// Two reasons rather than one SPILL, because the two conditions are
+	// physically different pressures and the pressure grid crosses two axes to
+	// fire them separately. A single reason would leave a grid cell unable to
+	// say whether it spilled because the fleet was out of cache or because the
+	// traffic was skewed, which is the one thing that grid exists to answer.
+	ReasonSpillLoad Reason = "SPILL_LOAD"
 )
+
+// Spilled reports whether this reason is a declined affinity, so that callers
+// counting the decision mix do not each carry their own list of which reasons
+// are spills.
+func (r Reason) Spilled() bool { return r == ReasonSpillKV || r == ReasonSpillLoad }
 
 // Order is the order the policies are compared in: the naive baseline first, then
 // each policy that claims to improve on it, as idea.md §5 numbers them.
@@ -112,6 +131,39 @@ type Choice struct {
 	// made on. Without it, a table showing that one policy balanced better than
 	// another would rest on nothing the rows can show.
 	Inflight int
+	// KV is the chosen replica's scraped KV utilization when the decision was
+	// made, or an unread reading when no scrape had answered for it.
+	//
+	// It travels on the decision for the same reason Inflight does, and it is
+	// the pressure the spill rule was weighed against: a grid table claiming one
+	// high-water mark spilled more than another would otherwise rest on nothing
+	// the rows can show. Unread is kept distinct from zero here as everywhere,
+	// because a run whose scrapes were failing routed with the KV condition
+	// silently disabled, and a column of zeros would look like a fleet with
+	// empty caches instead.
+	KV vllmmetrics.KVUtilization
+	// DeclinedMatchBytes is the prefix match the spill rule gave up, in bytes.
+	// Zero unless this decision was a spill.
+	//
+	// It is the cost side of the tradeoff the thresholds are swept to find.
+	// PrefixMatchBytes says what the chosen replica was believed to hold, which
+	// on a spill is usually nothing; this says what was on the table when the
+	// rule declined. Without it a grid point can say how often it spilled but
+	// not what its spills were worth, and those are the two halves of choosing a
+	// threshold.
+	DeclinedMatchBytes int
+}
+
+// Tuned is implemented by a policy carrying tunables the record has to name.
+//
+// The router reports them on /router/stats, and the harness refuses a sweep
+// whose cells would be labelled with a grid point the router is not running.
+// That check is the same one that guards the policy name, and for the same
+// reason: the router is started with its configuration and the sweep is only
+// told what that was, so nothing else stands between a mistyped threshold and a
+// grid of cells labelled with a point that never ran.
+type Tuned interface {
+	Tunables() Spill
 }
 
 // Policy picks the replica for a request.
@@ -133,6 +185,11 @@ type Options struct {
 	// PrefixIndex is the index prefix affinity routes on. Required by that
 	// policy and ignored by the others, which route on the fleet snapshot alone.
 	PrefixIndex *prefix.Index
+	// Spill is the pressure at which prefix affinity is declined. Its zero value
+	// is no spill rule, which is the policy measured before one existed, so this
+	// is optional where PrefixIndex is required: an unset threshold is a
+	// meaningful configuration and an unset index is not.
+	Spill Spill
 }
 
 // ByName resolves the policy named in configuration, so that a benchmark can
@@ -149,7 +206,10 @@ func ByName(name string, opts Options) (Policy, error) {
 		if opts.PrefixIndex == nil {
 			return nil, fmt.Errorf("policy: %s needs a prefix index, and its bounds are measurements rather than defaults: build one with prefix.Calibration", PrefixAffinityName)
 		}
-		return NewPrefixAffinity(opts.PrefixIndex), nil
+		if err := opts.Spill.Validate(); err != nil {
+			return nil, err
+		}
+		return NewPrefixAffinity(opts.PrefixIndex, opts.Spill), nil
 	default:
 		return nil, fmt.Errorf("policy: unknown policy %q", name)
 	}

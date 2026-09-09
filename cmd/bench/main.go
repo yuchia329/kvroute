@@ -41,6 +41,7 @@ import (
 	"github.com/yuchia329/kvroute/internal/characterize"
 	"github.com/yuchia329/kvroute/internal/fleet"
 	"github.com/yuchia329/kvroute/internal/gpu"
+	"github.com/yuchia329/kvroute/internal/policy"
 )
 
 func main() {
@@ -58,6 +59,7 @@ func run() error {
 		replicaSpecs = flag.String("replicas", "", "the same -replicas spec the router was given; each is asked for /health before the sweep starts, and scraped for its prefix-cache counters around every cell")
 		dir          = flag.String("dir", "runs/concurrency", "where cells are written and resumed from")
 		policyName   = flag.String("policy", "round_robin", "the policy the router is running; recorded as the cell's label")
+		spillSpec    = flag.String("spill", "", "the spill grid point the router is running, written <kv-high-water>/<load-imbalance-factor>; recorded as the cell's label and checked against the router before the first cell. Empty means a router with no spill rule")
 		driver       = flag.String("driver", string(bench.ClosedLoopDriver), "which axis to run: closed_loop holds virtual users at each -concurrency level, open_loop fires at each -arrival-rates level, both runs the two in one directory")
 		levels       = flag.String("concurrency", bench.FormatLevels(bench.ConcurrencySweep), "closed-loop axis: concurrency levels to sweep, holding that many virtual users")
 		rates        = flag.String("arrival-rates", bench.FormatRates(bench.ArrivalRateSweep), "open-loop axis: arrival rates in requests per second, fired on a fixed schedule whether or not earlier requests have finished")
@@ -106,6 +108,15 @@ func run() error {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	var err error
+
+	// Parsed before anything runs, so an unreadable grid point fails here rather
+	// than after the sweep has written cells labelled with it.
+	var spill policy.Spill
+	if *spillSpec != "" {
+		if spill, err = bench.ParseSpill(*spillSpec); err != nil {
+			return err
+		}
+	}
 
 	// Which axis runs is a choice rather than an inference from which list was
 	// passed: both lists carry the package's own ladder as their default, so
@@ -244,6 +255,7 @@ func run() error {
 		Dir:                  *dir,
 		Target:               *target,
 		Policy:               *policyName,
+		Spill:                spill,
 		Replicas:             bases,
 		Concurrencies:        concurrencies,
 		ArrivalRates:         arrivalRates,
