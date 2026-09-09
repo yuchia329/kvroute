@@ -17,36 +17,76 @@ import (
 	"github.com/yuchia329/kvroute/internal/router"
 )
 
-// The grid is the second results table: the point where the affinity-versus-
-// balance tradeoff becomes a curve rather than an assertion. It crosses both
-// thresholds, because a point that moved one while holding the other could not
-// say which of them the goodput followed.
-func TestTheGridCrossesBothThresholds(t *testing.T) {
-	points := bench.SpillGrid()
-
-	if len(points) != len(bench.KVHighWaterGrid)*len(bench.LoadImbalanceGrid) {
-		t.Fatalf("the grid has %d points, want %d x %d",
-			len(points), len(bench.KVHighWaterGrid), len(bench.LoadImbalanceGrid))
+// The two thresholds are measured on two workload points, one each, because the
+// generator will not let both pressures be high at once: concentrating the draws
+// onto hot conversations means touching fewer distinct ones, so skew discounts
+// working set. Each sweep therefore leaves the other condition off, and each is
+// led by a spill-off reference at its own workload point.
+func TestEachThresholdIsSweptAloneAgainstItsOwnReference(t *testing.T) {
+	for name, sweep := range map[string][]policy.Spill{
+		"kv":   bench.KVHighWaterSweep(),
+		"load": bench.LoadImbalanceSweep(),
+	} {
+		if len(sweep) < 2 {
+			t.Fatalf("%s sweep has %d points, want a reference and its levels", name, len(sweep))
+		}
+		if sweep[0].Enabled() {
+			t.Errorf("%s sweep does not open on a spill-off reference: %v", name, sweep[0])
+		}
+		for _, p := range sweep[1:] {
+			if err := p.Validate(); err != nil {
+				t.Errorf("%s sweep holds a point the router would refuse: %v", name, err)
+			}
+			if !p.Enabled() {
+				t.Errorf("%s sweep holds a point with no spill rule", name)
+			}
+			// The other condition is off, which is what makes the row
+			// single-factor: a second live condition would move the result and
+			// the table would credit the axis that happened to be swept.
+			if name == "kv" && p.LoadImbalanceFactor != 0 {
+				t.Errorf("the KV sweep leaves the load condition on at %v", p)
+			}
+			if name == "load" && p.KVHighWater != 0 {
+				t.Errorf("the load sweep leaves the KV condition on at %v", p)
+			}
+		}
 	}
-	seen := map[policy.Spill]bool{}
-	for _, p := range points {
-		if seen[p] {
-			t.Errorf("%v appears twice in the grid", p)
-		}
-		seen[p] = true
-		if err := p.Validate(); err != nil {
-			t.Errorf("the grid holds a point the router would refuse: %v", err)
-		}
-		if !p.Enabled() {
-			t.Errorf("%v is a grid point with no spill rule", p)
-		}
+}
+
+// Each sweep covers its own axis exactly once.
+func TestEachSweepCoversItsAxis(t *testing.T) {
+	kv := bench.KVHighWaterSweep()
+	if len(kv) != len(bench.KVHighWaterGrid)+1 {
+		t.Errorf("the KV sweep has %d points, want %d levels plus a reference", len(kv), len(bench.KVHighWaterGrid))
+	}
+	load := bench.LoadImbalanceSweep()
+	if len(load) != len(bench.LoadImbalanceGrid)+1 {
+		t.Errorf("the load sweep has %d points, want %d levels plus a reference", len(load), len(bench.LoadImbalanceGrid))
+	}
+}
+
+// The two points are the ones the generator's own discount permits: memory
+// pressure needs an unconcentrated draw, and load imbalance needs a
+// concentrated one. A pair that shared a skew would be measuring one live
+// condition and one dormant one at both points.
+func TestTheTwoWorkloadPointsSeparateTheTwoPressures(t *testing.T) {
+	if bench.KVPressureWorkingSet <= bench.LoadImbalanceWorkingSet {
+		t.Errorf("the KV point offers WS %v against the load point's %v, so it applies no more memory pressure",
+			bench.KVPressureWorkingSet, bench.LoadImbalanceWorkingSet)
+	}
+	if bench.LoadImbalanceSkew <= bench.KVPressureSkew {
+		t.Errorf("the load point runs at skew %v against the KV point's %v, so it concentrates no more traffic",
+			bench.LoadImbalanceSkew, bench.KVPressureSkew)
+	}
+	if bench.KVPressureSkew != 0 {
+		t.Errorf("the KV point runs at skew %v, which discounts the working set it exists to apply", bench.KVPressureSkew)
 	}
 }
 
 // A grid point is a label a cell carries, so it has to survive the round trip
 // through the spec a command takes it as.
 func TestAGridPointSurvivesItsSpec(t *testing.T) {
-	for _, want := range bench.SpillGrid() {
+	for _, want := range append(bench.KVHighWaterSweep(), bench.LoadImbalanceSweep()...) {
 		got, err := bench.ParseSpill(bench.FormatSpill(want))
 		if err != nil {
 			t.Fatalf("ParseSpill(%q): %v", bench.FormatSpill(want), err)

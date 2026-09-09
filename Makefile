@@ -233,30 +233,67 @@ SPILL_ARGS = $(if $(KV_HIGH_WATER),-kv-high-water $(KV_HIGH_WATER),) $(if $(LOAD
 # the router will happily run unreachable from the harness.
 SPILL_LABEL = $(if $(KV_HIGH_WATER)$(LOAD_IMBALANCE),-spill $(if $(KV_HIGH_WATER),$(KV_HIGH_WATER),0)/$(if $(LOAD_IMBALANCE),$(LOAD_IMBALANCE),0),)
 
-# Where the tunable sweep's cells land. Its own directory rather than a slice of
-# the concurrency sweep's, because its cells vary an axis those do not and a
-# reader of one directory should not have to filter out the other's.
+# The spill thresholds are measured on two workload points, one each, rather
+# than crossed on one. The generator will not let both pressures be high at
+# once: concentrating the draws onto hot conversations means touching fewer
+# distinct ones, so skew discounts working set — at WS 1 a cell realises 0.97 of
+# its label at skew 0 and 0.40 at skew 1.4. So each threshold is measured where
+# its own pressure is live and the other condition is switched off, which is
+# what makes each row single-factor. See internal/bench/spillgrid.go.
+#
+# Each sweep opens with a spill-off cell at its own workload point. The
+# four-policy comparison's prefix_affinity cells cannot serve as that reference:
+# they run the frozen workload at WS 1 / skew 0, and a row measured under
+# different pressure is not a baseline.
+#
+# KV_CAPACITY is the measured aggregate fleet KV these WS points are ratios
+# against — read off the replicas, never estimated, and it moves between
+# bring-ups. Take it from the characterization capacity record.
 TUNABLES_DIR ?= runs/tunables
+KV_CAPACITY ?= 629760
 
-.PHONY: tunables
-tunables: build ## Run one point of the spill grid at a single concurrency
-	@test -n "$(KV_HIGH_WATER)" || { echo "tunables: KV_HIGH_WATER is required; the grid points are in bench.KVHighWaterGrid" >&2; exit 1; }
-	@test -n "$(LOAD_IMBALANCE)" || { echo "tunables: LOAD_IMBALANCE is required; the grid points are in bench.LoadImbalanceGrid" >&2; exit 1; }
-	$(BIN)/bench -router $(ROUTER) -dir $(TUNABLES_DIR) -policy prefix_affinity $(SPILL_LABEL) \
+# idea.md §6 budgets the tunable sweep at a single concurrency, which is what
+# keeps it affordable. One rung, chosen where the fleet is loaded enough for
+# both spill conditions to be reachable: an idle fleet never crosses a
+# high-water mark and has no load imbalance to speak of.
+TUNABLES_CONCURRENCY ?= 32
+
+# The two points. Everything but WS and skew is the frozen workload's geometry,
+# so a tunables cell differs from a comparison cell in pressure and in nothing
+# else.
+TUNABLES_GEOMETRY = -workload multiturn -turns-per-session 4 -prompt-tokens 448 \
+	-output-tokens 64 -branching 0.3 -shared-system-prompt 0.3 -seed 1 \
+	-kv-capacity $(KV_CAPACITY)
+TUNABLES_KV_WORKLOAD   = $(TUNABLES_GEOMETRY) -working-set 3 -skew 0
+TUNABLES_LOAD_WORKLOAD = $(TUNABLES_GEOMETRY) -working-set 1 -skew 1.4
+
+.PHONY: tunables-kv
+tunables-kv: build ## Run one point of the KV high-water sweep (WS 3, skew 0)
+	@test -n "$(KV_HIGH_WATER)" || { echo "tunables-kv: set KV_HIGH_WATER to a level from bench.KVHighWaterGrid, or to 0 for the spill-off reference cell" >&2; exit 1; }
+	@test -z "$(LOAD_IMBALANCE)" || { echo "tunables-kv: LOAD_IMBALANCE must stay unset; this point measures the high-water mark alone" >&2; exit 1; }
+	$(BIN)/bench -router $(ROUTER) -dir $(TUNABLES_DIR)/kv -policy prefix_affinity $(SPILL_LABEL) \
 		-concurrency $(TUNABLES_CONCURRENCY) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
 		-repetitions $(REPS) \
-		$(WORKLOAD_ARGS) \
+		$(TUNABLES_KV_WORKLOAD) \
 		$(if $(SLO_FROM),-slo-from $(SLO_FROM),) \
 		$(BENCH_ARGS)
 
-# idea.md §6 budgets the tunable sweep at a single concurrency, which is what
-# keeps it to ~3 GPU-hours. One rung, chosen where the fleet is loaded enough for
-# both spill conditions to be reachable: an idle fleet never crosses a
-# high-water mark and has no load imbalance to speak of.
-TUNABLES_CONCURRENCY ?= 32
+.PHONY: tunables-load
+tunables-load: build ## Run one point of the load imbalance sweep (WS 1, skew 1.4)
+	@test -n "$(LOAD_IMBALANCE)" || { echo "tunables-load: set LOAD_IMBALANCE to a level from bench.LoadImbalanceGrid, or to 0 for the spill-off reference cell" >&2; exit 1; }
+	@test -z "$(KV_HIGH_WATER)" || { echo "tunables-load: KV_HIGH_WATER must stay unset; this point measures the imbalance factor alone" >&2; exit 1; }
+	$(BIN)/bench -router $(ROUTER) -dir $(TUNABLES_DIR)/load -policy prefix_affinity $(SPILL_LABEL) \
+		-concurrency $(TUNABLES_CONCURRENCY) \
+		-model "$$(ops/fleet.sh env MODEL)" \
+		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
+		-replicas "$$(ops/fleet.sh replicas)" \
+		-repetitions $(REPS) \
+		$(TUNABLES_LOAD_WORKLOAD) \
+		$(if $(SLO_FROM),-slo-from $(SLO_FROM),) \
+		$(BENCH_ARGS)
 
 .PHONY: bench
 bench: build ## Sweep concurrency against the running fleet, resuming from RUN_DIR
