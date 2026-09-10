@@ -13,7 +13,7 @@ routers decide on has not been. That is why the result stands whichever policy w
 |---|---|---|
 | directory | [`working-set/`](working-set/) | [`recency/`](recency/) |
 | report | [`working-set.md`](working-set.md) | [`recency.md`](recency.md) |
-| axis | WS 0.25, 1, 8 at fixed skew 0 | think time 30 s and 75 s at WS 3 |
+| axis | WS 0.25, 1, 8 at fixed skew 0 | think time 30 s and 75 s at WS 3, skew 1 |
 | driver | closed-loop, 32 users | open-loop, 8 req/s |
 | cells | 9 (3 points × 3 repetitions) | 6 (2 points × 3 repetitions) |
 | **status** | **clean, unflagged** | **every cell flagged — see below** |
