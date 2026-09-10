@@ -205,7 +205,12 @@ up() {
   if [[ "$KV_CACHE_METRICS" == "1" ]]; then
     args+=(--kv-cache-metrics)
   fi
-  if [[ "$ENABLE_PROMPT_TOKENS_DETAILS" == "1" ]]; then
+  # Defaulted rather than bare, unlike the knobs above it. Those are all defined
+  # in versions.env and have been since before this script could run; this one
+  # arrives with a config change, and under `set -u` a replica.sh that reached
+  # the box before its versions.env would kill every launch with an unbound
+  # variable rather than simply not passing the flag.
+  if [[ "${ENABLE_PROMPT_TOKENS_DETAILS:-0}" == "1" ]]; then
     args+=(--enable-prompt-tokens-details)
   fi
 
