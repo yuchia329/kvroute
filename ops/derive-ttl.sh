@@ -45,19 +45,56 @@ die() { echo "derive-ttl: $*" >&2; exit 1; }
 
 SPECS="$(./ops/fleet.sh replicas)" || die "could not read the fleet's replica specs"
 MODEL="$(./ops/fleet.sh env MODEL)" || die "could not read MODEL"
+GPUS="$(./ops/fleet.sh env REPLICA_GPUS)" || die "could not read REPLICA_GPUS"
 [ -n "$SPECS" ] || die "the fleet reports no replicas; bring it up first"
 [ -d "$FROM" ] || die "no sweep at $FROM to measure the prompt bytes-per-token ratio from; set FROM="
 
 say "fleet: $SPECS"
 
+# observations sums the idle-before-evict count across the whole fleet, and says
+# whether it could read every replica.
+#
+# Three bugs are designed out of it, all of which the first version had.
+#
+# The URL is built from one spec rather than from the whole comma-separated
+# list: "${SPECS#*=}" strips to the FIRST "=" and keeps every replica after it,
+# which produced http://http://127.0.0.1:8000,replica-1=... — a URL curl cannot
+# fetch. It failed silently, the reading defaulted to zero, and the script
+# reported a fleet that had evicted nothing while 5,076 observations sat on it.
+#
+# It pools every replica rather than trusting replica-0, because that is what
+# the calibration itself does and one card is not the fleet.
+#
+# And it distinguishes "scraped and found none" from "could not scrape", which
+# is the same distinction vllmmetrics.KVUtilization draws and for the same
+# reason: a failed scrape reported as a zero is a measurement invented out of an
+# absence. It prints "unread" for that, and the caller refuses rather than
+# telling anyone to run more load.
+observations() {
+  local total=0 spec base n unread=0
+  local IFS=,
+  for spec in $SPECS; do
+    base="${spec#*=}"
+    n="$(curl -sf --max-time 10 "$base/metrics" 2>/dev/null \
+      | awk '/^vllm:kv_block_idle_before_evict_seconds_count\{/ {print $2; exit}')"
+    if [ -z "$n" ]; then unread=$((unread + 1)); continue; fi
+    total="$(awk -v a="$total" -v b="$n" 'BEGIN{printf "%d", a + b}')"
+  done
+  if [ "$unread" -gt 0 ]; then printf 'unread:%d:%d' "$unread" "$total"; else printf '%d' "$total"; fi
+}
+
 # A fleet that has been up a while may already have a tail, in which case the
 # load below only deepens it. Reported either way, because a derivation that
 # rests on a fleet somebody happened to have been using is worth knowing about.
-before="$(curl -sf "http://${SPECS#*=}/metrics" 2>/dev/null | awk '/^vllm:kv_block_idle_before_evict_seconds_count/{print $2; exit}')"
-say "idle-before-evict observations on replica-0 before load: ${before:-0}"
+before="$(observations)"
+say "idle-before-evict observations across the fleet before load: $before"
 
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"; kill "${RPID:-}" 2>/dev/null' EXIT
+# Deliberately not a scratch directory the exit trap removes. The failure worth
+# reading is a load pass that would not start, and the first version of this
+# script deleted exactly that log on its way out.
+TMP="${TMP:-runs/derive-ttl}"
+mkdir -p "$TMP"
+trap 'kill "${RPID:-}" 2>/dev/null' EXIT
 
 say "starting a least-outstanding router on 127.0.0.1:$PORT"
 "$BIN/router-linux-amd64" -listen "127.0.0.1:$PORT" -replicas "$SPECS" \
@@ -72,18 +109,25 @@ curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null || { tail -20 "$TMP/router.
 # time under that pressure, not a bigger pool.
 say "driving the fleet for $LOAD at concurrency $CONCURRENCY to force eviction"
 "$BIN/bench-linux-amd64" -router "http://127.0.0.1:$PORT" -dir "$TMP/load" \
-  -policy least_outstanding -replicas "$SPECS" -model "$MODEL" \
+  -policy least_outstanding -replicas "$SPECS" -model "$MODEL" -gpu-indexes "$GPUS" \
   $WORKLOAD -concurrency "$CONCURRENCY" -cell-duration "$LOAD" -warmup 0s \
   -settle 0s -repetitions 1 > "$TMP/bench.log" 2>&1
-say "load pass exited $?"
+status=$?
+say "load pass exited $status"
+[ "$status" -eq 0 ] || { tail -5 "$TMP/bench.log"; die "the load pass did not run, so nothing was evicted. Its log is $TMP/bench.log"; }
 
 kill "$RPID" 2>/dev/null; wait "$RPID" 2>/dev/null; RPID=""
 say "router drained"
 
-after="$(curl -sf "http://${SPECS#*=}/metrics" 2>/dev/null | awk '/^vllm:kv_block_idle_before_evict_seconds_count/{print $2; exit}')"
-say "idle-before-evict observations on replica-0 after load: ${after:-0}"
-case "${after:-0}" in
-  0|0.0) die "the fleet evicted nothing, so there is still no tail to calibrate against.
+after="$(observations)"
+say "idle-before-evict observations across the fleet after load: $after"
+case "$after" in
+  unread:*)
+    die "could not scrape $(echo "$after" | cut -d: -f2) of the fleet's replicas, so what they evicted is unknown.
+  That is not the same as a fleet that evicted nothing, and calibrating on the replicas that did answer
+  would size the index against part of a fleet. Fix the scrape -- do NOT restart, which clears what is there." ;;
+  0)
+    die "the fleet evicted nothing, so there is still no tail to calibrate against.
   Either the replicas lack --kv-cache-metrics, or the load did not exceed KV capacity.
   Raise CONCURRENCY or LOAD and try again -- do NOT restart the fleet, which clears what is there." ;;
 esac
