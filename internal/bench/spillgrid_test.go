@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -191,4 +192,44 @@ func routerRunning(t *testing.T, policyName string, spill policy.Spill, specs ..
 	srv := httptest.NewServer(rt.Handler())
 	t.Cleanup(srv.Close)
 	return srv.URL
+}
+
+// The chosen point is what every later measurement of policy 4 runs at, so it
+// has to be a point the router would accept and a point the sweep can label a
+// cell with. A value that only existed in a ticket comment could be neither.
+func TestTheChosenGridPointIsOneTheRouterWouldRun(t *testing.T) {
+	if err := bench.Chosen.Validate(); err != nil {
+		t.Fatalf("the chosen grid point is one the router would refuse: %v", err)
+	}
+	if !bench.Chosen.Enabled() {
+		t.Error("the chosen grid point has no spill rule at all, which is policy 4 as #15 measured it rather than as #16 settled it")
+	}
+	got, err := bench.ParseSpill(bench.FormatSpill(bench.Chosen))
+	if err != nil {
+		t.Fatalf("the chosen point does not survive its own spec: %v", err)
+	}
+	if got != bench.Chosen {
+		t.Errorf("the chosen point round-tripped to %v", got)
+	}
+}
+
+// The KV condition is off on purpose. vllm:kv_cache_usage_perc tracks the active
+// batch rather than cache residency (r = 0.973 against inflight), so a non-zero
+// mark either cannot fire at a reachable rung or fires on load, which the other
+// condition already covers. Turning it on is a decision that belongs to #28 and
+// wants this test updated with it, not a default somebody restores in passing.
+func TestTheChosenPointLeavesTheKVConditionOff(t *testing.T) {
+	if bench.Chosen.KVHighWater != 0 {
+		t.Errorf("the chosen point sets a KV high-water mark of %v; see #28 before turning this condition on",
+			bench.Chosen.KVHighWater)
+	}
+}
+
+// The chosen factor has to be a level the grid actually measured, or it is a
+// value nothing in the table supports.
+func TestTheChosenFactorWasMeasured(t *testing.T) {
+	if !slices.Contains(bench.LoadImbalanceGrid, bench.Chosen.LoadImbalanceFactor) {
+		t.Errorf("the chosen factor %v is not a level of %v, so no row of the sweep justifies it",
+			bench.Chosen.LoadImbalanceFactor, bench.LoadImbalanceGrid)
+	}
 }
