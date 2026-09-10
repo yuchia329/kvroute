@@ -96,8 +96,9 @@ capacity is not a property of the engine settings alone, and it is read off ever
 on every run.
 
 The rows behind every figure are kept in
-[`docs/measurements/`](docs/measurements/) — the [characterization](docs/measurements/2026-09-07-characterization/)
-and the [fleet bring-up](docs/measurements/2026-09-06-fleet-bringup/), each with per-request JSONL,
+[`docs/measurements/`](docs/measurements/) — the [characterization](docs/measurements/2026-09-07-characterization/),
+the [fleet bring-up](docs/measurements/2026-09-06-fleet-bringup/) and
+[belief divergence](docs/measurements/2026-09-10-belief-divergence/), each with per-request JSONL,
 the record, and each replica's own startup log. Sweep output is gitignored because a full pass is
 hundreds of megabytes; a reference run the README cites is not, because a figure whose rows have
 been deleted is an assertion rather than a measurement.
