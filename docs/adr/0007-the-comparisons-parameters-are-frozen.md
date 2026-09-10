@@ -46,6 +46,7 @@ them.** They live in one place, `lib-sweep.sh` on the GPU host, rather than bein
 | Cell | 150 s, 50 s warm-up, 10 s settle, 3 repetitions |
 | Fleet | five replicas, GPUs 0 1 2 4 5 |
 | Index node cap | fleet-sized: capacity × measured bytes-per-token ÷ 64 |
+| Index TTL | 20 s, chosen — recorded as chosen in every calibration file |
 | Spill | off — that is policy 4 as #15 defines it |
 
 ## Three of these need their reasoning recorded
@@ -73,6 +74,26 @@ entirely would let the 20-second TTL alone hold ~25,300 blocks against a fleet t
 ~16,300, so the index would believe in about 55% more than the GPUs physically have, which ADR-0006
 argues is strictly worse than routing on load. It is therefore frozen at the fleet-sized derivation
 and treated as part of what policy 4 *is*.
+
+**The TTL is frozen at 20 s chosen, not derived.** The derivation needs the engines'
+idle-before-evict histogram, which is empty until the fleet has evicted blocks — and the fleet is
+restarted between policies, so it comes up empty every time. The definitive run tried to catch the
+one window where it is possible, immediately after the last baseline pass, and missed it: the loop
+that cycles the fleet between policies also cycled it after the last one, wiping the histograms
+seconds before the calibration ran. The fallback behaved correctly, recording the TTL as chosen
+rather than inventing one.
+
+The choice is evidence-backed rather than arbitrary. Session affinity held a 63–77% prefix cache hit
+rate to the top of the arrival ladder, and under a 5-second think time a turn only hits cache if the
+previous turn's blocks survived it — so blocks demonstrably live well past 5 seconds. The fleet's own
+turnover arithmetic agrees: roughly 100 s at 2 req/s and 10 s at 20 req/s, so a 20-second belief sits
+inside residency everywhere but the very top of the ladder.
+
+It is frozen on the same terms as the node cap: a TTL later derived from a real histogram is reported
+as a **second configuration** beside this one, never as a replacement. Measuring what the fleet's own
+tail would have said costs about half an hour — bring the fleet up, drive load past its KV capacity,
+calibrate — and produces a number for the write-up and for #16, #24 and #26, without invalidating a
+single cell measured here.
 
 ## Consequences
 
