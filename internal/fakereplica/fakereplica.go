@@ -60,6 +60,24 @@ type Config struct {
 	// report checks.
 	CachedPromptFraction float64
 
+	// OmitPromptTokensDetails models a replica started *without*
+	// --enable-prompt-tokens-details: vLLM 0.28.0 returns usage with
+	// prompt_tokens_details null however the request asks for it, because
+	// _make_prompt_tokens_details short-circuits before it looks at anything
+	// else.
+	//
+	// It exists so that failure has a stand-in. It is the one belief divergence
+	// cannot survive and the one nothing else catches: a sweep against such a
+	// fleet records a divergence column of nulls and looks exactly like a sweep
+	// that worked, hours later. ops/probe-usage.sh is the check, and a check
+	// whose primary failure path has never executed is not one worth trusting.
+	//
+	// Default off — the field is published — because that is what the fleet is
+	// configured for and what every other test wants. The engine's own default is
+	// the opposite, which is precisely why the flag has to be set explicitly in
+	// ops/versions.env rather than assumed.
+	OmitPromptTokensDetails bool
+
 	// NumGPUBlocks and BlockSize are the KV cache geometry reported through
 	// vllm:cache_config_info, which is where aggregate fleet KV capacity is
 	// read from. They default to what a replica of the pinned engine on a 3090
@@ -181,6 +199,9 @@ type completion struct {
 	promptTokens int
 	cachedTokens int
 	includeUsage bool
+	// omitPromptTokensDetails withholds the cached-token breakdown, modelling an
+	// engine started without --enable-prompt-tokens-details.
+	omitPromptTokensDetails bool
 }
 
 func (c completion) chunk(choices []chunkChoice, u *usage) chunk {
@@ -195,6 +216,15 @@ func (c completion) chunk(choices []chunkChoice, u *usage) chunk {
 }
 
 func (c completion) usage() *usage {
+	if c.omitPromptTokensDetails {
+		// A replica without --enable-prompt-tokens-details: usage arrives, the
+		// breakdown does not.
+		return &usage{
+			PromptTokens:     c.promptTokens,
+			CompletionTokens: c.tokens,
+			TotalTokens:      c.promptTokens + c.tokens,
+		}
+	}
 	return &usage{
 		PromptTokens:     c.promptTokens,
 		CompletionTokens: c.tokens,
@@ -255,6 +285,7 @@ func (r *Replica) handleChatCompletions(w http.ResponseWriter, req *http.Request
 		includeUsage: parsed.StreamOptions != nil && parsed.StreamOptions.IncludeUsage,
 	}
 	c.cachedTokens = int(float64(c.promptTokens) * r.cfg.CachedPromptFraction)
+	c.omitPromptTokensDetails = r.cfg.OmitPromptTokensDetails
 	r.observe(c)
 
 	if parsed.Stream {

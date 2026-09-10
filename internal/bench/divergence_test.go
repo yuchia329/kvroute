@@ -191,3 +191,35 @@ func TestTheFixedWorkloadStatesNoWorkingSet(t *testing.T) {
 		t.Errorf("working set = %v, want 0", got)
 	}
 }
+
+// A replica started without --enable-prompt-tokens-details returns usage with no
+// cached-token breakdown, and the harness has to record that as unmeasured
+// rather than as an engine that cached nothing.
+//
+// This is the failure belief divergence cannot survive and the one nothing else
+// catches: a whole sweep against such a fleet records a column of nulls and
+// looks exactly like a sweep that worked, hours later.
+func TestAReplicaWithoutTheEngineFlagLeavesTheRowUnmeasured(t *testing.T) {
+	target, _, _ := fleetUnderTest(t, fakereplica.Config{
+		OutputTokens: 4, CachedPromptFraction: 0.25, OmitPromptTokensDetails: true,
+	})
+
+	rows := drive(t, bench.DriverConfig{Target: target, Concurrency: 1, Duration: 60 * time.Millisecond})
+	if len(rows) == 0 {
+		t.Fatal("the cell sent nothing")
+	}
+	for _, r := range rows {
+		if !r.EngineUsageRead {
+			t.Errorf("row %s: usage did arrive, only the breakdown was withheld", r.RequestID)
+		}
+		if r.EngineCacheRead {
+			t.Errorf("row %s claims a cached-token account the engine never sent", r.RequestID)
+		}
+		if _, ok := r.ComputedPrefillTokens(); ok {
+			t.Errorf("row %s reports computed prefill with no breakdown behind it", r.RequestID)
+		}
+		if _, ok := r.PredictedCachedTokens(); !ok {
+			t.Errorf("row %s cannot convert its prediction, though usage carried prompt tokens", r.RequestID)
+		}
+	}
+}

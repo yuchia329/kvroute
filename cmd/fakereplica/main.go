@@ -38,18 +38,22 @@ func run() error {
 		cachedShare  = flag.Float64("cached-prompt-fraction", 0,
 			"share of each request's prompt tokens the replica reports having served out of its KV cache, through usage.prompt_tokens_details.cached_tokens and vllm:prompt_tokens_cached_total. "+
 				"A knob rather than a model of a cache: it is what lets the belief-divergence path be exercised end to end without a GPU, not a claim about how a real engine would have cached")
+		omitDetails = flag.Bool("omit-prompt-tokens-details", false,
+			"return usage with prompt_tokens_details null, as a replica started without --enable-prompt-tokens-details does. "+
+				"It exists so ops/probe-usage.sh can be exercised against the failure it is there to catch, without a GPU")
 	)
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	replica := fakereplica.New(fakereplica.Config{
-		ID:                   *id,
-		Model:                *model,
-		TTFT:                 *ttft,
-		InterToken:           *interToken,
-		OutputTokens:         *outputTokens,
-		KVUtilization:        *kvUtil,
-		CachedPromptFraction: *cachedShare,
+		ID:                      *id,
+		Model:                   *model,
+		TTFT:                    *ttft,
+		InterToken:              *interToken,
+		OutputTokens:            *outputTokens,
+		KVUtilization:           *kvUtil,
+		CachedPromptFraction:    *cachedShare,
+		OmitPromptTokensDetails: *omitDetails,
 	})
 
 	log.Info("fake replica listening", "addr", *listen, "id", *id, "ttft", *ttft, "inter_token", *interToken)
