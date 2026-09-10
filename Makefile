@@ -178,6 +178,7 @@ linux: ## Cross-compile every command for the GPU box, which has no Go toolchain
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/compare-linux-amd64 ./cmd/compare
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/calibrate-linux-amd64 ./cmd/calibrate
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/divergence-linux-amd64 ./cmd/divergence
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/pressuremap-linux-amd64 ./cmd/pressuremap
 
 .PHONY: test
 test: ## Run the full suite under the race detector
@@ -295,6 +296,120 @@ tunables-load: build ## Run one point of the load imbalance sweep (WS 1, skew 1.
 		$(TUNABLES_LOAD_WORKLOAD) \
 		$(if $(SLO_FROM),-slo-from $(SLO_FROM),) \
 		$(BENCH_ARGS)
+
+# The pressure grid: idea.md §6's headline, and the most expensive sweep in the
+# project at 4 policies x 4 WS x 3 skew x 3 reps = 144 cells, ~17 GPU-hours.
+#
+# Two axes because the two pressures are physically different and fire different
+# branches of the spill rule: working set ratio drives eviction and trips the KV
+# high-water mark, skew drives load imbalance and trips the imbalance factor.
+# Holding either fixed would sweep the pressure that evicts while leaving the
+# pressure that unbalances untested.
+#
+# One point per invocation, and one directory per point, because each point
+# offers its own workload and `compare` refuses to put two workloads in one
+# table. Sweep every point of bench.PressureGrid() for every policy, then draw
+# the map across the directories:
+#
+#     for ws in 0.25 1 3 8; do for skew in 0 1 1.4; do \
+#       make pressure-grid POLICY=session_affinity PRESSURE_WS=$ws PRESSURE_SKEW=$skew; \
+#     done; done
+#     make pressure-map
+#
+# ⚠️ KV_CAPACITY is what makes a cell state its WS point at all. Without it the
+# pool is a plain session count with no denominator to be a ratio against, the
+# cells record no working set, and the map has no axis to draw — see
+# GridPoint.Stated. It is carried by the geometry below, which is why that is
+# shared with the tunable sweep rather than retyped.
+PRESSURE_DIR ?= runs/pressure
+PRESSURE_WS ?=
+PRESSURE_SKEW ?=
+
+# The single load rung the whole grid runs at, and it must equal
+# bench.PressureConcurrency — a test pins the axes, and this is the one
+# parameter of the grid that lives only here.
+#
+# 32 for the two reasons spelled out in internal/bench/pressuregrid.go: spill
+# only fires under pressure, so a rung too low would report policy 4 collapsing
+# into policy 3 everywhere; and the spill thresholds this grid runs with are
+# chosen on the tunable sweep at 32, so another rung would apply thresholds at a
+# load they were not chosen at.
+PRESSURE_CONCURRENCY ?= 32
+
+# The same geometry the tunable sweep runs, deliberately: everything but WS and
+# skew is the frozen workload's, so a grid cell differs from a comparison cell in
+# pressure and in nothing else. Shared rather than retyped, so the two cannot
+# drift into sending different bytes under names that claim they did not.
+PRESSURE_GEOMETRY = $(TUNABLES_GEOMETRY)
+
+# The frozen cell geometry (ADR-0007), stated here because the bench command's
+# own defaults are 60 s with a 10 s warm-up and nothing else on this target
+# would override them.
+#
+# The 50 s warm-up is the one that matters most to this grid, and it is not a
+# margin for comfort. Prefix affinity's index starts empty and fills during the
+# cell, and because every cell deliberately sends prompts the fleet has not seen
+# (ADR-0004) it cannot be pre-warmed across cells. At the old 25 s warm-up, all
+# three of prefix affinity's cells at 128 users were discarded for warm-up drift
+# while none of session affinity's were: the check penalises the only policy with
+# something to learn. Running this grid at the 10 s default would silently throw
+# away the policy the grid exists to measure.
+#
+# 150 s with 50 s of it forfeited leaves 100 s measured per cell. At 144 cells
+# that is about 6.8 hours of cell time, plus one fleet restart per policy.
+PRESSURE_CELL = -cell-duration 150s -warmup 50s -settle 10s
+
+# The spill configuration policy 4 runs under, settled by #16's tunable sweep and
+# recorded in code as bench.Chosen. Stated here as the same pair of numbers
+# because make cannot read a Go variable; drift is caught at runtime rather than
+# trusted, because bench checks this label against what the router actually
+# reports before it runs a single cell.
+#
+# The KV half is 0 — the condition is OFF, and that is a finding rather than an
+# omission. vllm:kv_cache_usage_perc counts blocks held by running requests, so it
+# reads the active batch and not cache residency: #16 measured
+# kv = 0.02128 + 0.02135 x inflight at r = 0.973, which makes the KV branch the
+# load branch on this fleet. Any non-zero value either cannot fire or fires on
+# load, which the imbalance factor already covers. It also means this grid cannot
+# answer #18's separability criterion; that waits on #28, and the map says so
+# rather than reporting a column of zeros as a result.
+#
+# Only prefix affinity has a spill rule, so only prefix affinity is labelled with
+# one. The other three policies have no valve and must not be labelled as if they
+# did.
+PRESSURE_SPILL ?= 0/2
+PRESSURE_SPILL_LABEL = $(if $(filter prefix_affinity,$(POLICY)),-spill $(PRESSURE_SPILL),)
+
+.PHONY: pressure-grid
+pressure-grid: build ## Run one point of the pressure grid: PRESSURE_WS x PRESSURE_SKEW at one concurrency
+	@test -n "$(PRESSURE_WS)" || { echo "pressure-grid: set PRESSURE_WS to a point of bench.PressureWorkingSets (0.25, 1, 3 or 8)" >&2; exit 1; }
+	@test -n "$(PRESSURE_SKEW)" || { echo "pressure-grid: set PRESSURE_SKEW to a point of bench.PressureSkews (0, 1 or 1.4)" >&2; exit 1; }
+	@test -n "$(KV_CAPACITY)" || { echo "pressure-grid: KV_CAPACITY is required, or the cells state no working set and the map has no axis" >&2; exit 1; }
+	$(BIN)/bench -router $(ROUTER) -dir $(PRESSURE_DIR)/ws$(PRESSURE_WS)-skew$(PRESSURE_SKEW) \
+		-policy $(POLICY) $(PRESSURE_SPILL_LABEL) \
+		-concurrency $(PRESSURE_CONCURRENCY) \
+		-model "$$(ops/fleet.sh env MODEL)" \
+		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
+		-replicas "$$(ops/fleet.sh replicas)" \
+		-repetitions $(REPS) \
+		$(PRESSURE_CELL) \
+		$(PRESSURE_GEOMETRY) -working-set $(PRESSURE_WS) -skew $(PRESSURE_SKEW) \
+		$(if $(SLO_FROM),-slo-from $(SLO_FROM),) \
+		$(BENCH_ARGS)
+
+# The map itself. Like compare and divergence it reads cell records only, so it
+# needs no fleet and no GPU — a checkout is enough.
+#
+# It exits non-zero on one condition: a grid where nothing separated anywhere and
+# the mechanism never fired either. That is not a null result but a workload that
+# applied no pressure, and §6 says to correct it before touching any policy.
+PRESSURE_MAP_DIRS ?= $(wildcard $(PRESSURE_DIR)/*)
+PRESSURE_MAP_OUT ?= runs/pressuremap.md
+
+.PHONY: pressure-map
+pressure-map: build ## Draw the pressure map across every point of the grid that has been run
+	@test -n "$(PRESSURE_MAP_DIRS)" || { echo "pressure-map: no grid points under $(PRESSURE_DIR); run pressure-grid first" >&2; exit 1; }
+	$(BIN)/pressuremap -out $(PRESSURE_MAP_OUT) $(PRESSURE_MAP_DIRS)
 
 .PHONY: bench
 bench: build ## Sweep concurrency against the running fleet, resuming from RUN_DIR
