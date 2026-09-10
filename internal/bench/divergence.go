@@ -53,16 +53,37 @@ const UnstatedLabel = "unstated"
 //
 // The ladder spans the range the index's TTL is derived into: the p90 of the
 // engines' idle-before-evict tail is a matter of seconds to tens of seconds on
-// this host, so buckets finer than a second would split noise and buckets wider
-// than half a minute would put a belief that was fresh in with one the engine had
-// certainly dropped. The last bucket is open-ended, because there is no age past
-// which a belief stops being interesting — that is the whole question.
+// this host, so buckets finer than a second would split noise. The last bucket is
+// open-ended, because there is no age past which a belief stops being
+// interesting — that is the whole question.
+//
+// The ladder runs past the TTL rather than stopping at it. It was first written
+// against a 20-second TTL, and half a minute was then a sound top bound: an
+// index that had already forgotten could not over-predict, so everything past it
+// behaved alike. The derived TTL is 57 seconds, measured off 5,076 real
+// evictions, which puts that top bound in the middle of the interesting range
+// instead of past it. The three ages either side of the TTL are three different
+// situations and must not share a bucket:
+//
+//   - 30s–1m: the index still believes and the engines may already have evicted.
+//     This is where over-prediction lives, and it was previously pooled with
+//     ages where the index claims nothing.
+//   - 1m–2m: the index has dropped the belief. Predicted falls to whatever a
+//     shared system prompt or a branch ancestor supplies, so the column should
+//     go quiet — and if it does not, the TTL is not doing what it is derived to.
+//   - 2m+: far past every belief's life, and a control on the two above.
+//
+// Widening the ladder re-bins existing rows rather than invalidating them: the
+// gap is derived from the recorded start times, never stored, so every sweep
+// already measured re-reads under the new bounds.
 var recencyBuckets = []time.Duration{
 	time.Second,
 	2 * time.Second,
 	5 * time.Second,
 	10 * time.Second,
 	30 * time.Second,
+	time.Minute,
+	2 * time.Minute,
 }
 
 // recencyLabels are the buckets in order, oldest last, with FirstTurnLabel

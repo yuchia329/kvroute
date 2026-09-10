@@ -232,6 +232,22 @@ type Cell struct {
 	// conversations; empty for a closed-loop cell, which has no pool to rotate
 	// through. See bench.ArrivalPlan for why the workload name cannot carry it.
 	ArrivalPlan string `json:"arrival_plan" parquet:"arrival_plan"`
+	// ThinkTimeNs is how long a session waited between its turns, which under
+	// the open-loop driver is the gap between one conversation's consecutive
+	// turns and, by Little's law with the arrival rate, the number of
+	// conversations the cell held open at once. Zero for a closed-loop cell,
+	// which sends a session's next turn when its last response lands and so has
+	// no think time to record.
+	//
+	// On the cell for the reason the spill point is. It is not part of the
+	// workload's name — the same trace is offered at any think time, and the
+	// bytes do not change — but it decides how stale a belief is when the
+	// router acts on it, which is the axis #17's second criterion is plotted
+	// against. Two cells at one arrival rate and two think times would
+	// otherwise resolve to the same id, carry identical records, and silently
+	// resume one another: the second cell would send nothing and the recency
+	// curve would be one configuration measured twice.
+	ThinkTimeNs int64 `json:"think_time_ns" parquet:"think_time_ns"`
 
 	StartedAtNs int64 `json:"started_at_ns" parquet:"started_at_ns"`
 	EndedAtNs   int64 `json:"ended_at_ns" parquet:"ended_at_ns"`
@@ -329,6 +345,24 @@ func arrivalPlanFor(load Load) string {
 		return ArrivalPlan
 	}
 	return ""
+}
+
+// thinkTimeFor is the think time a cell actually ran at, which is not always the
+// one it was configured with: zero means the driver's default, and a closed-loop
+// cell has none at all.
+//
+// Resolved here rather than recorded raw so that a cell configured with zero and
+// one configured with five seconds do not look different on the record while
+// having offered the same load. The guard in checkCachedWorkload compares
+// resolved values for the same reason.
+func thinkTimeFor(load Load, configured time.Duration) time.Duration {
+	if load.Driver != OpenLoopDriver {
+		return 0
+	}
+	if configured <= 0 {
+		return DefaultThinkTime
+	}
+	return configured
 }
 
 // Load is the point of the load axis this cell sits on, reassembled from the
@@ -733,14 +767,30 @@ func checkCachedWorkload(cfg SweepConfig) error {
 			// path itself gives.
 			continue
 		}
-		if cached.Workload == "" || cached.Workload == offered {
-			continue
+		if cached.Workload != "" && cached.Workload != offered {
+			return fmt.Errorf("bench: %s already holds cells of a different workload, so resuming here would mix two traces into one directory and the comparison drawn from them would span both.\n"+
+				"  cell %s offered: %s\n"+
+				"  this sweep offers: %s\n"+
+				"Sweep into a new -dir. Two cells that sent different bytes are not two measurements of one thing (ADR-0004), and compare refuses them — but only after the GPU time has been spent, which is why this refuses now",
+				cfg.Dir, cached.ID, cached.Workload, offered)
 		}
-		return fmt.Errorf("bench: %s already holds cells of a different workload, so resuming here would mix two traces into one directory and the comparison drawn from them would span both.\n"+
-			"  cell %s offered: %s\n"+
-			"  this sweep offers: %s\n"+
-			"Sweep into a new -dir. Two cells that sent different bytes are not two measurements of one thing (ADR-0004), and compare refuses them — but only after the GPU time has been spent, which is why this refuses now",
-			cfg.Dir, cached.ID, cached.Workload, offered)
+		// The same trap one level quieter. Think time is not in the workload's
+		// name because it changes no bytes, so two cells at one arrival rate and
+		// two think times agree on every field the checks above compare — and
+		// share an id. The second sweep would resume the first one's cells,
+		// report them as cached, send nothing, and produce a recency curve that
+		// is one think time plotted twice.
+		//
+		// Zero is unstated rather than instant: cells recorded before this field
+		// existed carry no think time, and refusing them would invalidate every
+		// open-loop cell already measured over a column nobody wrote.
+		if cached.ThinkTimeNs != 0 && cached.ThinkTimeNs != thinkTimeFor(cached.Load(), cfg.ThinkTime).Nanoseconds() {
+			return fmt.Errorf("bench: %s already holds cells run at a different think time, and think time is not in the workload's name, so these cells would be resumed as though they were this sweep's own.\n"+
+				"  cell %s ran at: %v\n"+
+				"  this sweep offers: %v\n"+
+				"Sweep into a new -dir. The gap between a session's turns decides how stale the router's belief is when it acts on it, so two think times are two measurements and not two repetitions of one",
+				cfg.Dir, cached.ID, time.Duration(cached.ThinkTimeNs), thinkTimeFor(cached.Load(), cfg.ThinkTime))
+		}
 	}
 	return nil
 }
@@ -998,6 +1048,7 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		LoadImbalanceFactor: cfg.Spill.LoadImbalanceFactor,
 
 		ArrivalPlan: arrivalPlanFor(load),
+		ThinkTimeNs: thinkTimeFor(load, cfg.ThinkTime).Nanoseconds(),
 		StartedAtNs: started.UnixNano(),
 		EndedAtNs:   ended.UnixNano(),
 
