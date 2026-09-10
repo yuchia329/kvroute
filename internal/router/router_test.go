@@ -954,3 +954,57 @@ func TestAPolicyWithNoIndexReportsNoPrefixMatch(t *testing.T) {
 		t.Errorf("a policy with no index recorded a %dB match", rows[0].PrefixMatchBytes)
 	}
 }
+
+// The index's occupancy is the evidence for whether its node cap ever bound, and
+// the cap is calibrated against belief divergence on exactly that distinction
+// (ADR-0007). The router is the only party that can see it, so it publishes it.
+func TestStatsReportThePrefixIndexTheRouterRoutesOn(t *testing.T) {
+	_, replicaURL := startFake(t, fakereplica.Config{ID: "replica-0", OutputTokens: 2})
+
+	index, err := prefix.New(prefix.Config{NodeCap: 4096, TTL: time.Minute})
+	if err != nil {
+		t.Fatalf("new index: %v", err)
+	}
+	rt := startRouterWith(t, policy.NewPrefixAffinity(index, policy.Spill{}), "replica-0="+replicaURL)
+
+	if _, err := send(rt.url, blockingRequest); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+
+	stats := statsOf(t, rt.url)
+	if stats.PrefixIndex == nil {
+		t.Fatal("a router running prefix affinity reports no index, so nothing can say whether its cap bound")
+	}
+	if stats.PrefixIndex.NodeCap != 4096 || stats.PrefixIndex.TTL != time.Minute {
+		t.Errorf("index bounds = %+v, want the ones it was built with", *stats.PrefixIndex)
+	}
+	if stats.PrefixIndex.Nodes == 0 {
+		t.Error("the index reports no nodes after a request was routed through it")
+	}
+}
+
+// A policy with no index reports none rather than an index holding nothing. The
+// two would read the same in a cell record, and one of them is a cap that never
+// bound while the other is no cap at all.
+func TestAPolicyWithNoIndexReportsNoneRatherThanAnEmptyOne(t *testing.T) {
+	_, replicaURL := startFake(t, fakereplica.Config{ID: "replica-0", OutputTokens: 2})
+	rt := startRouterWith(t, policy.NewRoundRobin(), "replica-0="+replicaURL)
+
+	if stats := statsOf(t, rt.url); stats.PrefixIndex != nil {
+		t.Errorf("a round-robin router reports an index: %+v", *stats.PrefixIndex)
+	}
+}
+
+func statsOf(t *testing.T, url string) router.Stats {
+	t.Helper()
+	resp, err := http.Get(url + "/router/stats")
+	if err != nil {
+		t.Fatalf("get stats: %v", err)
+	}
+	defer resp.Body.Close()
+	var stats router.Stats
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+		t.Fatalf("decode stats: %v", err)
+	}
+	return stats
+}

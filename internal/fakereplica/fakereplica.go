@@ -44,6 +44,22 @@ type Config struct {
 	// KVUtilization is reported as vllm:kv_cache_usage_perc.
 	KVUtilization float64
 
+	// CachedPromptFraction is the share of each request's prompt tokens the
+	// replica reports having served out of its KV cache rather than prefilled.
+	//
+	// It is a knob rather than a model of a cache, for the reason the fake exists
+	// at all: what is being exercised above this seam is the harness reading the
+	// engine's own per-request account of what it did not have to compute, and a
+	// belief divergence measured against a fake's guess at prefix caching would
+	// be a measurement of the fake. Zero — the default — is a replica that
+	// prefills everything, which is what the fake modelled before.
+	//
+	// The same fraction drives usage.prompt_tokens_details.cached_tokens and the
+	// vllm:prompt_tokens_cached_total counter, so the per-request account and the
+	// fleet-wide one agree, as they do on a real replica and as the divergence
+	// report checks.
+	CachedPromptFraction float64
+
 	// NumGPUBlocks and BlockSize are the KV cache geometry reported through
 	// vllm:cache_config_info, which is where aggregate fleet KV capacity is
 	// read from. They default to what a replica of the pinned engine on a 3090
@@ -82,9 +98,13 @@ type Replica struct {
 }
 
 type counters struct {
-	requests         int64
-	promptTokens     int64
-	completionTokens int64
+	requests     int64
+	promptTokens int64
+	// cachedPromptTokens is the share of those the replica reports having served
+	// out of cache, behind vllm:prompt_tokens_cached_total. It is driven by the
+	// same fraction as the per-request usage, so the two accounts agree.
+	cachedPromptTokens int64
+	completionTokens   int64
 	// running is how many chat completions are in flight right now. It backs
 	// vllm:num_requests_running, which is the engine's actual batch — the one
 	// number that says what the replica is doing rather than what was asked of
@@ -159,6 +179,7 @@ type completion struct {
 	model        string
 	tokens       int
 	promptTokens int
+	cachedTokens int
 	includeUsage bool
 }
 
@@ -178,6 +199,12 @@ func (c completion) usage() *usage {
 		PromptTokens:     c.promptTokens,
 		CompletionTokens: c.tokens,
 		TotalTokens:      c.promptTokens + c.tokens,
+		// Always present, never omitted when it is zero. A replica that served
+		// nothing out of cache and a replica that does not report caching at all
+		// are different things, and the harness distinguishes them: this is the
+		// per-request ground truth belief divergence is measured against, so an
+		// absent field has to mean absent.
+		PromptTokensDetails: &promptTokensDetails{CachedTokens: c.cachedTokens},
 	}
 }
 
@@ -227,6 +254,7 @@ func (r *Replica) handleChatCompletions(w http.ResponseWriter, req *http.Request
 		promptTokens: estimateTokens(parsed.Messages),
 		includeUsage: parsed.StreamOptions != nil && parsed.StreamOptions.IncludeUsage,
 	}
+	c.cachedTokens = int(float64(c.promptTokens) * r.cfg.CachedPromptFraction)
 	r.observe(c)
 
 	if parsed.Stream {
@@ -261,11 +289,12 @@ func (r *Replica) observe(c completion) {
 	defer r.mu.Unlock()
 	r.counters.requests++
 	r.counters.promptTokens += int64(c.promptTokens)
+	r.counters.cachedPromptTokens += int64(c.cachedTokens)
 	r.counters.completionTokens += int64(c.tokens)
 
 	r.histograms["vllm:time_to_first_token_seconds"].observe(ttft)
 	r.histograms["vllm:e2e_request_latency_seconds"].observe(ttft + float64(c.tokens-1)*itl)
-	r.histograms["vllm:request_prefill_kv_computed_tokens"].observe(float64(c.promptTokens))
+	r.histograms["vllm:request_prefill_kv_computed_tokens"].observe(float64(c.promptTokens - c.cachedTokens))
 	for range c.tokens - 1 {
 		r.histograms["vllm:inter_token_latency_seconds"].observe(itl)
 	}
@@ -400,6 +429,16 @@ type usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+	// PromptTokensDetails carries the engine's per-request account of how much
+	// of the prompt it did not have to compute. It is the only place that figure
+	// is published per request — vllm:request_prefill_kv_computed_tokens is a
+	// histogram and carries no request id — so it is what the router's prefix
+	// match is checked against.
+	PromptTokensDetails *promptTokensDetails `json:"prompt_tokens_details,omitempty"`
+}
+
+type promptTokensDetails struct {
+	CachedTokens int `json:"cached_tokens"`
 }
 
 func writeError(w http.ResponseWriter, status int, typ, message string) {

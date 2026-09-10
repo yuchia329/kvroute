@@ -300,6 +300,39 @@ func (m *MultiTurn) ExpectedDistinctSessions(visits int) float64 {
 	return expected
 }
 
+// WorkingSet is the WS point this trace offers: its whole session pool in
+// tokens, over the measured aggregate fleet KV it is a ratio of.
+//
+// Derived rather than only returned, so that a pool stated as a session count
+// still lands on the WS axis. The headline workload names a count on purpose —
+// capacity moves between bring-ups, and a ratio would silently derive a
+// different pool on a rebuilt fleet and split the comparison in two — but the
+// divergence report still has to plot that run against WS, and the ratio is
+// arithmetic over figures the generator already holds.
+//
+// Zero when nothing measured the capacity it would be a ratio of. That is an
+// absence rather than a point on the axis, and the report bins it as one: a
+// derived ratio against an assumed denominator is the mistake the
+// characterization gates exist to prevent.
+func (m *MultiTurn) WorkingSet() float64 {
+	if m.cfg.WorkingSet > 0 {
+		return m.cfg.WorkingSet
+	}
+	if m.cfg.CapacityTokens <= 0 {
+		return 0
+	}
+	return float64(m.OfferedTokens()) / float64(m.cfg.CapacityTokens)
+}
+
+// Skew is the Zipf exponent this trace concentrates its draws by: 0 is uniform.
+//
+// Recorded on every cell beside the working set, because the two are the
+// pressure grid's axes together. Skew decides how much of the session pool a
+// cell of finite length actually touches — at WS 1 a cell realises 0.97 of its
+// label at alpha 0 and 0.40 at alpha 1.4 — so a working set binned without it
+// pools cells whose realised memory pressure differs several-fold.
+func (m *MultiTurn) Skew() float64 { return m.cfg.Skew }
+
 // BytesPerToken is the declared conversion between the token budgets the WS
 // axis is stated in and the bytes on the wire.
 func (m *MultiTurn) BytesPerToken() int { return m.cfg.BytesPerToken }
@@ -318,11 +351,11 @@ func (m *MultiTurn) Name() string {
 	if m.cfg.WorkingSet > 0 {
 		fmt.Fprintf(&b, ",ws=%g", m.cfg.WorkingSet)
 	}
-	fmt.Fprintf(&b, ",skew=%g,turns=%d,prompt=%dt,output=%dt,system=%gx%dt,branch=%gx%dfam%dt,bpt=%d,seed=%d)",
+	fmt.Fprintf(&b, ",skew=%g,turns=%d,prompt=%dt,output=%dt,system=%gx%dt,branch=%gx%dfam%dt,bpt=%d,seed=%d,%s)",
 		m.cfg.Skew, m.cfg.TurnsPerSession, m.cfg.PromptTokens, m.cfg.OutputTokens,
 		m.cfg.SystemPromptFraction, m.cfg.SystemPromptTokens,
 		m.cfg.BranchFraction, m.cfg.BranchFamilies, m.cfg.BranchTurns,
-		m.cfg.BytesPerToken, m.cfg.Seed)
+		m.cfg.BytesPerToken, m.cfg.Seed, usageMarker)
 	return b.String()
 }
 
@@ -360,10 +393,11 @@ func (m *MultiTurn) Next(user, turn int) Turn {
 	messages = append(messages, message("user", m.userContent(epoch, session, index)))
 
 	body, err := json.Marshal(map[string]any{
-		"model":      m.cfg.Model,
-		"messages":   messages,
-		"stream":     true,
-		"max_tokens": m.cfg.OutputTokens,
+		"model":          m.cfg.Model,
+		"messages":       messages,
+		"stream":         true,
+		"stream_options": includeUsage(),
+		"max_tokens":     m.cfg.OutputTokens,
 	})
 	if err != nil {
 		// Strings and ints built here; there is no input that can make it

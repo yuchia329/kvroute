@@ -346,6 +346,14 @@ func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int, warmUntil, 
 	s, readErr := readStream(resp.Body)
 	row.ResponseBytes = s.bytes
 	row.OutputTokens = s.tokens
+	// The engine's own account of the prompt, read back off the response the
+	// router passed through untouched. It is the ground truth the prefix match on
+	// this same row predicted, and putting the two side by side is all belief
+	// divergence costs.
+	row.EnginePromptTokens = s.usage.promptTokens
+	row.EngineCachedTokens = s.usage.cachedTokens
+	row.EngineUsageRead = s.usage.read
+	row.EngineCacheRead = s.usage.cacheRead
 	row.ITLMeanNs = s.itlMean.Nanoseconds()
 	row.ITLP50Ns = s.itlP50.Nanoseconds()
 	row.ITLMaxNs = s.itlMax.Nanoseconds()

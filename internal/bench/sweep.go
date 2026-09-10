@@ -262,6 +262,39 @@ type Cell struct {
 	PromptTokensCached float64 `json:"prompt_tokens_cached" parquet:"prompt_tokens_cached"`
 	PrefillRead        bool    `json:"prefill_read" parquet:"prefill_read"`
 
+	// WorkingSet is the WS point this cell's workload offered: session tokens
+	// over the measured aggregate fleet KV. Zero when the workload states none —
+	// the fixed workload has no session pool, and a multi-turn pool given as a
+	// count with no measured capacity has no denominator — which is an absence
+	// rather than a point on the axis.
+	//
+	// On the cell rather than only inside the workload name, because #17 plots
+	// belief divergence against it and a report that had to parse a name to find
+	// its own axis would break the first time the name gained a field.
+	WorkingSet float64 `json:"working_set" parquet:"working_set"`
+	// Skew is the Zipf exponent this cell's workload concentrated its draws by.
+	//
+	// Beside the working set rather than only in the workload name, and for a
+	// sharper reason than convenience: skew discounts how much of the session
+	// pool a cell actually touches, so a working set binned without it pools
+	// cells whose realised pressure differs several-fold and flattens the very
+	// curve the pressure grid is drawn to show.
+	Skew float64 `json:"skew" parquet:"skew"`
+
+	// PrefixIndexNodes and PrefixIndexCap are how much belief the router's index
+	// was holding when this cell ended, and what it was allowed to hold. Both
+	// zero under the three policies that consult no index.
+	//
+	// They are recorded because the node cap is a modelling decision (ADR-0006)
+	// and this is the evidence for whether it ever bound: an index that never
+	// filled its cap did not over-predict because of the cap, and calibrating the
+	// cap against divergence without that distinction would be treating the TTL's
+	// failure as the cap's. Cumulative across the sweep rather than per cell,
+	// because the router is not restarted between cells — which is what the
+	// question needs, since it asks whether the cap ever bound at all.
+	PrefixIndexNodes int `json:"prefix_index_nodes" parquet:"prefix_index_nodes"`
+	PrefixIndexCap   int `json:"prefix_index_cap" parquet:"prefix_index_cap"`
+
 	Summary       `json:"summary"`
 	Contamination `json:"contamination"`
 }
@@ -795,6 +828,32 @@ func checkGridPoint(cfg SweepConfig, stats router.Stats) error {
 		cfg.Target, running, cfg.Spill)
 }
 
+// readIndexStats asks the router how much belief its index is holding.
+//
+// A failure is not an error, for the same reason a failed metrics scrape is not:
+// the cell measured whatever it measured, and losing a completed cell over a
+// stats endpoint that did not answer would cost far more than the column does.
+// The three policies that consult no index report none, which reads as zero and
+// is the honest answer — there was no index to be full.
+func readIndexStats(ctx context.Context, cfg SweepConfig) prefix.Stats {
+	url := strings.TrimSuffix(cfg.Target, "/") + "/router/stats"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return prefix.Stats{}
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		cfg.Log.Warn("could not read the router's index occupancy, so this cell records none", "err", err)
+		return prefix.Stats{}
+	}
+	defer resp.Body.Close()
+	var stats router.Stats
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil || stats.PrefixIndex == nil {
+		return prefix.Stats{}
+	}
+	return *stats.PrefixIndex
+}
+
 // checkFleet refuses to start a sweep unless every replica answers /health.
 //
 // Nothing below this ejects a dead replica — health checking and ejection are
@@ -903,6 +962,7 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 	served := prefixCache.Stop(ctx)
 	// Read after the cell rather than before it, because the question is how much
 	// belief the run built up and not how much it started with.
+	index := readIndexStats(ctx, cfg)
 	ended := time.Now()
 
 	if closeErr := rows.Close(); closeErr != nil && runErr == nil {
@@ -931,6 +991,8 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		ArrivalRate: load.ArrivalRate,
 		Repetition:  repetition,
 		Workload:    cfg.Workload.Name(),
+		WorkingSet:  OfferedWorkingSet(cfg.Workload),
+		Skew:        OfferedSkew(cfg.Workload),
 
 		KVHighWater:         cfg.Spill.KVHighWater,
 		LoadImbalanceFactor: cfg.Spill.LoadImbalanceFactor,
@@ -946,6 +1008,9 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		PromptTokens:       served.Prefill.PromptTokens,
 		PromptTokensCached: served.Prefill.CachedTokens,
 		PrefillRead:        served.Prefill.Read,
+
+		PrefixIndexNodes: index.Nodes,
+		PrefixIndexCap:   index.NodeCap,
 
 		Summary:       Summarize(results, cfg.summaryOptions()),
 		Contamination: contamination,

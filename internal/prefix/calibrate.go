@@ -59,6 +59,16 @@ type Calibration struct {
 	// as a run under a measured one -- which is the only thing that made the
 	// derivation worth insisting on.
 	ChosenTTL time.Duration `json:"chosen_ttl,omitempty"`
+	// ObservedDivergence is what a completed run measured of the gap between
+	// what the index believed and what the engines held. It scales the node cap;
+	// see NodeCap.
+	//
+	// It arrives from a run rather than from the fleet, which is what makes it
+	// the check ADR-0006 could not make for itself: the fleet can say how large
+	// an index modelling it would be, and only a run can say how much of that
+	// model the engines honoured. Empty until one has, and then the cap says so
+	// through NodeCapSource.
+	ObservedDivergence Divergence `json:"observed_divergence,omitzero"`
 }
 
 // TTLSource says where the TTL came from, so every report of it carries its own
@@ -129,8 +139,8 @@ func (c Calibration) Config() (Config, error) {
 	return Config{NodeCap: c.NodeCap(), TTL: ttl}, nil
 }
 
-// NodeCap is the index size that models a fleet of this capacity: the fleet's
-// tokens converted to bytes of prompt, divided into blocks.
+// FleetModelNodeCap is the index size that models a fleet of this capacity: the
+// fleet's tokens converted to bytes of prompt, divided into blocks.
 //
 // Sizing it to the fleet is the modelling claim. An index larger than the fleet
 // believes replicas hold prefixes they evicted hours ago, and idea.md §4.3 is
@@ -138,11 +148,91 @@ func (c Calibration) Config() (Config, error) {
 // the data is strictly worse than least-loaded. An index much smaller than the
 // fleet forgets blocks the replicas are still holding, and forfeits matches that
 // were really there.
-func (c Calibration) NodeCap() int {
+//
+// It is a model of the fleet and not a measurement of the index's accuracy,
+// which is why it is a ceiling rather than the answer: see NodeCap.
+func (c Calibration) FleetModelNodeCap() int {
 	if c.FleetTokens <= 0 || c.PromptBytesPerToken <= 0 {
 		return 0
 	}
 	return int(math.Round(float64(c.FleetTokens) * c.PromptBytesPerToken / BlockBytes))
+}
+
+// NodeCap is the cap the index actually runs with: the fleet model, scaled down
+// by the share of its belief the engines turned out to be honouring.
+//
+// ADR-0006 sized the cap to the fleet and said plainly what that argument could
+// not reach — nothing in it proves a fleet-sized index is the *right* size, only
+// that it is a size derived from the fleet. Belief divergence is the measurement
+// that closes it, and this is where it lands (#17): an index whose claims the
+// engines honour half the time is holding twice as much belief as the fleet is
+// backing, so it models half the fleet.
+//
+// Three guards, each of them a way the scaling would otherwise be superstition:
+//
+//   - The fleet model is a ceiling. Under-prediction means the engines held more
+//     than the index claimed, which is a reason to forget less, not a licence to
+//     believe in more blocks than the fleet can hold.
+//   - A divergence that claimed nothing does not resize anything. Every request
+//     under a policy that consults no index predicts zero, and scaling by that
+//     would shrink the index to nothing on evidence that never exercised it.
+//   - A cap that never bound is not what over-predicted. If the index never
+//     filled it, the beliefs that failed were expired by the TTL's reckoning or
+//     evicted by the engines on their own schedule, and shrinking the cap would
+//     be treating their failure as its.
+func (c Calibration) NodeCap() int {
+	model := c.FleetModelNodeCap()
+	scale, ok := c.nodeCapScale()
+	if !ok {
+		return model
+	}
+	// Never to zero: a cap of nothing is a config prefix.New refuses, which is a
+	// worse answer to a badly honoured belief than the smallest index that can
+	// hold one.
+	return max(int(math.Round(float64(model)*scale)), 1)
+}
+
+// NodeCapSource says where the cap came from, so every report of it carries its
+// own provenance — the same reason TTLSource exists.
+func (c Calibration) NodeCapSource() string {
+	scale, ok := c.nodeCapScale()
+	if !ok {
+		return c.uncalibratedNodeCapSource()
+	}
+	return fmt.Sprintf("the fleet model of %d nodes, scaled by the %.1f%% of predicted tokens the engines honoured over %d requests",
+		c.FleetModelNodeCap(), scale*100, c.ObservedDivergence.Requests)
+}
+
+// uncalibratedNodeCapSource says why an observed divergence did not move the
+// cap, which is a different statement from there having been none.
+func (c Calibration) uncalibratedNodeCapSource() string {
+	const model = "the fleet's own KV capacity in blocks of prompt, which models the fleet rather than measuring the index"
+	d := c.ObservedDivergence
+	switch {
+	case !d.Evidenced():
+		return model + "; no divergence has been measured against it yet"
+	case d.PredictedTokens <= 0:
+		return model + "; the measured divergence claimed no prefix on any request, so it says nothing about how large the index should be"
+	case !d.CapBound():
+		return fmt.Sprintf("%s; the measured divergence is not applied because the index reached %d of its %d nodes and so was never capped",
+			model, d.IndexNodes, d.IndexCap)
+	}
+	return model
+}
+
+// nodeCapScale is the factor the observed divergence puts on the fleet model,
+// and whether there is one at all. Above one it is clamped away rather than
+// returned: see NodeCap.
+func (c Calibration) nodeCapScale() (float64, bool) {
+	d := c.ObservedDivergence
+	if !d.Evidenced() || !d.CapBound() {
+		return 0, false
+	}
+	honoured, ok := d.Honoured()
+	if !ok || honoured >= 1 {
+		return 0, false
+	}
+	return honoured, true
 }
 
 // TTL is how long a belief stands, taken from the engine's idle-before-evict

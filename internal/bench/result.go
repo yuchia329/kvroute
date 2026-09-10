@@ -86,6 +86,30 @@ type Result struct {
 	// TotalNs is request start to last byte received.
 	TotalNs int64 `json:"total_ns" parquet:"total_ns"`
 
+	// The engine's own account of this request's prompt, off the usage block it
+	// returns when asked for one. This is the ground truth PrefixMatchBytes above
+	// is a prediction of, and the pair is what belief divergence is measured from
+	// (#17) — one field per side on one row, which is the entire cost of being
+	// able to plot the two against each other.
+	//
+	// Per request rather than off vllm:request_prefill_kv_computed_tokens, which
+	// carries the same quantity as a histogram and so cannot be joined to the
+	// request whose prediction it would check. Over a cell's window the two agree,
+	// and the divergence report puts them side by side rather than assuming it.
+	//
+	// EnginePromptTokens is what the engine says it processed; EngineCachedTokens
+	// is how much of that it answered out of its KV cache instead of prefilling,
+	// so the difference is what the GPU actually computed.
+	EnginePromptTokens int `json:"engine_prompt_tokens" parquet:"engine_prompt_tokens"`
+	EngineCachedTokens int `json:"engine_cached_tokens" parquet:"engine_cached_tokens"`
+	// EngineUsageRead and EngineCacheRead say whether the engine reported at all,
+	// and whether it broke the prompt down into cached and computed. Both are on
+	// the row because a replica that cached nothing, one that does not report
+	// caching, and one that returned no usage are three different things, and a
+	// bare zero would read as the first.
+	EngineUsageRead bool `json:"engine_usage_read" parquet:"engine_usage_read"`
+	EngineCacheRead bool `json:"engine_cache_read" parquet:"engine_cache_read"`
+
 	OutputTokens int `json:"output_tokens" parquet:"output_tokens"`
 	// ITL fields summarise the gaps between successive token chunks of this one
 	// response. The SLO is evaluated against ITLP50Ns so that a single stall
@@ -98,6 +122,38 @@ type Result struct {
 
 	Outcome record.Outcome `json:"outcome" parquet:"outcome"`
 	Error   string         `json:"error,omitempty" parquet:"error"`
+}
+
+// ComputedPrefillTokens is the prompt tokens the engine actually had to compute
+// for this request, and whether it said.
+//
+// It is the per-request form of recomputed prefill: what the GPU spent, as
+// opposed to what the router believed it would not have to. CONTEXT.md reserves
+// "redundant prefill" for the comparison against another policy on the same
+// bytes, which no single request can make.
+func (r Result) ComputedPrefillTokens() (int, bool) {
+	if !r.EngineUsageRead || !r.EngineCacheRead {
+		return 0, false
+	}
+	return r.EnginePromptTokens - r.EngineCachedTokens, true
+}
+
+// PredictedCachedTokens is the router's prefix match expressed in the engine's
+// units: the leading bytes it believed the chosen replica held, converted at
+// this request's own measured bytes per token.
+//
+// Per request rather than through the run-wide ratio the calibration carries.
+// Both sides of the conversion are already on the row — the bytes this request
+// sent, and the tokens the engine says they came to — so the ratio is measured on
+// the very request it is applied to and cannot be an average that fits no
+// individual prompt. CONTEXT.md's prompt bytes per token is the same quantity
+// measured over a whole run, and the two are expected to agree; the divergence
+// report is where they are compared rather than assumed.
+func (r Result) PredictedCachedTokens() (float64, bool) {
+	if !r.EngineUsageRead || r.EnginePromptTokens <= 0 || r.PromptBytes <= 0 {
+		return 0, false
+	}
+	return float64(r.PrefixMatchBytes) * float64(r.EnginePromptTokens) / float64(r.PromptBytes), true
 }
 
 // ScheduleLag is how late this request was sent against the schedule that asked

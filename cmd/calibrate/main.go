@@ -59,6 +59,10 @@ func run() error {
 			"use this TTL instead of deriving one from the engine's idle-before-evict tail. "+
 				"For a fleet with no residency history to derive from -- the histograms are empty until blocks have been evicted. "+
 				"Recorded in the calibration as chosen rather than measured, so a run under it is never written up as a derived one")
+		divergence = flag.String("divergence", "",
+			"a belief-divergence reading from cmd/divergence, measured over a completed sweep. "+
+				"It resizes the node cap: the fleet model is a ceiling, and the share of its belief the engines turned out to be honouring scales it down. "+
+				"Without it the cap is the fleet model alone, which ADR-0006 says is a size derived from the fleet rather than a size anything has shown to be right")
 		out     = flag.String("out", "runs/prefix-calibration.json", "where to write the calibration")
 		timeout = flag.Duration("timeout", 30*time.Second, "how long to spend scraping the fleet")
 	)
@@ -94,12 +98,18 @@ func run() error {
 		return err
 	}
 
+	observed, err := observedDivergence(*divergence)
+	if err != nil {
+		return err
+	}
+
 	measured := prefix.Calibration{
 		FleetTokens:         capacity.Tokens,
 		PromptBytesPerToken: ratio,
 		BlockIdle:           prefix.ScrapeBlockIdle(ctx, client, baseURLs),
 		BlockLifetime:       prefix.ScrapeBlockLifetime(ctx, client, baseURLs),
 		ChosenTTL:           *chosenTTL,
+		ObservedDivergence:  observed,
 	}
 	// Derived here rather than left for the router, so that a fleet that cannot
 	// support a calibration fails now — with the fleet in front of whoever ran
@@ -116,12 +126,30 @@ func run() error {
 	fmt.Printf("  aggregate fleet KV capacity   %d tokens\n", measured.FleetTokens)
 	fmt.Printf("  prompt bytes per token        %.2f\n", measured.PromptBytesPerToken)
 	fmt.Printf("  TTL                           %v (%s)\n", cfg.TTL, measured.TTLSource())
+	if observed.Evidenced() {
+		fmt.Printf("  observed belief divergence    %s\n", observed)
+	}
+	fmt.Printf("  node cap                      %d, from %s\n", cfg.NodeCap, measured.NodeCapSource())
 	fmt.Printf("  -> node cap %d, TTL %v\n", cfg.NodeCap, cfg.TTL)
 	if warning, disagrees := measured.CheckAgainstLifetime(cfg.TTL); disagrees {
 		fmt.Printf("  ⚠️  %s\n", warning)
 	}
 	fmt.Printf("  written to %s; start the router with -prefix-calibration %s\n", *out, *out)
 	return nil
+}
+
+// observedDivergence reads the belief-divergence reading the node cap is
+// resized against, if one was given.
+//
+// Absent is not an error: the first sweep of prefix affinity necessarily runs
+// against a cap nothing has measured yet, because the divergence is measured from
+// the rows that sweep produces. The cap is then the fleet model, and
+// NodeCapSource says so.
+func observedDivergence(path string) (prefix.Divergence, error) {
+	if path == "" {
+		return prefix.Divergence{}, nil
+	}
+	return prefix.LoadDivergence(path)
 }
 
 // promptBytesPerToken measures the ratio off a sweep's cells, or takes the

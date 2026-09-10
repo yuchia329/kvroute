@@ -177,6 +177,7 @@ linux: ## Cross-compile every command for the GPU box, which has no Go toolchain
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/characterize-linux-amd64 ./cmd/characterize
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/compare-linux-amd64 ./cmd/compare
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/calibrate-linux-amd64 ./cmd/calibrate
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/divergence-linux-amd64 ./cmd/divergence
 
 .PHONY: test
 test: ## Run the full suite under the race detector
@@ -325,6 +326,29 @@ goodput: build ## Offer a ladder of arrival rates open-loop and record goodput a
 COMPARE_DIRS ?= $(RUN_DIR) $(GOODPUT_DIR)
 COMPARE_OUT ?= runs/comparison.md
 
+# Belief divergence: how far the router's prefix index was from what the engines
+# actually held, per request. Like compare, it reads the rows a sweep wrote and
+# needs no fleet and no GPU.
+#
+# DIVERGENCE_JSON is the half of the output the router consumes rather than a
+# person: the reading `make calibrate` folds into the next calibration, which
+# scales the index's node cap by the share of its belief the engines honoured
+# (ADR-0007). `make calibrate` picks it up automatically once it exists, so the
+# order is sweep, divergence, calibrate, sweep again.
+#
+# Name several directories to draw the working-set axis across the points of a
+# pressure grid, which is where that axis actually varies:
+#
+#     make divergence DIVERGENCE_DIRS="runs/ws0.25 runs/ws1 runs/ws3 runs/ws8"
+#
+# ⚠️ A sweep states its WS point only if it was given the measured capacity the
+# ratio is against. Pass -kv-capacity in BENCH_ARGS and the ratio is derived from
+# the session pool without changing a byte of what the cell sends — the workload
+# name, and so the comparison, is untouched.
+DIVERGENCE_DIRS ?= $(RUN_DIR) $(GOODPUT_DIR)
+DIVERGENCE_OUT ?= runs/divergence.md
+DIVERGENCE_JSON ?= runs/divergence.json
+
 .PHONY: compare
 compare: build ## Put the swept policies' goodput in one comparison table
 	$(BIN)/compare -out $(COMPARE_OUT) $(COMPARE_DIRS)
@@ -361,7 +385,12 @@ replica-status: ## Show which replicas are running
 calibrate: build ## Measure the prefix index's node cap and TTL off the fleet and a sweep
 	$(BIN)/calibrate -replicas "$$(ops/fleet.sh replicas)" \
 		-from $(CALIBRATE_FROM) \
+		$(if $(wildcard $(DIVERGENCE_JSON)),-divergence $(DIVERGENCE_JSON),) \
 		-out $(PREFIX_CALIBRATION)
+
+.PHONY: divergence
+divergence: build ## Measure how far the router's index was from what the engines held
+	$(BIN)/divergence -out $(DIVERGENCE_OUT) -calibration-out $(DIVERGENCE_JSON) $(DIVERGENCE_DIRS)
 
 .PHONY: run-router
 run-router: build ## Run the router against REPLICAS, keeping its own rows in RECORDS

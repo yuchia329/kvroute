@@ -108,7 +108,7 @@ func (r *Replica) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		"vllm:prefix_cache_hits_total":    0,
 		"vllm:prefix_cache_queries_total": 0,
 		"vllm:prompt_tokens_total":        float64(c.promptTokens),
-		"vllm:prompt_tokens_cached_total": 0,
+		"vllm:prompt_tokens_cached_total": float64(c.cachedPromptTokens),
 		"vllm:num_preemptions_total":      0,
 	}
 

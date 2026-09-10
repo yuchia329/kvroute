@@ -38,6 +38,77 @@ type Workload interface {
 	Next(user, turn int) Turn
 }
 
+// includeUsage is what every request body asks the engine for: the usage block
+// carrying this request's prompt tokens and how many of them the engine answered
+// out of its KV cache.
+//
+// Unconditional, and not a knob. It is the only per-request ground truth belief
+// divergence can be measured against — vllm:request_prefill_kv_computed_tokens
+// is the same quantity as a histogram and carries no request id — and a sweep
+// that could be run without it would be a sweep whose rows cannot check the
+// router's own prediction (#17).
+//
+// Two things it costs, and one it does not. It adds a trailing chunk carrying no
+// content, which readStream does not count as a token, so inter-token latency is
+// untouched and only the response byte count moves. It adds about forty bytes to
+// every request body, which sorts last in the marshalled JSON and therefore
+// leaves every prompt's leading bytes — the prefix the index chunks and the
+// engine caches — exactly where they were. What it does change is the bytes, so
+// the workload names below carry it: a cell recorded before this and one
+// recorded after did not send the same request, and a comparison that let their
+// names match would compare two workloads as one.
+func includeUsage() map[string]any {
+	return map[string]any{"include_usage": true}
+}
+
+// usageMarker is how a workload name records that its requests ask for usage.
+const usageMarker = "usage=on"
+
+// PressurePoint is implemented by a workload that can state the working set
+// ratio it offers: the session tokens it puts in front of the fleet over the
+// fleet's measured aggregate KV capacity.
+//
+// An optional interface rather than a method on Workload, because the fixed
+// workload has no session pool and so no working set, and a method it had to
+// implement would report that absence as WS 0 — a point on the axis rather than
+// a workload that is not on it.
+type PressurePoint interface {
+	WorkingSet() float64
+	// Skew is the Zipf exponent over the session pool: 0 is uniform, and
+	// concentration rises from there. It travels with the working set because the
+	// two are the pressure grid's axes together and neither is readable alone —
+	// skew decides how much of the pool a cell of finite length actually draws
+	// from, so a working set reported without it names a pressure the cell may
+	// not have applied.
+	Skew() float64
+}
+
+// OfferedWorkingSet is the WS point a workload offers, or zero when it does not
+// state one.
+//
+// It asks through this function rather than at each call site because the sweep
+// hands every cell a Shifted workload: a wrapper that did not forward the
+// question would report every cell as stating nothing, and the divergence
+// report's WS axis would be one empty column that no test failed over.
+func OfferedWorkingSet(w Workload) float64 {
+	if point, states := w.(PressurePoint); states {
+		return point.WorkingSet()
+	}
+	return 0
+}
+
+// OfferedSkew is the Zipf skew a workload offers, or zero when it states none.
+//
+// Zero is genuinely uniform rather than an absence, which is why this does not
+// distinguish the two: a workload with no session pool has no traffic to
+// concentrate, and uniform is what it offers.
+func OfferedSkew(w Workload) float64 {
+	if point, states := w.(PressurePoint); states {
+		return point.Skew()
+	}
+	return 0
+}
+
 // Shifted returns w with its user space moved by offset, so that two
 // measurements in the same run never send the same bytes.
 //
@@ -67,6 +138,17 @@ type shifted struct {
 
 func (s shifted) Name() string             { return s.inner.Name() }
 func (s shifted) Next(user, turn int) Turn { return s.inner.Next(s.offset+user, turn) }
+
+// WorkingSet forwards the wrapped workload's own. Shifting moves which slice of
+// the user space a cell draws from and nothing about how much pressure the pool
+// represents, so hiding the figure here would lose it for every cell the sweep
+// runs — which is all of them.
+func (s shifted) WorkingSet() float64 { return OfferedWorkingSet(s.inner) }
+
+// Skew forwards the wrapped workload's own, for the reason WorkingSet does:
+// every cell the sweep runs is Shifted, so a wrapper that dropped it would
+// report the whole pressure grid as uniform.
+func (s shifted) Skew() float64 { return OfferedSkew(s.inner) }
 
 // WorkloadStride separates one measurement's user space from the next. It is
 // far above any concurrency the sweep reaches, so two measurements' user ranges
@@ -119,7 +201,7 @@ func NewFixedWorkload(cfg FixedWorkload) *Fixed {
 // and the comparison checks that by this name: a name that named only the shape
 // would let two runs seeded differently pass as the same workload.
 func (f *Fixed) Name() string {
-	return fmt.Sprintf("fixed(prompt=%dB,output=%dt,seed=%d)", f.cfg.PromptBytes, f.cfg.OutputTokens, f.cfg.Seed)
+	return fmt.Sprintf("fixed(prompt=%dB,output=%dt,seed=%d,%s)", f.cfg.PromptBytes, f.cfg.OutputTokens, f.cfg.Seed, usageMarker)
 }
 
 func (f *Fixed) Next(user, turn int) Turn {
@@ -129,8 +211,9 @@ func (f *Fixed) Next(user, turn int) Turn {
 		"messages": []map[string]string{
 			{"role": "user", "content": f.filler(user, turn)},
 		},
-		"stream":     true,
-		"max_tokens": f.cfg.OutputTokens,
+		"stream":         true,
+		"stream_options": includeUsage(),
+		"max_tokens":     f.cfg.OutputTokens,
 	})
 	if err != nil {
 		// The value is a map of strings and ints built here; there is no input

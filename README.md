@@ -117,6 +117,11 @@ cmd/compare ──► the cell records the sweeps wrote, no fleet in the path
     └─ each policy's goodput against the derived SLO at each load point, with the
        spread across repetitions beside it
 
+cmd/divergence ──► the per-request rows the sweeps wrote, no fleet in the path
+    └─ the router's prefix match against the engine's own cached-token account for
+       the same request, binned by working set ratio and by how long it had been
+       since that conversation was last served, over- and under-prediction apart
+
 cmd/characterize ─────────────► replica-0..5, one at a time, no router in the path
     └─ fleet KV capacity off every replica, host topology, the latency floor,
        the SLO derived from it, and the replica symmetry verdict
@@ -146,7 +151,11 @@ cmd/characterize ─────────────► replica-0..5, one at
   already run: aggregate KV capacity summed from every replica's own cache configuration, the
   prompt bytes-per-token ratio from the cells' offered bytes over the engines' reported tokens, and
   the TTL from the p90 of `vllm:kv_block_idle_before_evict_seconds`. It writes them to a file, and
-  refuses rather than substituting a constant for a measurement it could not take.
+  refuses rather than substituting a constant for a measurement it could not take. With
+  `-divergence` it also folds in what a completed sweep measured of the index's own accuracy, and
+  the node cap becomes the fleet model scaled by the share of its belief the engines honoured —
+  the check [ADR-0006](docs/adr/0006-the-prefix-index-is-bounded-by-measurement.md) said it could
+  not make itself.
 - **`cmd/bench`** — the two load drivers and the sweeps they run. Refuses to start unless every
   replica answers `/health`, warms each one directly, then drives one of two axes, counting dropped,
   failed and SLO-violating requests in three separate columns. Samples the GPUs throughout and
@@ -185,6 +194,18 @@ cmd/characterize ─────────────► replica-0..5, one at
   its repetitions with the range across them, a difference smaller than those ranges is labelled as
   being inside the spread rather than left to read as a result, and a flagged or unclean cell is
   excluded and listed rather than averaged in.
+- **`cmd/divergence`** — how wrong the router's index was, per request. The prediction is the
+  prefix match the decision was made on; the truth is the engine's own
+  `usage.prompt_tokens_details.cached_tokens` for that same request, which the harness asks for on
+  every request because it is the only per-request account there is —
+  `vllm:request_prefill_kv_computed_tokens` is the same quantity as a histogram and carries no
+  request id to join on. It bins the gap by policy, by working set ratio and by time since the
+  session was last served, and never nets the two directions: believing in blocks a replica has
+  evicted misroutes the request, where forgetting blocks it still holds only forfeits a match. Like
+  `cmd/compare` it reads only, so the measurement rebuilds from a checkout. It also writes the
+  reading `cmd/calibrate -divergence` folds in, which scales the index's node cap by the share of
+  its belief the engines turned out to be honouring
+  ([ADR-0008](docs/adr/0008-the-node-cap-is-calibrated-against-measured-divergence.md)).
 - **`cmd/preflight`** — refuses to bring the fleet up while any GPU already holds memory. The
   same probe backs the per-cell contamination check: one preflight, two jobs.
 - **`cmd/fakereplica`** — a programmable stand-in for a replica with configurable TTFT and
@@ -255,6 +276,17 @@ make goodput POLICY=prefix_affinity GOODPUT_ARGS="-cell-duration 60s -repetition
 kill %1
 
 make compare                                               # every policy, both axes, one table
+make divergence                                            # how wrong the index was, and by how much
+
+# The node cap is a model of the fleet until something measures how much of that
+# model the engines honour. `make divergence` writes that reading; `make calibrate`
+# picks it up and resizes the index against it, so prefix affinity is swept again
+# on a cap that was checked rather than only derived (ADR-0008).
+make calibrate                          # now folds in runs/divergence.json
+make fleet-down && make fleet-up
+make run-router POLICY=prefix_affinity REPLICAS="$(ops/fleet.sh replicas)" &
+make bench   POLICY=prefix_affinity RUN_DIR=runs/concurrency-calibrated
+kill %1
 ```
 
 `make characterize` comes before `make bench` and not after it, because the SLO the sweep is judged
@@ -314,6 +346,61 @@ reporting a goodput that was never checked against anything. The derived thresho
 24 ms**, three times the measured floor. Prefer `-slo-from <characterization>` over passing them:
 the two are the same numbers only for as long as nobody mistypes one, and a cell that ran before
 they existed is resummarised from its own rows rather than re-run.
+
+## Belief divergence: how wrong the index is, measured
+
+The router models state it does not own. The replicas evict on their own schedule and nothing tells
+the router when they do, so its prefix index is a belief that decays — and how fast it decays is a
+result this project publishes rather than an error it tidies away. idea.md §1 records that nobody
+publishes it at any scale: the sticky-versus-cache-aware ablation has been done at datacentre scale
+three times over, and the accuracy of the approximate index those routers decide on has not been.
+That is why the result stands whichever policy wins.
+
+Every request carries both sides on one row. The prediction is the prefix match the router made the
+decision on, read back off its response header. The truth is the engine's own
+`usage.prompt_tokens_details.cached_tokens` for that same request — the harness asks for it with
+`stream_options: {"include_usage": true}`, which is the only per-request account there is.
+`vllm:request_prefill_kv_computed_tokens` is the same quantity and is a histogram, so it carries no
+request id and cannot be joined to the prediction it would check; the report prints it against the
+counters as a window-level cross-check instead.
+
+```sh
+make divergence DIVERGENCE_DIRS="runs/concurrency runs/goodput"
+```
+
+It reads only. Like `make compare`, every figure comes from the rows the sweeps wrote, so the
+measurement rebuilds from a checkout with no fleet running and no GPU present.
+
+The report bins the gap three ways and never nets the two directions:
+
+- **By policy.** A policy that consults no index predicts zero on every request, which makes its
+  row a reading of what the engines held that no router claimed.
+- **By working set ratio** — the pressure that drives eviction. A sweep states its WS point only if
+  it was given the measured capacity the ratio is against; pass `-kv-capacity` and the ratio is
+  derived from the session pool without changing a byte of what the cell sends, so the frozen
+  workload's name, and the comparison, are untouched.
+- **By time since the session was last served** — how stale the belief was when it was acted on.
+  Derived from the rows rather than recorded by the router, so it costs the routing path nothing.
+
+**Over-prediction and under-prediction are different failures and share no column.** Believing in
+blocks a replica has evicted pays the full prefill *and* spends the routing decision on a reason
+that stopped being true, which is worse than having routed on load. Forgetting blocks a replica
+still holds only forfeits a match. A net figure would report a router that does both equally as one
+that does neither.
+
+That asymmetry is what sizes the index. `make divergence` also writes the reading `make calibrate`
+folds in, and the node cap becomes the fleet model scaled by the share of its belief the engines
+turned out to be honouring — bounded above by the fleet model, ignored when the run claimed nothing,
+and ignored when the index never filled its cap, because an index that was never capped did not
+over-predict because of the cap. [ADR-0008](docs/adr/0008-the-node-cap-is-calibrated-against-measured-divergence.md)
+sets that out, amending [ADR-0006](docs/adr/0006-the-prefix-index-is-bounded-by-measurement.md),
+which said plainly that it could not make this check itself.
+
+⚠️ **Cells recorded before this are not comparable with cells recorded after.** Asking for usage
+adds about forty bytes to every request body, so both workload names now carry `usage=on` and
+`make compare` refuses to put the two in one table — which is [ADR-0004](docs/adr/0004-every-measurement-sends-unseen-bytes.md)'s
+rule doing its job. The field sorts last in the marshalled JSON, so every prompt's *leading* bytes
+are where they were and the prefix structure the index and the engine both key on is unchanged.
 
 ## Design notes worth knowing before reading the code
 

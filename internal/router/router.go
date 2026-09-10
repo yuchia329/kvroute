@@ -23,6 +23,7 @@ import (
 
 	"github.com/yuchia329/kvroute/internal/fleet"
 	"github.com/yuchia329/kvroute/internal/policy"
+	"github.com/yuchia329/kvroute/internal/prefix"
 	"github.com/yuchia329/kvroute/internal/record"
 	"github.com/yuchia329/kvroute/internal/session"
 	"github.com/yuchia329/kvroute/internal/stats"
@@ -84,6 +85,26 @@ type Stats struct {
 	Replicas       []ReplicaStats `json:"replicas"`
 	Requests       int64          `json:"requests"`
 	RouterOverhead stats.Summary  `json:"router_overhead"`
+	// PrefixIndex is the belief the running policy routes on: how many blocks it
+	// currently holds, and the cap and TTL it holds them under. Absent under the
+	// three policies that consult no index, which is not the same as an index
+	// holding nothing.
+	//
+	// It is reported because the node cap is a modelling decision (ADR-0006) and
+	// the occupancy is the evidence for whether that decision ever bound. A run
+	// that over-predicted against an index which never filled its cap did not
+	// over-predict because of the cap, and #17 calibrates the cap on exactly that
+	// distinction.
+	PrefixIndex *prefix.Stats `json:"prefix_index,omitempty"`
+}
+
+// IndexReporter is implemented by a policy that routes on a prefix index.
+//
+// An optional interface rather than a member of policy.Policy: three of the four
+// policies have no index, and a method they all had to implement would report
+// their absence of one as an index holding nothing.
+type IndexReporter interface {
+	IndexStats() prefix.Stats
 }
 
 // ReplicaStats is one replica's load as the router knows it.
@@ -175,12 +196,18 @@ func (rt *Router) Stats() Stats {
 		s := tuned.Tunables()
 		spill = &s
 	}
+	var index *prefix.Stats
+	if reporter, routes := rt.policy.(IndexReporter); routes {
+		held := reporter.IndexStats()
+		index = &held
+	}
 	return Stats{
 		Policy:         rt.policy.Name(),
 		Spill:          spill,
 		Replicas:       replicas,
 		Requests:       rt.requests.Load(),
 		RouterOverhead: rt.overhead.Summary(),
+		PrefixIndex:    index,
 	}
 }
 

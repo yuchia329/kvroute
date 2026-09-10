@@ -223,3 +223,24 @@ func (ix *Index) Len() int {
 	defer ix.mu.Unlock()
 	return ix.lru.Len()
 }
+
+// Stats is what the index reports about itself through the router: how much
+// belief it is holding, and the bounds it is holding it under.
+//
+// The occupancy is here because it is what says whether the cap is the
+// constraint at all. A run that over-predicted against an index that never
+// filled its cap was not over-predicting because of the cap, and #17's
+// calibration of the cap against observed divergence rests on being able to tell
+// those apart.
+type Stats struct {
+	Nodes   int           `json:"nodes"`
+	NodeCap int           `json:"node_cap"`
+	TTL     time.Duration `json:"ttl"`
+}
+
+// Stats reports the index's occupancy and its bounds.
+func (ix *Index) Stats() Stats {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	return Stats{Nodes: ix.lru.Len(), NodeCap: ix.cap, TTL: ix.ttl}
+}

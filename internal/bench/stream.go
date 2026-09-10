@@ -24,6 +24,26 @@ type stream struct {
 	itlMean   time.Duration
 	itlP50    time.Duration
 	itlMax    time.Duration
+	usage     engineUsage
+}
+
+// engineUsage is the engine's own account of one request's prompt, off the
+// usage chunk it emits when the request asked for one.
+//
+// It is the only per-request ground truth there is for belief divergence.
+// vllm:request_prefill_kv_computed_tokens carries the same quantity and is a
+// histogram, so it cannot be joined to the request whose prefix match it would
+// be checked against; over a window the two agree, and the divergence report
+// says so. See internal/bench/divergence.go.
+type engineUsage struct {
+	promptTokens int
+	cachedTokens int
+	// read is whether a usage block arrived at all, and cacheRead whether it
+	// carried the cached-token breakdown. Two flags rather than one: an engine
+	// that reports usage without prefix-cache detail is a different thing from
+	// one that reports no usage, and neither is an engine that cached nothing.
+	read      bool
+	cacheRead bool
 }
 
 // sseChunk is the little of a chunk the driver reads. Everything else about the
@@ -34,6 +54,16 @@ type sseChunk struct {
 			Content string `json:"content"`
 		} `json:"delta"`
 	} `json:"choices"`
+	// Usage arrives on its own trailing chunk when the request asked for it, and
+	// is null on every chunk before it. A pointer, so the absent case and the
+	// present-and-zero case are distinguishable — which is the whole reason the
+	// field is read.
+	Usage *struct {
+		PromptTokens        int `json:"prompt_tokens"`
+		PromptTokensDetails *struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
+	} `json:"usage"`
 }
 
 var (
@@ -76,6 +106,18 @@ func readStream(body io.Reader) (stream, error) {
 			// request: the bytes reached the client, which is what TTFT is
 			// about. It simply does not count as a token.
 			continue
+		}
+		// Before the token check, because the usage chunk carries no choices and
+		// would be skipped by it. It is still not a token: it contributes no
+		// content, so counting it would put a zero-length gap at the end of every
+		// response's inter-token latency.
+		if chunk.Usage != nil {
+			s.usage.read = true
+			s.usage.promptTokens = chunk.Usage.PromptTokens
+			if details := chunk.Usage.PromptTokensDetails; details != nil {
+				s.usage.cacheRead = true
+				s.usage.cachedTokens = details.CachedTokens
+			}
 		}
 		if len(chunk.Choices) == 0 || chunk.Choices[0].Delta.Content == "" {
 			continue

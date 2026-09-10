@@ -88,8 +88,29 @@ _Avoid_: hit rate (unqualified)
 
 **Belief divergence**:
 The gap between the router's prefix match prediction and the replica's actual prefix cache hit
-for the same request.
+for the same request. Measured per request, in the engine's tokens, against
+`usage.prompt_tokens_details.cached_tokens` — the only per-request account there is, the engine's
+histogram of the same quantity carrying no request id to join on.
 _Avoid_: cache miss, staleness, drift
+
+**Over-prediction**:
+Belief divergence where the router believed in more than the replica held. The direction that
+misroutes: the request pays the full prefill anyway and spent its routing decision on a reason
+that had stopped being true, which is worse than having routed on load.
+_Avoid_: false positive, stale hit
+
+**Under-prediction**:
+Belief divergence where the replica held more than the router claimed. It forfeits a match that
+was really there, costing an avoidable prefill, but never actively misroutes. Never summed with
+over-prediction: they are different failures with different costs, and a net figure reports a
+router that does both equally as one that does neither.
+_Avoid_: false negative, miss
+
+**Honoured belief**:
+The share of the prompt tokens the index claimed that the engine turned out to be holding. It is
+what the index's node cap is scaled by, and it is bounded above by one: an index that was right
+about everything it claimed is fully honoured however much it missed.
+_Avoid_: accuracy, precision, hit rate
 
 **KV cache event**:
 A notification published by a replica when it stores or removes a block. Consuming the stream

@@ -61,6 +61,15 @@ func NewPrefixAffinity(index *prefix.Index, spill Spill) *PrefixAffinity {
 
 func (p *PrefixAffinity) Name() string { return PrefixAffinityName }
 
+// IndexStats reports the index this policy routes on, so the router can publish
+// how full it is and under what bounds.
+//
+// It is a method on the one policy that has an index rather than a member of the
+// Policy interface, because three of the four have nothing to report and an
+// interface method they all had to implement would make the absence look like a
+// zero. The router asks for it by type assertion; see router.IndexReporter.
+func (p *PrefixAffinity) IndexStats() prefix.Stats { return p.index.Stats() }
+
 // Tunables reports the thresholds this policy is running, so the router can
 // publish them and the harness can refuse to label cells with a grid point the
 // router is not actually at.
