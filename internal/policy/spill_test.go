@@ -364,3 +364,64 @@ func TestALoadSpillTargetsTheMinimumWhateverItsCacheSays(t *testing.T) {
 		t.Errorf("went to %s as %q, want replica-1 as %q", got.Replica.ID, got.Reason, policy.ReasonSpillLoad)
 	}
 }
+
+// A spill row records the pressure on the replica it DECLINED, not only on the
+// one it chose.
+//
+// The run of 2026-09-10 could not explain its own KV axis because of this. Every
+// row carried the target's utilization -- the target being, by construction, a
+// replica under the mark -- so the column's maximum was 0.697 while a threshold
+// of 0.70 was demonstrably firing. The figure that triggered the decision was
+// the only one not written down.
+func TestASpillRecordsThePressureItDeclined(t *testing.T) {
+	p := policy.NewPrefixAffinity(prefixIndex(t), policy.Spill{KVHighWater: 0.80})
+	state := fleetOf(t, 2)
+	seed(t, p, state, "replica-0", "declined-kv", 2)
+	state.Replicas[0].KV = read(0.93)
+	state.Replicas[1].KV = read(0.11)
+
+	got, err := p.Choose(policy.Request{Body: conversation("declined-kv", 2)}, state)
+	if err != nil {
+		t.Fatalf("Choose: %v", err)
+	}
+	if got.Reason != policy.ReasonSpillKV {
+		t.Fatalf("reason = %q, want %q", got.Reason, policy.ReasonSpillKV)
+	}
+	if !got.KV.Read || got.KV.Fraction != 0.11 {
+		t.Errorf("KV = %+v, want the target's 0.11", got.KV)
+	}
+	if !got.DeclinedKV.Read || got.DeclinedKV.Fraction != 0.93 {
+		t.Errorf("DeclinedKV = %+v, want the declined replica's 0.93 — the figure the rule fired on", got.DeclinedKV)
+	}
+}
+
+// A load spill records it too, and a decision that declined nothing records no
+// declined pressure rather than a zero that reads as an empty cache.
+func TestOnlyASpillRecordsDeclinedPressure(t *testing.T) {
+	p := policy.NewPrefixAffinity(prefixIndex(t), policy.Spill{LoadImbalanceFactor: 2.0})
+	state := fleetOf(t, 2)
+	seed(t, p, state, "replica-0", "declined-load", 1)
+	state.Replicas[0].KV, state.Replicas[0].Inflight = read(0.42), 30
+	state.Replicas[1].KV, state.Replicas[1].Inflight = read(0.10), 10
+
+	got, _ := p.Choose(policy.Request{Body: conversation("declined-load", 1)}, state)
+	if got.Reason != policy.ReasonSpillLoad {
+		t.Fatalf("reason = %q, want %q", got.Reason, policy.ReasonSpillLoad)
+	}
+	if got.DeclinedInflight != 30 {
+		t.Errorf("DeclinedInflight = %d, want the 30 the rule fired on", got.DeclinedInflight)
+	}
+	if !got.DeclinedKV.Read || got.DeclinedKV.Fraction != 0.42 {
+		t.Errorf("DeclinedKV = %+v, want 0.42", got.DeclinedKV)
+	}
+
+	// An affinity declines nothing, so it reports no declined pressure at all.
+	state.Replicas[0].Inflight = 10
+	got, _ = p.Choose(policy.Request{Body: conversation("declined-load", 1)}, state)
+	if got.Reason != policy.ReasonPrefixAffinity {
+		t.Fatalf("reason = %q, want %q", got.Reason, policy.ReasonPrefixAffinity)
+	}
+	if got.DeclinedKV.Read || got.DeclinedInflight != 0 {
+		t.Errorf("an affinity reported declined pressure %+v / %d", got.DeclinedKV, got.DeclinedInflight)
+	}
+}

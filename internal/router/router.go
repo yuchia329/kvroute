@@ -268,6 +268,8 @@ func (rt *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request
 	row.PrefixMatchBytes = choice.PrefixMatchBytes
 	row.KVUtilization, row.KVUtilizationRead = choice.KV.Fraction, choice.KV.Read
 	row.DeclinedMatchBytes = choice.DeclinedMatchBytes
+	row.DeclinedKVUtilization, row.DeclinedKVRead = choice.DeclinedKV.Fraction, choice.DeclinedKV.Read
+	row.DeclinedInflight = choice.DeclinedInflight
 
 	// The request is now committed to a replica, so it counts against that
 	// replica from here. Released by a defer rather than at each return, because
@@ -316,6 +318,8 @@ func (rt *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request
 		"kv", choice.KV,
 		"prefix_match_b", choice.PrefixMatchBytes,
 		"declined_match_b", choice.DeclinedMatchBytes,
+		"declined_kv", choice.DeclinedKV,
+		"declined_inflight", choice.DeclinedInflight,
 		"stream", row.Stream,
 		"overhead_us", float64(row.RouterOverheadNs)/1000,
 	)

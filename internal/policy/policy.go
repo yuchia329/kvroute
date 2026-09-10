@@ -152,6 +152,18 @@ type Choice struct {
 	// not what its spills were worth, and those are the two halves of choosing a
 	// threshold.
 	DeclinedMatchBytes int
+	// DeclinedKV and DeclinedInflight are the pressure on the replica the spill
+	// rule turned down. Zero and unread on every decision that declined nothing.
+	//
+	// They are the figures the rule actually fired on, and without them a run
+	// cannot explain its own spills. KV and Inflight above describe the replica
+	// that was chosen, which on a spill is by construction a replica *under* the
+	// threshold — so a column of them has the declining figure missing exactly
+	// where it matters. The run of 2026-09-10 hit this: its KV column peaked at
+	// 0.697 while a high-water mark of 0.70 was demonstrably declining matches,
+	// because every row reported the target rather than the replica turned down.
+	DeclinedKV       vllmmetrics.KVUtilization
+	DeclinedInflight int
 }
 
 // Tuned is implemented by a policy carrying tunables the record has to name.

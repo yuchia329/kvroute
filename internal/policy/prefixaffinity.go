@@ -111,7 +111,7 @@ func (p *PrefixAffinity) choose(chain prefix.Chain, state fleet.State) (Choice, 
 		// decisions: a grid point producing nothing but cold decisions has an
 		// index that is not finding anything, which is not a threshold set too
 		// low, and no goodput figure beside it would tell them apart.
-		return p.placeOnLoad(state, ReasonCold, matches, 0)
+		return p.placeOnLoad(state, ReasonCold, matches, 0, fleet.Candidate{})
 	}
 
 	// Among replicas believed to hold the same leading run, load is the only
@@ -131,7 +131,7 @@ func (p *PrefixAffinity) choose(chain prefix.Chain, state fleet.State) (Choice, 
 		if elsewhere := p.spill.targets(state, best, reason); len(elsewhere.Replicas) > 0 {
 			// The match is real and is being given up, so the row records what
 			// it was worth as well as where the request went instead.
-			return p.placeOnLoad(elsewhere, reason, matches, bytes)
+			return p.placeOnLoad(elsewhere, reason, matches, bytes, best)
 		}
 	}
 
@@ -162,7 +162,7 @@ func (p *PrefixAffinity) choose(chain prefix.Chain, state fleet.State) (Choice, 
 // carrying the forfeited match would predict a hit on a replica the request
 // never reached — which is the exact quantity the belief-divergence measurement
 // is drawn from. What was given up is recorded separately.
-func (p *PrefixAffinity) placeOnLoad(state fleet.State, reason Reason, matches []prefix.Match, declined int) (Choice, error) {
+func (p *PrefixAffinity) placeOnLoad(state fleet.State, reason Reason, matches []prefix.Match, declined int, turnedDown fleet.Candidate) (Choice, error) {
 	choice, err := p.cold.Choose(Request{}, state)
 	if err != nil {
 		return Choice{}, err
@@ -170,6 +170,10 @@ func (p *PrefixAffinity) placeOnLoad(state fleet.State, reason Reason, matches [
 	choice.Reason = reason
 	choice.PrefixMatchBytes = matchBytes(matches, choice.Replica.ID)
 	choice.DeclinedMatchBytes = declined
+	// Only a spill turned a replica down; a cold request is passed the zero
+	// candidate, whose unread KV keeps "declined nothing" apart from "declined a
+	// replica whose cache nobody had scraped".
+	choice.DeclinedKV, choice.DeclinedInflight = turnedDown.KV, turnedDown.Inflight
 	if target, present := state.Candidate(choice.Replica.ID); present {
 		choice.KV = target.KV
 	}

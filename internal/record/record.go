@@ -102,6 +102,19 @@ type Request struct {
 	// that spills rarely but gives up whole conversations is not, and the
 	// spill count alone cannot tell those apart.
 	DeclinedMatchBytes int `json:"declined_match_bytes" parquet:"declined_match_bytes"`
+	// DeclinedKVUtilization, DeclinedKVRead and DeclinedInflight are the
+	// pressure on the replica the spill rule turned down. Zero and unread on
+	// every decision that declined nothing.
+	//
+	// The columns above describe the replica that served the request; on a spill
+	// that is by construction one *under* the threshold, so without these the
+	// figure the rule actually fired on is the one figure the row does not
+	// carry. A grid point can then say how often it spilled but not what it was
+	// reacting to — which is how the 2026-09-10 run came to show a KV column
+	// peaking below the very threshold that was declining matches.
+	DeclinedKVUtilization float64 `json:"declined_kv_utilization" parquet:"declined_kv_utilization"`
+	DeclinedKVRead        bool    `json:"declined_kv_read" parquet:"declined_kv_read"`
+	DeclinedInflight      int     `json:"declined_inflight" parquet:"declined_inflight"`
 
 	Model  string `json:"model" parquet:"model"`
 	Stream bool   `json:"stream" parquet:"stream"`
