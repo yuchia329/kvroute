@@ -205,6 +205,9 @@ up() {
   if [[ "$KV_CACHE_METRICS" == "1" ]]; then
     args+=(--kv-cache-metrics)
   fi
+  if [[ "$ENABLE_PROMPT_TOKENS_DETAILS" == "1" ]]; then
+    args+=(--enable-prompt-tokens-details)
+  fi
 
   local pin
   pin="$(pin_prefix "$index")"
