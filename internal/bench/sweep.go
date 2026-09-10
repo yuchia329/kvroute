@@ -498,6 +498,17 @@ type SweepConfig struct {
 	Contamination ContaminationConfig
 
 	Log *slog.Logger
+
+	// gridOffset is the extra slice of the workload's user space this sweep's
+	// pressure point sends from, derived from the workload once at the start
+	// rather than per cell.
+	//
+	// Not a field a caller sets. It is read off the workload the caller already
+	// passed, because a sweep that could be told a pressure point different from
+	// the one its workload offers is a sweep that can be told to overlap
+	// another's prompts — and the whole purpose of the term is that no operator
+	// has to remember it.
+	gridOffset int
 }
 
 // RunSweep runs every cell of the sweep and returns them in order.
@@ -521,6 +532,22 @@ func RunSweep(ctx context.Context, cfg SweepConfig) ([]Cell, error) {
 	}
 	if err := checkWorkloadPartition(cfg.Policy, loads, cfg.Repetitions); err != nil {
 		return nil, err
+	}
+	// The pressure point's slice of the user space, settled before any cell
+	// runs. It is refused here rather than rounded, because two grid points
+	// sharing a slice is invisible in every figure it corrupts.
+	if cfg.Workload != nil {
+		// The CONFIGURED point, not the derived one. OfferedWorkingSet derives a
+		// ratio from any measured capacity, and keying the partition on that
+		// would mean passing -kv-capacity changed the bytes a cell sends —
+		// which ADR-0008 promises it does not, and which would split the frozen
+		// comparison's table between cells run with the flag and without it.
+		if cfg.gridOffset, err = GridWorkloadOffset(GridPoint{
+			WorkingSet: ConfiguredWorkingSet(cfg.Workload),
+			Skew:       OfferedSkew(cfg.Workload),
+		}); err != nil {
+			return nil, err
+		}
 	}
 	if err := checkCachedWorkload(cfg); err != nil {
 		return nil, err
@@ -996,7 +1023,15 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		// them back out of the replica's prefix cache — while the same cell
 		// under two policies sends identical bytes, which is what makes the
 		// policies comparable at all.
-		Workload: Shifted(cfg.Workload, CellWorkloadOffset(load, repetition)),
+		//
+		// The pressure point is a third axis, added because the grid runs every
+		// one of its points at one concurrency and one set of repetitions: those
+		// two terms alone are identical across the whole grid, so without this
+		// each point would re-send the previous point's conversations wherever
+		// their session pools overlap. See GridWorkloadOffset. A cell that
+		// states no working set adds nothing here and sends exactly the bytes it
+		// always did.
+		Workload: Shifted(cfg.Workload, CellWorkloadOffset(load, repetition)+cfg.gridOffset),
 		Rows:     rows,
 		Labels:   Labels{CellID: id, Policy: cfg.Policy, Repetition: repetition},
 		Log:      cfg.Log,

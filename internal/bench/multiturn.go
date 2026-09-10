@@ -324,6 +324,22 @@ func (m *MultiTurn) WorkingSet() float64 {
 	return float64(m.OfferedTokens()) / float64(m.cfg.CapacityTokens)
 }
 
+// ConfiguredWorkingSet is the WS point this trace was explicitly told to offer,
+// which is not the same question WorkingSet answers.
+//
+// WorkingSet derives a ratio whenever a capacity was measured, so that a pool
+// stated as a plain session count still lands on the divergence report's axis.
+// That derivation must not decide how the workload's user space is partitioned:
+// ADR-0008 promises that passing -kv-capacity puts a run on the axis without
+// changing a byte of what it sends, and a partition keyed on the derived ratio
+// would break that promise silently — the frozen comparison would send one set
+// of bytes with the flag and another without it, and split its own table in two.
+//
+// So this reports the configured point and nothing else. Zero means "no grid
+// point was asked for", which is what the headline workload is: a session count,
+// plotted on the axis afterwards, never a point of the grid.
+func (m *MultiTurn) ConfiguredWorkingSet() float64 { return m.cfg.WorkingSet }
+
 // Skew is the Zipf exponent this trace concentrates its draws by: 0 is uniform.
 //
 // Recorded on every cell beside the working set, because the two are the

@@ -150,6 +150,26 @@ func (s shifted) WorkingSet() float64 { return OfferedWorkingSet(s.inner) }
 // report the whole pressure grid as uniform.
 func (s shifted) Skew() float64 { return OfferedSkew(s.inner) }
 
+// ConfiguredWorkingSet forwards the wrapped workload's own, for the reason
+// WorkingSet and Skew are forwarded: the sweep hands every cell a shifted
+// workload, and a wrapper that swallowed the question would report every cell as
+// having asked for no grid point — which would put the whole grid back on one
+// slice of the user space.
+func (s shifted) ConfiguredWorkingSet() float64 { return ConfiguredWorkingSet(s.inner) }
+
+// ConfiguredWorkingSet is the WS point a workload was explicitly told to offer,
+// or zero when it was told none.
+//
+// Deliberately distinct from OfferedWorkingSet, which derives a ratio from a
+// measured capacity. Only an explicit request puts a run on the grid, and only
+// being on the grid moves its bytes: see GridWorkloadOffset.
+func ConfiguredWorkingSet(w Workload) float64 {
+	if asked, states := w.(interface{ ConfiguredWorkingSet() float64 }); states {
+		return asked.ConfiguredWorkingSet()
+	}
+	return 0
+}
+
 // WorkloadStride separates one measurement's user space from the next. It is
 // far above any concurrency the sweep reaches, so two measurements' user ranges
 // cannot overlap.
