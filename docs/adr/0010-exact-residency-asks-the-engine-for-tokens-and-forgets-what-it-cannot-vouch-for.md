@@ -152,8 +152,8 @@ the wire against the libzmq 4.3.5 bundled with pyzmq 27.2.0 (`KVROUTE_LIBZMQ=1`)
   approximation keeps is (policy 4 − policy 3) / (policy 5 − policy 3) in goodput at each grid
   point, against session affinity as the baseline that matters. All three have to be measured
   under the same engine setting, so #24's grid re-measures session affinity and prefix affinity
-  with events on beside exact residency: three policies over twelve points, roughly nine to ten
-  hours at the frozen cell.
+  with events on beside exact residency: three policies over twelve points, roughly nine and a
+  half hours at the 300-second cell #18's grid ran at (`ops/box/run-exact-grid.sh`).
 - **The tokenization rides on the replicas' API servers.** Every prompt is tokenized twice on the
   fleet. Asking in turn spreads it across all five alike, but it is load the other policies do not
   add, and it counts as this policy's cost.
