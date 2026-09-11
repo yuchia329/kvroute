@@ -1,0 +1,12 @@
+# The five panels, read from ops/grafana/dashboards/kvroute.json. Read-only in
+# the UI: a panel changed by hand in a running Grafana is a panel nobody else
+# ever sees, so changes go through the file.
+apiVersion: 1
+
+providers:
+  - name: kvroute
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

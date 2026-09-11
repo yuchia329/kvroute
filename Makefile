@@ -217,6 +217,39 @@ fleet-down: ## Stop every replica
 fleet-status: ## Show which replicas are running
 	ops/fleet.sh status
 
+# The live view of a run: Prometheus on the fleet host, Grafana on the
+# workstation behind an ssh tunnel (idea.md §3). Optional by construction — no
+# other target here reads it, and the router and the replicas only answer its
+# scrapes — so a sweep runs the same with all of it stopped. Its ports and
+# versions live in ops/observability.env rather than ops/versions.env, because
+# none of it is part of a cell.
+#
+#   on the fleet host:    ops/prometheus.sh up
+#   on the workstation:   make dashboards-up, then http://127.0.0.1:3000/d/kvroute
+.PHONY: prometheus-up
+prometheus-up: ## On the fleet host: run Prometheus on loopback, scraping the router at ROUTER and every replica
+	ROUTER_ADDR=$(patsubst http://%,%,$(ROUTER)) ops/prometheus.sh up
+
+.PHONY: prometheus-down
+prometheus-down: ## Stop Prometheus
+	ops/prometheus.sh down
+
+.PHONY: prometheus-status
+prometheus-status: ## Show whether Prometheus is up and whether its targets answer
+	ops/prometheus.sh status
+
+.PHONY: dashboards-up
+dashboards-up: ## On the workstation: tunnel to the fleet host's Prometheus and start Grafana with the five panels
+	ops/dashboards.sh up
+
+.PHONY: dashboards-down
+dashboards-down: ## Stop Grafana and close the tunnel
+	ops/dashboards.sh down
+
+.PHONY: dashboards-status
+dashboards-status: ## Show the tunnel, Prometheus and Grafana
+	ops/dashboards.sh status
+
 # The spill grid point the router runs and the cells are labelled with. Empty
 # runs prefix affinity with no spill rule, which is the policy the four-policy
 # comparison measured and the baseline the grid is read against.

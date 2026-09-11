@@ -403,6 +403,38 @@ adds about forty bytes to every request body, so both workload names now carry `
 rule doing its job. The field sorts last in the marshalled JSON, so every prompt's *leading* bytes
 are where they were and the prefix structure the index and the engine both key on is unchanged.
 
+## Watching a run live
+
+The router serves `GET /metrics` in the Prometheus text format, beside `/router/stats`: each
+replica's inflight (its own exact count, read at the scrape, drained and ejected replicas
+included), the decision mix by reason, and its own overhead and TTFT as histograms. TTFT is over
+successful requests only, as every latency percentile here is. Overhead is over every request the
+router dispatched, as `/router/stats` has always counted it, because the router paid it whatever
+the replica said next. The replicas' own `/metrics` supply KV utilization and the prefix cache hit
+rate.
+
+```
+# on the fleet host
+ops/prometheus.sh up     # pinned Prometheus on 127.0.0.1:19091, scraping the router and every replica
+# on the workstation
+make dashboards-up       # ssh tunnel + Grafana in Docker, then http://127.0.0.1:3000/d/kvroute
+```
+
+Five panels: per-replica KV utilization and inflight, prefix cache hit rate, TTFT p50/p99, decision
+mix, and router overhead p50/p99. Prometheus listens on loopback, on a port nobody else holds —
+9090 and 9091 both belong to other users of the box — and Grafana runs on the workstation, so
+nothing dashboard-shaped is installed on the shared host.
+
+Without the fleet, the same stack runs against fake replicas. Start two `bin/fakereplica`s and a
+router on loopback, then run
+`PROMETHEUS_REPLICAS=replica-0=http://127.0.0.1:18100,replica-1=http://127.0.0.1:18101 ROUTER_ADDR=127.0.0.1:18180 ops/prometheus.sh up`
+and `GPU_HOST= make dashboards-up`, which skips the tunnel. The prefix cache panel stays empty
+there, because a fake replica reports no prefix cache queries.
+
+It is for watching and nothing else. No sweep reads it, the router and the replicas only answer its
+scrapes, and a sweep runs the same with the whole stack stopped. The rows stay the system of record:
+a panel's p99 is interpolated inside buckets from a sample every few seconds, and the rows' is exact.
+
 ## Design notes worth knowing before reading the code
 
 - **SSE fidelity is non-negotiable.** Break streaming and TTFT stops being measurable, which ends

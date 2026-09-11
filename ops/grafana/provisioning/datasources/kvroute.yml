@@ -1,0 +1,18 @@
+# Provisioned by ops/dashboards.sh, which fills both values in from
+# ops/observability.env through the container's environment, so the port and
+# the scrape interval are each written down once.
+apiVersion: 1
+
+datasources:
+  - name: kvroute
+    uid: kvroute-prometheus
+    type: prometheus
+    access: proxy
+    url: ${KVROUTE_PROMETHEUS_URL}
+    isDefault: true
+    editable: false
+    jsonData:
+      # The scrape interval. Grafana sizes $__rate_interval from it, so a rate
+      # is never taken over fewer than four scrapes: a rate over one or two
+      # samples is noise that looks like a signal.
+      timeInterval: ${KVROUTE_SCRAPE_INTERVAL}

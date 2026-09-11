@@ -179,7 +179,7 @@ All values below are **measured on the box**, not assumed. Host: `nlp-gpu-01.be.
 | Sampler | **`VLLM_USE_FLASHINFER_SAMPLER=0`.** The FlashInfer sampler JIT-compiles a CUDA kernel at startup, which needs `nvcc` on `PATH` and puts a compile step plus a JIT cache inside every replica launch |
 | KV residency metrics | **`--kv-cache-metrics`**, off by default. Without it the `kv_block_*` histograms below are absent entirely, not zero |
 | Router | Go, cross-compiled `GOOS=linux GOARCH=amd64` on the Mac, scp'd |
-| Observability | Prometheus on the box at **:9091** (9090 is another user's); Grafana on the Mac via `ssh -L 9091:localhost:9091 nlp` |
+| Observability | Prometheus on the box at **127.0.0.1:19091** (9090 is another user's, and 9091 had been taken by a third by 2026-09-10); Grafana on the Mac via `ssh -L 19091:127.0.0.1:19091 nlp`. `ops/prometheus.sh` and `ops/dashboards.sh` |
 | Orchestration | **Bare processes.** No Docker, Podman or Apptainer on the box, and no permission to install |
 
 ⚠️ **Do not use `~/Meta-Llama-3.1-8B-Instruct-AWQ-INT4`** — those safetensors are 135-byte git-lfs
@@ -831,7 +831,8 @@ arithmetic justifies it, a clock abstraction before flakiness demands one.
 - `make up` **refuses to start** unless all six GPUs are below a memory threshold. The same probe
   backs the per-cell contamination check — one preflight, two jobs. It protects you from
   lab-mates *and* from your own leftovers, which have already been the actual problem once.
-- Prometheus on **:9091**; 9090 belongs to another user.
+- Prometheus on **127.0.0.1:19091**; 9090 and 9091 belong to other users, and `ops/prometheus.sh`
+  refuses any port someone already holds.
 - Stagger replica startup against the NFS home.
 
 **Do not wait for this project to start applying.** A December offer needs loops starting in

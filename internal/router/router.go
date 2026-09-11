@@ -73,6 +73,7 @@ type Router struct {
 	client   *http.Client
 	log      *slog.Logger
 	overhead *stats.Recorder
+	metrics  *metrics
 	requests atomic.Int64
 	// maxAttempts bounds how many decisions one request may take to place. A
 	// replica that fails a request is excluded from that request's next
@@ -213,6 +214,7 @@ func New(cfg Config) (*Router, error) {
 		client:   cfg.Client,
 		log:      cfg.Logger,
 		overhead: stats.NewRecorder(stats.DefaultCapacity),
+		metrics:  newMetrics(cfg.Policy.Name()),
 
 		maxAttempts: 2 * len(cfg.Fleet.Replicas()),
 	}, nil
@@ -225,6 +227,7 @@ func (rt *Router) Handler() http.Handler {
 	mux.HandleFunc("GET /router/stats", rt.handleStats)
 	mux.HandleFunc("POST /router/replicas/{id}/drain", rt.handleDrain)
 	mux.HandleFunc("POST /router/replicas/{id}/restore", rt.handleRestore)
+	mux.HandleFunc("GET /metrics", rt.handleMetrics)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -337,6 +340,9 @@ func (rt *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request
 	}
 	defer func() {
 		row.TotalNs = time.Since(accepted).Nanoseconds()
+		// Counted before the row is written, so anything that has read a row can
+		// already see it counted.
+		rt.metrics.observe(row)
 		if err := rt.records.Write(row); err != nil {
 			rt.log.Error("could not write request row", "request_id", row.RequestID, "err", err)
 		}
