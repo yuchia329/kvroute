@@ -632,18 +632,26 @@ divergence: build ## Measure how far the router's index was from what the engine
 # use, which needs the network once; the pin is exact because the same data must
 # draw the same bytes on every machine.
 #
-# The inputs are reference runs under docs/measurements. FIGURES_RECOVERY stays
-# empty until a chaos run of each affinity policy is committed there: name both
-# runs' directories and the recovery graph is drawn too. FIGURES_ROUTER_ROWS is the
-# router's own rows from the same run the comparison figures come from, which
-# covers round robin, least outstanding and session affinity; prefix affinity's
-# and exact residency's stayed on the box with the pressure grid, and are what the
-# overhead figure still needs.
+# The inputs are reference runs under docs/measurements.
+#
+# FIGURES_RECOVERY is #19's kill scenario, and the pair named here is deliberate:
+# session affinity against prefix affinity with the spill rule OFF. The spill-on
+# arm ran too, and at this load the rule fired on 19% of later turns and dropped
+# the policy's own baseline to 5.33/s against 5.98/s — that curve measures the
+# rule rather than the fault (issue #31), and the measurement's README says so.
+#
+# Router overhead is drawn twice because no single run carries every policy. The
+# 2026-09-08 run is the one the comparison figures come from and covers the three
+# policies swept there; the chaos runs are where an affinity pair ran the same
+# scenario, and are the only committed rows for prefix affinity. They are separate
+# figures rather than one, because a p50 from a 32-user sweep and one from a 6
+# req/s open-loop run through a replica failure are not the same measurement.
 FIGURES_DIR ?= docs/figures
 FIGURES_PRESSURE ?= $(wildcard docs/measurements/2026-09-11-pressure-grid/grid/ws*-skew*)
 FIGURES_COMPARE ?= docs/measurements/2026-09-08-three-policy-multiturn/concurrency docs/measurements/2026-09-08-three-policy-multiturn/goodput
 FIGURES_ROUTER_ROWS ?= $(wildcard docs/measurements/2026-09-08-three-policy-multiturn/router-*.jsonl.gz)
-FIGURES_RECOVERY ?=
+FIGURES_CHAOS_ROUTER_ROWS ?= docs/measurements/2026-09-11-chaos-recovery/evidence/router-session_affinity.jsonl docs/measurements/2026-09-11-chaos-recovery/evidence/router-prefix_affinity-spilloff.jsonl
+FIGURES_RECOVERY ?= docs/measurements/2026-09-11-chaos-recovery/kill-session_affinity docs/measurements/2026-09-11-chaos-recovery/kill-prefix_affinity-spilloff
 FIGURES_PYTHON ?= 3.12
 
 .PHONY: figures
@@ -654,7 +662,8 @@ figures: ## Regenerate every published figure from the committed measurements, i
 	$(BIN)/pressuremap -data $(FIGURES_DIR)/data/pressuremap.json $(FIGURES_PRESSURE) >/dev/null
 	$(BIN)/compare -data $(FIGURES_DIR)/data/comparison.json $(FIGURES_COMPARE) >/dev/null
 	$(BIN)/overhead -data $(FIGURES_DIR)/data/overhead.json $(FIGURES_ROUTER_ROWS) >/dev/null
-	$(if $(FIGURES_RECOVERY),$(BIN)/recovery -data $(FIGURES_DIR)/data/recovery.json $(FIGURES_RECOVERY) >/dev/null,@echo "figures: FIGURES_RECOVERY is empty, so no recovery graph" >&2)
+	$(if $(FIGURES_CHAOS_ROUTER_ROWS),$(BIN)/overhead -data $(FIGURES_DIR)/data/overhead-chaos.json $(FIGURES_CHAOS_ROUTER_ROWS) >/dev/null,)
+	$(if $(FIGURES_RECOVERY),$(BIN)/recovery -data $(FIGURES_DIR)/data/recovery-kill.json $(FIGURES_RECOVERY) >/dev/null,@echo "figures: FIGURES_RECOVERY is empty, so no recovery graph" >&2)
 	uv run --python $(FIGURES_PYTHON) analysis/figures.py $(FIGURES_DIR)/data $(FIGURES_DIR)
 
 # The script's tests. The matplotlib pin is the one in the script's own header.

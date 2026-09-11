@@ -1,0 +1,809 @@
+{
+  "replica": "replica-2",
+  "fault": "kill",
+  "fault_verb": "killed",
+  "arrival_rate": 6,
+  "slo": {
+    "ttft_ms": 990,
+    "itl_ms": 24
+  },
+  "bucket_s": 5,
+  "recover_at_s": 60,
+  "tolerance": 0.1,
+  "runs": [
+    {
+      "policy": "session_affinity",
+      "curve": [
+        {
+          "at_s": -50,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -45,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -40,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -35,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -30,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -25,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -20,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -15,
+          "goodput_rps": 5.8,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -10,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -5,
+          "goodput_rps": 5.8,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 1
+        },
+        {
+          "at_s": 0,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 5,
+          "goodput_rps": 5.8,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 10,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 15,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 20,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 25,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 30,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 35,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 40,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 45,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 50,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 55,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 60,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 65,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 70,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 75,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 80,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 85,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 90,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 95,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 100,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 105,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 110,
+          "goodput_rps": 5.2,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 115,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 120,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 125,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 130,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 135,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 140,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 145,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 150,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 155,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 160,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 165,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 170,
+          "goodput_rps": 5.8,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 175,
+          "goodput_rps": 5.8,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 180,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 185,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 190,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 195,
+          "goodput_rps": 6.2,
+          "offered": 31,
+          "rerouted": 0,
+          "dropped": 0
+        }
+      ],
+      "events": [
+        {
+          "at_s": 0.001010685,
+          "kind": "fault",
+          "label": "fault injected"
+        },
+        {
+          "at_s": 0.501208454,
+          "kind": "out_of_rotation",
+          "label": "out of rotation"
+        },
+        {
+          "at_s": 0.62536035,
+          "kind": "stopped",
+          "label": "stopped"
+        },
+        {
+          "at_s": 60.000712682,
+          "kind": "recovering",
+          "label": "restart begun"
+        },
+        {
+          "at_s": 110.884285637,
+          "kind": "started",
+          "label": "restarted"
+        },
+        {
+          "at_s": 111.001814052,
+          "kind": "in_rotation",
+          "label": "back in rotation"
+        }
+      ],
+      "baseline_rps": 5.977777777777778,
+      "trough_rps": 5.2,
+      "trough_at_s": 110,
+      "deficit_requests": 7.444444444444449,
+      "steady": true,
+      "steady_at_s": 115,
+      "rerouted": 0,
+      "dropped_mid_stream": 1,
+      "dropped_unplaced": 0,
+      "drop_accounting": "1 of 1501 measured requests were dropped — 1 was streaming when their replica was lost, and 0 were never placed — and 0 were rerouted before their first token. A reroute is transparent only because nothing had reached its client when replica-2 died. A request already streaming at that instant cannot be rerouted and is counted as dropped, so the drop count reflects how many requests happened to be mid-stream when the replica was killed, and the reroute count is what the router saved."
+    },
+    {
+      "policy": "prefix_affinity",
+      "curve": [
+        {
+          "at_s": -50,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -45,
+          "goodput_rps": 5.8,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -40,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -35,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -30,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -25,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -20,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -15,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -10,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": -5,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 0,
+          "goodput_rps": 5.8,
+          "offered": 30,
+          "rerouted": 1,
+          "dropped": 1
+        },
+        {
+          "at_s": 5,
+          "goodput_rps": 5.8,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 10,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 15,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 20,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 25,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 30,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 35,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 40,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 45,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 50,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 55,
+          "goodput_rps": 5.6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 60,
+          "goodput_rps": 5.6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 65,
+          "goodput_rps": 5,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 70,
+          "goodput_rps": 3,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 75,
+          "goodput_rps": 3,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 80,
+          "goodput_rps": 5.4,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 85,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 90,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 95,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 100,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 105,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 110,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 115,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 120,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 125,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 130,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 135,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 140,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 145,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 150,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 155,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 160,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 165,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 170,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 175,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 180,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 185,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 190,
+          "goodput_rps": 6,
+          "offered": 30,
+          "rerouted": 0,
+          "dropped": 0
+        },
+        {
+          "at_s": 195,
+          "goodput_rps": 6.2,
+          "offered": 31,
+          "rerouted": 0,
+          "dropped": 0
+        }
+      ],
+      "events": [
+        {
+          "at_s": 0.000074728,
+          "kind": "fault",
+          "label": "fault injected"
+        },
+        {
+          "at_s": 0.401289369,
+          "kind": "out_of_rotation",
+          "label": "out of rotation"
+        },
+        {
+          "at_s": 0.630541489,
+          "kind": "stopped",
+          "label": "stopped"
+        },
+        {
+          "at_s": 60.000913838,
+          "kind": "recovering",
+          "label": "restart begun"
+        },
+        {
+          "at_s": 110.940992933,
+          "kind": "started",
+          "label": "restarted"
+        },
+        {
+          "at_s": 112.001736117,
+          "kind": "in_rotation",
+          "label": "back in rotation"
+        }
+      ],
+      "baseline_rps": 5.977777777777778,
+      "trough_rps": 3,
+      "trough_at_s": 70,
+      "deficit_requests": 43.111111111111114,
+      "steady": true,
+      "steady_at_s": 80,
+      "rerouted": 1,
+      "dropped_mid_stream": 1,
+      "dropped_unplaced": 0,
+      "drop_accounting": "1 of 1501 measured requests were dropped — 1 was streaming when their replica was lost, and 0 were never placed — and 1 was rerouted before their first token. A reroute is transparent only because nothing had reached its client when replica-2 died. A request already streaming at that instant cannot be rerouted and is counted as dropped, so the drop count reflects how many requests happened to be mid-stream when the replica was killed, and the reroute count is what the router saved."
+    }
+  ]
+}

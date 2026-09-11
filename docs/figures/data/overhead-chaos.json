@@ -1,0 +1,28 @@
+{
+  "sources": [
+    "docs/measurements/2026-09-11-chaos-recovery/evidence/router-session_affinity.jsonl",
+    "docs/measurements/2026-09-11-chaos-recovery/evidence/router-prefix_affinity-spilloff.jsonl"
+  ],
+  "policies": [
+    {
+      "policy": "session_affinity",
+      "dispatched": 1801,
+      "p50_us": 223.292,
+      "p99_us": 1161.303,
+      "max_us": 9047.463,
+      "tokenized": 0,
+      "tokenize_p50_us": null,
+      "tokenize_p99_us": null
+    },
+    {
+      "policy": "prefix_affinity",
+      "dispatched": 1801,
+      "p50_us": 382.674,
+      "p99_us": 821.538,
+      "max_us": 2877.889,
+      "tokenized": 0,
+      "tokenize_p50_us": null,
+      "tokenize_p99_us": null
+    }
+  ]
+}
