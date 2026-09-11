@@ -1,6 +1,6 @@
 # ADR-0007: The comparison's parameters are frozen
 
-**Status:** Accepted · **Date:** 2026-09-08
+**Status:** Accepted · **Date:** 2026-09-08 · **TTL row amended:** 2026-09-10
 
 ## Context
 
@@ -46,7 +46,7 @@ them.** They live in one place, `lib-sweep.sh` on the GPU host, rather than bein
 | Cell | 150 s, 50 s warm-up, 10 s settle, 3 repetitions |
 | Fleet | five replicas, GPUs 0 1 2 4 5 |
 | Index node cap | fleet-sized: capacity × measured bytes-per-token ÷ 64 |
-| Index TTL | 20 s, chosen — recorded as chosen in every calibration file |
+| Index TTL | 56.97 s, derived from `vllm:kv_block_idle_before_evict_seconds` |
 | Spill | off — that is policy 4 as #15 defines it |
 
 ## Three of these need their reasoning recorded
@@ -75,25 +75,28 @@ entirely would let the 20-second TTL alone hold ~25,300 blocks against a fleet t
 argues is strictly worse than routing on load. It is therefore frozen at the fleet-sized derivation
 and treated as part of what policy 4 *is*.
 
-**The TTL is frozen at 20 s chosen, not derived.** The derivation needs the engines'
-idle-before-evict histogram, which is empty until the fleet has evicted blocks — and the fleet is
-restarted between policies, so it comes up empty every time. The definitive run tried to catch the
-one window where it is possible, immediately after the last baseline pass, and missed it: the loop
-that cycles the fleet between policies also cycled it after the last one, wiping the histograms
-seconds before the calibration ran. The fallback behaved correctly, recording the TTL as chosen
-rather than inventing one.
+**The TTL is frozen at 56.97 s, derived.** It was not always. Deriving it needs the engines'
+idle-before-evict histogram, which is empty until blocks have actually been evicted and is cleared by
+a restart — so there is exactly one window where the measurement is possible, and the definitive run
+of 2026-09-09 missed it. Its loop cycled the fleet after the last baseline as well as between them,
+so `calibrate` scraped replicas that had been up four minutes, found the family published but empty,
+and fell back to a chosen 20 s. Prefix affinity ran its whole pass against that guess. The fallback
+behaved correctly — it recorded the TTL as `chosen` rather than inventing one — but ADR-0006's
+premise, both bounds derived and neither chosen, did not hold for the run the project's claim rests
+on.
 
-The choice is evidence-backed rather than arbitrary. Session affinity held a 63–77% prefix cache hit
-rate to the top of the arrival ladder, and under a 5-second think time a turn only hits cache if the
-previous turn's blocks survived it — so blocks demonstrably live well past 5 seconds. The fleet's own
-turnover arithmetic agrees: roughly 100 s at 2 req/s and 10 s at 20 req/s, so a 20-second belief sits
-inside residency everywhere but the very top of the ladder.
+`ops/derive-ttl.sh` now makes the derivation a step that can be run deliberately and fail loudly
+rather than one line buried in a nine-hour sweep. It drives the fleet past its KV capacity and
+scrapes the tail that load produced **without restarting in between**, which is the whole difficulty:
+a restart clears what the load just created. Against the live fleet it pooled 5,076 observations
+across all five replicas and put the p90 at **56.97 s** — nearly three times the 20 s that had been
+guessed, and evidence that the guess was wrong in the direction that forfeits matches rather than the
+direction that invents them.
 
-It is frozen on the same terms as the node cap: a TTL later derived from a real histogram is reported
-as a **second configuration** beside this one, never as a replacement. Measuring what the fleet's own
-tail would have said costs about half an hour — bring the fleet up, drive load past its KV capacity,
-calibrate — and produces a number for the write-up and for #16, #24 and #26, without invalidating a
-single cell measured here.
+Prefix affinity was then re-measured on both axes under the derived figure, at `node_cap=16311,
+ttl=56.970757907s, ttl_source="measured from vllm:kv_block_idle_before_evict_seconds"`. Those are the
+cells `runs/definitive/comparison.md` reports. The three baselines were not re-run and did not need
+to be: they consult no index, so the TTL cannot reach them.
 
 ## Consequences
 
