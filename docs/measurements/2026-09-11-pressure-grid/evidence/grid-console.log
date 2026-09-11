@@ -1,0 +1,73 @@
+[20:26:13] === pressure grid starting:  ===
+[20:31:28] fleet is up on GPUs 0 1 2 4 5
+[20:31:28] usage probe passed: the engines report cached prompt tokens
+[20:31:28] restarting the fleet before the next policy (ADR-0004)
+[20:36:55] fleet is back up
+[20:36:58] session_affinity: router up
+[20:36:58] session_affinity: WS 0.25 skew 0 (3 reps)
+[20:52:24] session_affinity: WS 0.25 skew 1 (3 reps)
+[21:07:52] session_affinity: WS 0.25 skew 1.4 (3 reps)
+[21:23:20] session_affinity: WS 1 skew 0 (3 reps)
+[21:38:50] session_affinity: WS 1 skew 1 (3 reps)
+[21:54:17] session_affinity: WS 1 skew 1.4 (3 reps)
+[22:09:45] session_affinity: WS 3 skew 0 (3 reps)
+[22:25:12] session_affinity: WS 3 skew 1 (3 reps)
+[22:40:39] session_affinity: WS 3 skew 1.4 (3 reps)
+[22:56:07] session_affinity: WS 8 skew 0 (3 reps)
+[23:11:35] session_affinity: WS 8 skew 1 (3 reps)
+[23:27:03] session_affinity: WS 8 skew 1.4 (3 reps)
+[23:42:30] router drained
+[23:42:30] session_affinity: all 12 points done in 3h11m
+[23:42:30] restarting the fleet before the next policy (ADR-0004)
+[23:47:57] fleet is back up
+[23:48:00] prefix_affinity: router up
+[23:48:00] prefix_affinity: WS 0.25 skew 0 (3 reps)
+[00:03:29] prefix_affinity: WS 0.25 skew 1 (3 reps)
+[00:18:56] prefix_affinity: WS 0.25 skew 1.4 (3 reps)
+[00:34:24] prefix_affinity: WS 1 skew 0 (3 reps)
+[00:49:51] prefix_affinity: WS 1 skew 1 (3 reps)
+[01:05:18] prefix_affinity: WS 1 skew 1.4 (3 reps)
+[01:20:46] prefix_affinity: WS 3 skew 0 (3 reps)
+[01:36:15] prefix_affinity: WS 3 skew 1 (3 reps)
+[01:51:44] prefix_affinity: WS 3 skew 1.4 (3 reps)
+[02:07:12] prefix_affinity: WS 8 skew 0 (3 reps)
+[02:22:39] prefix_affinity: WS 8 skew 1 (3 reps)
+[02:38:09] prefix_affinity: WS 8 skew 1.4 (3 reps)
+[02:53:37] router drained
+[02:53:37] prefix_affinity: all 12 points done in 3h11m
+[02:53:37] restarting the fleet before the next policy (ADR-0004)
+[02:59:08] fleet is back up
+[02:59:11] round_robin: router up
+[02:59:11] round_robin: WS 0.25 skew 0 (3 reps)
+[03:14:43] round_robin: WS 0.25 skew 1 (3 reps)
+[03:30:14] round_robin: WS 0.25 skew 1.4 (3 reps)
+[03:45:43] round_robin: WS 1 skew 0 (3 reps)
+[04:01:15] round_robin: WS 1 skew 1 (3 reps)
+[04:16:48] round_robin: WS 1 skew 1.4 (3 reps)
+[04:32:19] round_robin: WS 3 skew 0 (3 reps)
+[04:47:49] round_robin: WS 3 skew 1 (3 reps)
+[05:03:22] round_robin: WS 3 skew 1.4 (3 reps)
+[05:18:52] round_robin: WS 8 skew 0 (3 reps)
+[05:34:26] round_robin: WS 8 skew 1 (3 reps)
+[05:50:01] round_robin: WS 8 skew 1.4 (3 reps)
+[06:05:32] router drained
+[06:05:32] round_robin: all 12 points done in 3h11m
+[06:05:32] restarting the fleet before the next policy (ADR-0004)
+[06:11:01] fleet is back up
+[06:11:04] least_outstanding: router up
+[06:11:04] least_outstanding: WS 0.25 skew 0 (3 reps)
+[06:26:33] least_outstanding: WS 0.25 skew 1 (3 reps)
+[06:42:02] least_outstanding: WS 0.25 skew 1.4 (3 reps)
+[06:57:31] least_outstanding: WS 1 skew 0 (3 reps)
+[07:13:00] least_outstanding: WS 1 skew 1 (3 reps)
+[07:28:29] least_outstanding: WS 1 skew 1.4 (3 reps)
+[07:43:59] least_outstanding: WS 3 skew 0 (3 reps)
+[07:59:27] least_outstanding: WS 3 skew 1 (3 reps)
+[08:14:57] least_outstanding: WS 3 skew 1.4 (3 reps)
+[08:30:27] least_outstanding: WS 8 skew 0 (3 reps)
+[08:45:56] least_outstanding: WS 8 skew 1 (3 reps)
+[09:01:24] least_outstanding: WS 8 skew 1.4 (3 reps)
+[09:16:53] router drained
+[09:16:53] least_outstanding: all 12 points done in 3h11m
+[09:16:53] === pressure grid complete ===
+[09:16:53] draw the map: ./bin/pressuremap-linux-amd64 -out runs/pressuremap.md runs/pressure/ws*-skew*
