@@ -634,6 +634,22 @@ and the prediction is shaky: 2k tokens × 128 KiB = **256 MiB of KV per request*
 the killer. The real costs are more likely halving decode capacity and adding a hop — and on this
 box, the `SYS` link between NUMA nodes, which is the one transfer path that genuinely might hurt.
 
+> ⚠️ **Measured, 2026-09-11 (#22): bandwidth is not the killer, and the prediction above was
+> optimistic by six times.** Moving a 2,048-token request's KV costs **36.7 ms** against a measured
+> **490.7 ms** prefill — **7.5%**, not the 1.3% this paragraph estimates. Two measured reasons: no
+> pair of cards on this host has peer access at all (the driver reports the chipset unsupported on
+> all 30 pairs), so every card-to-card copy is staged through host memory at 7.4–7.8 GB/s rather
+> than moving over a 12–13 GB/s direct link; and prefill is three times faster than the ~1.5 s
+> assumed here. CUDA's own peer copy gets half that: 3.7 GB/s, because the driver's staging is not
+> pipelined. The `SYS` link is **not** the one that hurts — every class lands within 5% of the
+> others when a pair copies alone; what halves bandwidth is two cards behind one PCIe switch sending
+> at once, since they share its single x16 uplink.
+>
+> The verdict still falls the way this section leans, on the costs the arithmetic cannot remove
+> rather than on bandwidth — and one it can: with prefix caching, a later turn's prefill shrinks
+> while the KV to ship does not, which puts the transfer at 30% of the prefill it would replace.
+> See [the measurement](docs/measurements/2026-09-11-pcie-arithmetic/).
+
 Standing up a real KV transfer path on 3090s is a multi-week yak shave, and a negative result
 from a setup you fought for a week is **indistinguishable from a misconfiguration**.
 

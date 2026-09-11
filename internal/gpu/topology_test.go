@@ -79,6 +79,29 @@ func TestNUMAGroupsStateTheHostsAsymmetryAsANumber(t *testing.T) {
 	}
 }
 
+// What lies between two cards is the topology's to say, so a caller grouping
+// card pairs by it asks rather than walking the matrix itself.
+func TestLinkBetweenNamesWhatSeparatesTwoCards(t *testing.T) {
+	topo := topology(t, gputest.SixGPUTopology)
+
+	for _, c := range []struct {
+		a, b int
+		want string
+	}{
+		{0, 1, "PIX"}, {1, 0, "PIX"}, {0, 2, "NODE"}, {0, 4, "SYS"}, {5, 4, "PIX"},
+	} {
+		if link, ok := topo.LinkBetween(c.a, c.b); !ok || link != c.want {
+			t.Errorf("GPU%d to GPU%d is %q (found %v), want %s", c.a, c.b, link, ok, c.want)
+		}
+	}
+	if _, ok := topo.LinkBetween(0, 9); ok {
+		t.Error("named a link to GPU9, which this host does not have")
+	}
+	if _, ok := topo.LinkBetween(9, 0); ok {
+		t.Error("named a link from GPU9, which this host does not have")
+	}
+}
+
 // A host that reports no NUMA affinity must not read as one where every card is
 // on node 0: that would make the symmetry check unfalsifiable, since it would
 // never have two groups to compare.

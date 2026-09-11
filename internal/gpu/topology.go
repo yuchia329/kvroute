@@ -100,6 +100,26 @@ func (t Topology) NUMANodeOf(index int) (int, bool) {
 	return 0, false
 }
 
+// LinkBetween names what separates two cards — PIX, NODE, SYS, one of
+// nvidia-smi's own names — and reports whether the matrix knows both of them.
+//
+// It is here rather than in each caller because the matrix's shape is this
+// type's business: the links of card a are indexed by the index of card b,
+// which is not the position of b in the slice on a host whose cards are not
+// numbered from zero.
+func (t Topology) LinkBetween(a, b int) (string, bool) {
+	for _, g := range t.GPUs {
+		if g.Index != a {
+			continue
+		}
+		if b < 0 || b >= len(g.Links) || g.Links[b] == "" {
+			return "", false
+		}
+		return g.Links[b], true
+	}
+	return "", false
+}
+
 // Topology reads the host's GPU interconnect and NUMA placement.
 func (p *Prober) Topology(ctx context.Context) (Topology, error) {
 	out, err := p.run(ctx, "nvidia-smi", "topo", "-m")

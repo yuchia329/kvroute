@@ -448,6 +448,27 @@ is foreign — it is ours, but the fleet the cell is measuring did not start it.
 makes a cell not clean.
 _Avoid_: other process, stray process, someone else's job
 
+**Topology class**:
+The host's own name for how two cards reach each other, as `nvidia-smi topo -m` gives it: `PIX`
+through one PCIe switch, `NODE` across the host bridges of one socket, `SYS` across the link between
+the sockets. It groups card pairs whose copies cross the same kind of path, and it is the axis KV
+transfer bandwidth is measured along, because pairs of one class should agree and pairs of two
+should not.
+_Avoid_: link type, distance, hop count
+
+**Peer copy**:
+A copy from one card's memory to another's as CUDA performs it when asked — what a framework gets
+by calling copy. On this host no pair has direct peer access (the driver reports the chipset
+unsupported), so the driver stages every peer copy through host memory itself.
+_Avoid_: P2P (that is direct access between cards, which this host does not have), DMA transfer
+
+**Host bounce**:
+A card-to-card copy staged through pinned host memory by hand: chunked, with the sender's copy out
+of one chunk overlapping the receiver's copy into the one before. It is the fastest a KV transfer
+path written for this host could move bytes without peer access, and where its host buffer sits
+decides whether either leg crosses between the sockets.
+_Avoid_: staging copy, relay, host copy (that is one leg of it: a card and host memory)
+
 **Preflight**:
 The check that refuses to bring the fleet up while any GPU already holds memory. It is the same
 probe that samples for foreign processes during a cell, differing only in that nothing is exempt:

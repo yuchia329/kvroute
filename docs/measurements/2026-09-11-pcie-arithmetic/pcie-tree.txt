@@ -1,0 +1,8 @@
+GPU0: 0000:17:00.0 [8.0 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:18:00.0 [8.0 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:19:00.0 [2.5 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:1a:00.0 [2.5 GT/s PCIe x16, max 16.0 GT/s PCIe x16]
+GPU1: 0000:17:00.0 [8.0 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:18:00.0 [8.0 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:19:14.0 [2.5 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:1e:00.0 [2.5 GT/s PCIe x16, max 16.0 GT/s PCIe x16]
+GPU2: 0000:3a:00.0 [8.0 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:3b:00.0 [8.0 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:3c:04.0 [2.5 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:3e:00.0 [2.5 GT/s PCIe x16, max 16.0 GT/s PCIe x16]
+GPU3: 0000:3a:00.0 [8.0 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:3b:00.0 [8.0 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:3c:10.0 [2.5 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:40:00.0 [2.5 GT/s PCIe x16, max 16.0 GT/s PCIe x16]
+GPU4: 0000:85:00.0 [8.0 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:86:00.0 [8.0 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:87:00.0 [2.5 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:88:00.0 [2.5 GT/s PCIe x16, max 16.0 GT/s PCIe x16]
+GPU5: 0000:85:00.0 [8.0 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:86:00.0 [8.0 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:87:14.0 [2.5 GT/s PCIe x16, max 8.0 GT/s PCIe x16]  ->  0000:8c:00.0 [2.5 GT/s PCIe x16, max 16.0 GT/s PCIe x16]
+
+IOMMU groups: 193 (on)

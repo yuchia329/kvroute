@@ -516,6 +516,18 @@ recovery: build ## Compare the recovery curves of every policy that ran CHAOS_FA
 	@test -n "$(wildcard $(CHAOS_DIR)/$(CHAOS_FAULT)-*)" || { echo "recovery: no $(CHAOS_FAULT) runs under $(CHAOS_DIR); run ops/chaos.sh first" >&2; exit 1; }
 	$(BIN)/recovery -out runs/recovery-$(CHAOS_FAULT).md $(wildcard $(CHAOS_DIR)/$(CHAOS_FAULT)-*)
 
+# idea.md §8's arithmetic (#22): what moving a request's KV from one card of
+# this host to another costs, next to the prefill before it. Like compare it
+# reads records only, so a checkout is enough; the records are what
+# ops/pcie/measure.sh leaves on the box, which has to have all six cards free
+# while it runs.
+DISAGG_DIR ?= docs/measurements/2026-09-11-pcie-arithmetic
+
+.PHONY: disagg
+disagg: build ## Set a request's KV transfer against its prefill, from DISAGG_DIR's measured bandwidth and prefill
+	@test -d "$(DISAGG_DIR)" || { echo "disagg: no measurement in $(DISAGG_DIR); run ops/pcie/measure.sh on the box first" >&2; exit 1; }
+	$(BIN)/disagg -out $(DISAGG_DIR)/report.md $(DISAGG_DIR)
+
 .PHONY: bench
 bench: build ## Sweep concurrency against the running fleet, resuming from RUN_DIR
 	$(BIN)/bench -router $(ROUTER) -dir $(RUN_DIR) -policy $(POLICY) $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
