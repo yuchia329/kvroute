@@ -92,56 +92,23 @@ type ComparisonRow struct {
 	// cache hit rate and the lowest capacity (idea.md §1). A table with goodput
 	// but no such rate could not have found either result, nor disagree with them.
 	PrefixCache map[string]vllmmetrics.PrefixCache
-	// Prefill is the prompt-token work each policy left the fleet's GPUs to do.
+	// Prefill is the prompt-token work each policy left the fleet's GPUs to do,
+	// with the requests it served to leave it.
 	//
 	// It is the physical half of the mechanism, where PrefixCache is the ratio:
 	// a policy can lift a hit rate and still leave more tokens to compute, and
-	// the tokens are what the hardware actually spends. Redundant derives the
-	// comparison between policies that CONTEXT.md reserves the term redundant
-	// prefill for.
-	Prefill map[string]vllmmetrics.Prefill
+	// the tokens are what the hardware actually spends. RedundantPerRequest
+	// derives from it the comparison between policies that CONTEXT.md reserves
+	// the term redundant prefill for — and it carries the request count because
+	// under a closed loop that comparison is meaningless without one. See
+	// PolicyPrefill.
+	Prefill map[string]PolicyPrefill
 	// policies is every policy the comparison covers, which is not the same as
 	// the keys of the maps above: a policy with no usable cell at this load
-	// point is absent from them. Redundant needs the difference, because a floor
-	// taken over whichever policies happened to have a cell is not the floor it
-	// claims to be.
+	// point is absent from them. RedundantPerRequest needs the difference,
+	// because a floor taken over whichever policies happened to have a cell is
+	// not the floor it claims to be.
 	policies []string
-}
-
-// Redundant is a policy's redundant prefill at this load point: the prompt
-// tokens it left the fleet computing over and above the policy that computed
-// fewest, on identical bytes.
-//
-// The comparison is what makes the work redundant. Every policy in the row sent
-// the same prompts, so tokens one fleet computed and another did not are tokens
-// some replica was already holding — which is CONTEXT.md's definition, and the
-// measurement of the mechanism rather than of the outcome.
-//
-// It reports false unless every policy the comparison covers was measured here.
-// A row where one policy's counters are missing has no floor to measure the
-// others against, and picking the lowest of what was read would credit a scrape
-// failure — or a policy that never ran at this load point — as the best result
-// in the table.
-//
-// The check is against the comparison's own policy list rather than against the
-// readings present, because those are the same set only when nothing went
-// missing, and the case this guards is exactly the one where something did.
-func (r ComparisonRow) Redundant(name string) (float64, bool) {
-	mine, ok := r.Prefill[name]
-	if !ok || !mine.Read {
-		return 0, false
-	}
-	best := mine
-	for _, policy := range r.policies {
-		other, measured := r.Prefill[policy]
-		if !measured || !other.Read {
-			return 0, false
-		}
-		if other.Recomputed() < best.Recomputed() {
-			best = other
-		}
-	}
-	return mine.RedundantAgainst(best)
 }
 
 // PolicyLatency is one policy's TTFT percentiles at one load point, pooled over
@@ -278,7 +245,7 @@ func Compare(cells []Cell) (Comparison, error) {
 			Goodput:     map[string]PolicyGoodput{},
 			Latency:     map[string]PolicyLatency{},
 			PrefixCache: map[string]vllmmetrics.PrefixCache{},
-			Prefill:     map[string]vllmmetrics.Prefill{},
+			Prefill:     map[string]PolicyPrefill{},
 			policies:    c.Policies,
 		}
 		for _, name := range c.Policies {
@@ -291,7 +258,7 @@ func Compare(cells []Cell) (Comparison, error) {
 			}
 			if len(cells) > 0 {
 				row.PrefixCache[name] = poolPrefixCache(cells)
-				row.Prefill[name] = poolPrefill(cells)
+				row.Prefill[name] = poolPolicyPrefill(cells)
 			}
 			pooled = append(pooled, cells...)
 		}
@@ -778,7 +745,7 @@ func (c Comparison) reportRatio(b *strings.Builder) {
 //
 // Separate from the goodput table rather than more columns on it. Goodput is the
 // outcome and these are what produced it, so they are read as a group; and with
-// three policies, four figures apiece across one row would be twelve columns
+// three policies, this many figures apiece across one row would be a table
 // nobody reads across.
 //
 // One row per policy per load point, and it is the mechanism half of the
@@ -795,15 +762,25 @@ func (c Comparison) reportMechanism(b *strings.Builder) {
 	fmt.Fprintf(b, "counters, summed across those repetitions rather than averaged, because a rate is a ratio of counts.\n")
 	fmt.Fprintf(b, "An em dash is no usable cell; a prefix cache hit rate of — is a fleet whose counters were not\n")
 	fmt.Fprintf(b, "read, which is not the same as a cache that never hit.\n\n")
-	fmt.Fprintf(b, "The last two columns are the physical work. Prompt tokens recomputed is what the GPUs\n")
-	fmt.Fprintf(b, "actually prefilled; redundant prefill is what a policy computed over and above the policy\n")
-	fmt.Fprintf(b, "that computed least on the same bytes, which is the work cache-aware routing removed.\n")
-	fmt.Fprintf(b, "The policy that computed least is the floor the column is measured from and is marked\n")
-	fmt.Fprintf(b, "best. A prefix cache hit rate and a token count can disagree, and idea.md §1 predicts two\n")
+	fmt.Fprintf(b, "The last four columns are the physical work, and the requests column before them is\n")
+	fmt.Fprintf(b, "their denominator. Prompt tokens recomputed is what the GPUs actually prefilled;\n")
+	fmt.Fprintf(b, "redundant prefill is what a policy computed over and above the policy that computed\n")
+	fmt.Fprintf(b, "least on the same bytes, which is the work cache-aware routing removed. The policy\n")
+	fmt.Fprintf(b, "that computed least per request is the floor the column is measured from and is\n")
+	fmt.Fprintf(b, "marked best.\n\n")
+	fmt.Fprintf(b, "Both are compared **per request**, and the totals are printed beside them only so the\n")
+	fmt.Fprintf(b, "two can be told apart. Under the closed-loop driver a virtual user sends its next turn\n")
+	fmt.Fprintf(b, "when its last one returns, so a policy that answers faster offers more prompts in the\n")
+	fmt.Fprintf(b, "same window: an identical workload guarantees both policies the same generator, not the\n")
+	fmt.Fprintf(b, "same number of prompts. A column of absolute totals therefore rises with throughput and\n")
+	fmt.Fprintf(b, "credits the slower policy with having wasted less. A redundant-prefill total here is\n")
+	fmt.Fprintf(b, "that policy's per-request excess times its *own* requests, never a difference of two\n")
+	fmt.Fprintf(b, "policies' totals.\n\n")
+	fmt.Fprintf(b, "A prefix cache hit rate and a token count can disagree, and idea.md §1 predicts two\n")
 	fmt.Fprintf(b, "published results where they did.\n\n")
 
-	fmt.Fprintln(b, "| driver | load | policy | TTFT p50 | TTFT p90 | TTFT p99 | prefix cache hit rate | prompt tokens recomputed | redundant prefill |")
-	fmt.Fprintln(b, "|---|---:|---|---:|---:|---:|---:|---:|---:|")
+	fmt.Fprintln(b, "| driver | load | policy | TTFT p50 | TTFT p90 | TTFT p99 | prefix cache hit rate | requests | prompt tokens recomputed | recomputed / request | redundant prefill / request | redundant prefill, tokens |")
+	fmt.Fprintln(b, "|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 	for _, row := range c.Rows {
 		for _, name := range c.Policies {
 			latency, ok := row.Latency[name]
@@ -811,37 +788,76 @@ func (c Comparison) reportMechanism(b *strings.Builder) {
 			if ok {
 				cell = fmt.Sprintf("%s | %s | %s", ms(latency.P50Ns), ms(latency.P90Ns), ms(latency.P99Ns))
 			}
-			fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s |\n",
+			fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
 				row.Load.Driver.Name(), row.Load, name, cell,
 				prefixCacheHitRate(row.PrefixCache[name]),
-				recomputedPrefill(row.Prefill[name]), redundantPrefill(row, name))
+				requestsServed(row.Prefill[name]),
+				recomputedPrefill(row.Prefill[name]), recomputedPerRequest(row.Prefill[name]),
+				redundantPerRequest(row, name), redundantTokens(row, name))
 		}
 	}
+}
+
+// requestsServed is the denominator of the two per-request columns beside it, as
+// a table cell. It is published rather than left implicit because a ratio whose
+// denominator nobody can see is a ratio nobody can check — and because the
+// difference between two policies' request counts under a closed loop is the
+// whole reason the columns are ratios at all.
+func requestsServed(p PolicyPrefill) string {
+	if p.Requests <= 0 {
+		return "—"
+	}
+	return fmt.Sprintf("%d", p.Requests)
 }
 
 // recomputedPrefill is the prompt tokens a policy left the GPUs to compute, or
 // an em dash where nobody read the counters. Zero is a real reading — a fleet
 // that prefilled nothing because everything hit cache — and an unscraped one
 // must not print as it.
-func recomputedPrefill(p vllmmetrics.Prefill) string {
+func recomputedPrefill(p PolicyPrefill) string {
 	if !p.Evidenced() {
 		return "—"
 	}
 	return fmt.Sprintf("%.0f", p.Recomputed())
 }
 
-// redundantPrefill is a policy's excess over the policy that recomputed least,
-// with that policy itself marked as the floor rather than printed as a zero it
-// would be easy to read as no evidence.
-func redundantPrefill(row ComparisonRow, name string) string {
-	excess, ok := row.Redundant(name)
+// recomputedPerRequest is the same work divided by the requests it served, which
+// is the column the one beside it has to be read through: a policy that served
+// twice the traffic recomputed more without having wasted more.
+func recomputedPerRequest(p PolicyPrefill) string {
+	perRequest, ok := p.RecomputedPerRequest()
+	if !ok || !p.Evidenced() {
+		return "—"
+	}
+	return fmt.Sprintf("%.1f", perRequest)
+}
+
+// redundantTokens is a policy's per-request excess against its own requests — the
+// prompt tokens its traffic left the GPUs computing that the best-placed fleet in
+// the row would not have. Printed beside the per-request figure and never alone.
+func redundantTokens(row ComparisonRow, name string) string {
+	tokens, ok := row.RedundantTokens(name)
+	if !ok {
+		return "—"
+	}
+	if tokens == 0 {
+		return "best"
+	}
+	return fmt.Sprintf("+%.0f", tokens)
+}
+
+// redundantPerRequest is a policy's excess over the policy that recomputed least
+// per request, with that policy itself marked as the floor rather than printed as
+// a zero it would be easy to read as no evidence.
+func redundantPerRequest(row ComparisonRow, name string) string {
+	excess, ok := row.RedundantPerRequest(name)
 	if !ok {
 		return "—"
 	}
 	if excess == 0 {
 		return "best"
 	}
-	return fmt.Sprintf("+%.0f", excess)
+	return fmt.Sprintf("+%.1f", excess)
 }
 
 // prefixCacheHitRate is a policy's prefix cache hit rate as a table cell, or an

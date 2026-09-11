@@ -58,12 +58,16 @@ func TestAFixtureSweepReadsBackToFiguresWorkedByHand(t *testing.T) {
 	if hit := row.PrefixCache[policy.PrefixAffinityName].HitRate(); hit != 0.8 {
 		t.Errorf("prefix affinity hit rate %v, want 0.8", hit)
 	}
-	// Recomputed prefill: 3 × 900 against 3 × 200, so round robin carries 2,100
-	// tokens over the floor.
-	if excess, ok := row.Redundant(policy.RoundRobinName); !ok || excess != 2100 {
-		t.Errorf("round robin redundant prefill = %v (%v), want 2100", excess, ok)
+	// Recomputed prefill: 3 × 900 against 3 × 200, over 300 requests each, so
+	// round robin recomputes 9 tokens per request against 2 and carries 7 of them
+	// over the floor — 2,100 tokens against its own requests.
+	if excess, ok := row.RedundantPerRequest(policy.RoundRobinName); !ok || excess != 7 {
+		t.Errorf("round robin redundant prefill = %v per request (%v), want 7", excess, ok)
 	}
-	if excess, ok := row.Redundant(policy.PrefixAffinityName); !ok || excess != 0 {
+	if tokens, ok := row.RedundantTokens(policy.RoundRobinName); !ok || tokens != 2100 {
+		t.Errorf("round robin redundant prefill = %v tokens (%v), want 2100", tokens, ok)
+	}
+	if excess, ok := row.RedundantPerRequest(policy.PrefixAffinityName); !ok || excess != 0 {
 		t.Errorf("prefix affinity redundant prefill = %v (%v), want 0: it is the floor", excess, ok)
 	}
 

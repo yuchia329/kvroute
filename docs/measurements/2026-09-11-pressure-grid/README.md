@@ -226,11 +226,45 @@ far larger than either arm's run-to-run spread.
 - **Hit rate spread** in [`pressuremap.md`](pressuremap.md) is worst against best across all
   four policies — 9.7–45.4 pp — so it mostly shows round robin's poor locality. Session against
   prefix alone is the 0.0–2.2 pp above.
-- **Redundant prefill** there is absolute recomputed tokens. Under a closed loop the faster
-  policy serves more requests, so the column credits the slower policy with having wasted less:
-  session affinity is "lowest" at all 12 points, but per request it is lowest at only 6. Do not
-  read that column as waste until [#30](https://github.com/yuchia329/kvroute/issues/30)
-  normalises it per request.
+- **Redundant prefill** there is now recomputed tokens **per request**, with the token total
+  printed beside it ([#30](https://github.com/yuchia329/kvroute/issues/30)). It used to be the
+  absolute total, and under this closed loop that credited the slower policy: prefix affinity
+  served 1.2–2.3× the requests at 11 of the 12 points, so its absolute recompute rose with its
+  own throughput.
+
+### Redundant prefill per request, re-read
+
+The table below is the old column's verdict against the corrected one, for the two affinity
+policies. Every figure is recomputed from the cell records in `grid/` — requests from
+`summary.requests`, recomputed from `prompt_tokens − prompt_tokens_cached`, usable repetitions
+pooled — so this is arithmetic over the existing run, not a re-measurement.
+
+| point | session requests | prefix requests | session / req | prefix / req | wastes less per request |
+|---|---:|---:|---:|---:|---|
+| WS 0.25, skew 0 | 25,735 | 24,922 | 10.2 | 78.7 | session |
+| WS 0.25, skew 1 | 11,602 | 26,061 | 37.6 | 52.8 | session |
+| WS 0.25, skew 1.4 | 13,933 | 26,412 | 44.9 | 48.4 | session |
+| WS 1, skew 0 | 8,781 | 11,873 | 722.0 | 695.5 | **prefix** |
+| WS 1, skew 1 | 14,577 | 17,867 | 267.3 | 301.4 | session |
+| WS 1, skew 1.4 | 14,588 | 23,185 | 117.3 | 117.3 | **prefix**, by 0.001 |
+| WS 3, skew 0 | 8,179 | 9,644 | 1,002.9 | 971.9 | **prefix** |
+| WS 3, skew 1 | 11,970 | 14,775 | 448.9 | 464.3 | session |
+| WS 3, skew 1.4 | 12,188 | 21,824 | 167.6 | 156.6 | **prefix** |
+| WS 8, skew 0 | 7,944 | 9,049 | 1,104.4 | 1,062.0 | **prefix** |
+| WS 8, skew 1 | 11,534 | 13,379 | 555.4 | 564.9 | session |
+| WS 8, skew 1.4 | 12,809 | 21,169 | 186.9 | 179.3 | **prefix** |
+
+Session affinity had the lower absolute recompute at **all 12** points. Per request it is lower at
+**6**, and at WS ≥ 1 the two are within about 5% of each other everywhere. So the old column's
+claim — that session affinity wasted less prefill everywhere — was false, and the honest reading is
+that the two policies leave the fleet almost the same prefill work per request while prefix
+affinity serves 1.2–2.3× as many requests with it.
+
+**None of this map's goodput conclusions rest on that column.** The validity table uses it only to
+answer "did the two policies route differently at all", and the answer is unchanged: the spread is
+non-zero at every one of the 12 points either way, and the hit rate spread and spill counts beside
+it are independent evidence for the same thing. The delta table, the gain share and the
+separability section are goodput, which this does not touch.
 
 ## Excluded and re-run
 
@@ -265,7 +299,7 @@ rather than cache residency, and on this fleet tracks inflight at r = 0.973. Tha
 | | |
 |---|---|
 | `pressuremap.md` | The final map, all four policies, drawn after the re-run pass |
-| `pressuremap-headline.md` | The same map for session and prefix affinity only, drawn at 02:54 UTC before the context policies ran |
+| `pressuremap-headline.md` | The same map for session and prefix affinity only, drawn at 02:54 UTC before the context policies ran. Not regenerated for [#30](https://github.com/yuchia329/kvroute/issues/30), so its redundant-prefill column is still the absolute one; it says so at the top |
 | `grid/ws*-skew*/` | One sweep directory per grid point: `cells/*.json` (144 cell records), `cells.parquet`, `requests.parquet` (every request's row), `results.md`, and `discarded/` (the six set-aside cells' records) |
 | `grid/evidence/` | Router startup logs, one per policy, and the re-run pass's |
 | `evidence/` | The console and bench logs of the grid and of the spill-off arm, and the box's `versions.env` |

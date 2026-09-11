@@ -75,9 +75,18 @@ func (m PressureMap) reportValidity(b *strings.Builder) {
 	fmt.Fprintf(b, "tripped collapses policy 4 into policy 3 and returns a flat map that says nothing\n")
 	fmt.Fprintf(b, "about either. These three columns are read before the map below it.\n\n")
 	fmt.Fprintf(b, "Redundant prefill is the worst policy's excess prompt tokens over the best at that\n")
-	fmt.Fprintf(b, "point; hit rate spread is the gap between the highest and lowest prefix cache hit\n")
-	fmt.Fprintf(b, "rate there. The two spill columns stay apart because they answer to different axes\n")
-	fmt.Fprintf(b, "of this grid. An em dash is a counter nobody read, which is not a zero.\n\n")
+	fmt.Fprintf(b, "point, **per request served**; hit rate spread is the gap between the highest and\n")
+	fmt.Fprintf(b, "lowest prefix cache hit rate there. The two spill columns stay apart because they\n")
+	fmt.Fprintf(b, "answer to different axes of this grid. An em dash is a counter nobody read, which is\n")
+	fmt.Fprintf(b, "not a zero.\n\n")
+	fmt.Fprintf(b, "The per-request normalisation is not cosmetic. This grid runs the closed-loop driver,\n")
+	fmt.Fprintf(b, "where a virtual user sends its next turn when its last one returns — so a policy that\n")
+	fmt.Fprintf(b, "answers faster gets further through the same sequence and offers more prompts in the\n")
+	fmt.Fprintf(b, "same window. An identical workload guarantees both policies the same generator, not\n")
+	fmt.Fprintf(b, "the same number of prompts, so a column of absolute totals rises with throughput and\n")
+	fmt.Fprintf(b, "names the slower policy as the one that wasted less. The token column beside it is\n")
+	fmt.Fprintf(b, "the same worst policy's per-request excess against its own requests, and is there so\n")
+	fmt.Fprintf(b, "the size of the waste is visible — it is not what the verdict is read from.\n\n")
 	fmt.Fprintf(b, "Spill rate is the share of the challenger's decisions that declined a prefix match,\n")
 	fmt.Fprintf(b, "and it is expected to be small. The valve is self-limiting: declining a match moves\n")
 	fmt.Fprintf(b, "load off the replica that was over the threshold, so the condition that fired stops\n")
@@ -85,13 +94,14 @@ func (m PressureMap) reportValidity(b *strings.Builder) {
 	fmt.Fprintf(b, "uncorrected run would have qualified 55%% of the time. A near-zero rate here is the\n")
 	fmt.Fprintf(b, "mechanism working, not a rule that failed to fire.\n\n")
 
-	fmt.Fprintln(b, "| point | redundant prefill | hit rate spread | spill: KV | spill: load | spill rate | exercised |")
-	fmt.Fprintln(b, "|---|---:|---:|---:|---:|---:|---|")
+	fmt.Fprintln(b, "| point | redundant prefill / request | redundant prefill, tokens | hit rate spread | spill: KV | spill: load | spill rate | exercised |")
+	fmt.Fprintln(b, "|---|---:|---:|---:|---:|---:|---:|---|")
 	for _, point := range m.Points {
 		v := point.Validity(m.Challenger)
-		prefill, hitRate := "—", "—"
+		prefill, prefillTokens, hitRate := "—", "—", "—"
 		if v.PrefillMeasured {
-			prefill = fmt.Sprintf("%.0f", v.RedundantPrefill)
+			prefill = fmt.Sprintf("%.1f", v.RedundantPerRequest)
+			prefillTokens = fmt.Sprintf("%.0f", v.RedundantTokens)
 		}
 		if v.HitRateMeasured {
 			hitRate = fmt.Sprintf("%.1f pp", v.HitRateSpread*100)
@@ -104,8 +114,8 @@ func (m PressureMap) reportValidity(b *strings.Builder) {
 		if v.Decisions > 0 {
 			rate = fmt.Sprintf("%.3f%%", v.SpillRate*100)
 		}
-		fmt.Fprintf(b, "| %s | %s | %s | %d | %d | %s | %s |\n",
-			point.At, prefill, hitRate, v.SpillKV, v.SpillLoad, rate, exercised)
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %d | %d | %s | %s |\n",
+			point.At, prefill, prefillTokens, hitRate, v.SpillKV, v.SpillLoad, rate, exercised)
 	}
 	fmt.Fprintln(b)
 

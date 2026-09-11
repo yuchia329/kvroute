@@ -18,21 +18,25 @@ One point of the grid: the frozen comparison workload at **working set 1.0, skew
 at 32 virtual users, five replicas, three repetitions. Goodput is requests per second that met the
 derived SLO of **TTFT < 990 ms and inter-token p50 < 24 ms**.
 
-| policy | goodput/s | TTFT p99 | prefix cache hit rate | redundant prefill |
-|---|---:|---:|---:|---:|
-| round robin | 3.51 (3.37–3.55) | 3,918 ms | 33.9% | +3.40 M tokens |
-| least outstanding | 7.84 (7.71–8.16) | 2,130 ms | 56.4% | +4.14 M tokens |
-| session affinity (consistent hash) | 8.99 (8.19–10.24) | 1,622 ms | 76.6% | best |
-| **prefix affinity** | **14.94 (14.72–15.10)** | **1,440 ms** | 77.5% | +1.92 M tokens |
+| policy | goodput/s | TTFT p99 | prefix cache hit rate | requests | redundant prefill / request |
+|---|---:|---:|---:|---:|---:|
+| round robin | 3.51 (3.37–3.55) | 3,918 ms | 33.9% | 4,753 | +1,354 (+6.44 M tokens) |
+| least outstanding | 7.84 (7.71–8.16) | 2,130 ms | 56.4% | 7,790 | +650 (+5.06 M tokens) |
+| session affinity (consistent hash) | 8.99 (8.19–10.24) | 1,622 ms | 76.6% | 8,781 | +26 (+0.23 M tokens) |
+| **prefix affinity** | **14.94 (14.72–15.10)** | **1,440 ms** | 77.5% | 11,873 | **best** |
 
 Prefix affinity is **+66.2%** over session affinity here, and the two policies' repetition ranges
-do not overlap. It is not an artefact of caching more: the two hit rates differ by 0.9 points.
+do not overlap. It is not an artefact of caching more: the two hit rates differ by 0.9 points. It
+is also the policy that wasted least, which the hit rate alone could not have said.
 
-⚠️ The redundant prefill column is absolute tokens over the policy that computed least on the same
-bytes. Under a closed loop the faster policy serves more requests in the window, so the column
-credits the slower one — session affinity is "best" at all twelve grid points but, per request, at
-only six of them. Read it as the mechanism's direction, not as waste, until
-[#30](https://github.com/yuchia329/kvroute/issues/30) normalises it.
+Redundant prefill is compared **per request**, and the token total is shown beside it only so the
+two can be told apart. Under a closed loop a virtual user sends its next turn when its last one
+returns, so a faster policy offers more prompts in the same window: the identical workload
+guarantees the same generator, not the same number of prompts. In absolute tokens prefix affinity
+looks like it wasted 1.92 M more than session affinity here — it served 3,092 more requests to do
+it, and per request it wasted less. A token figure in this column is a policy's per-request excess
+times **its own** requests, never a difference of two policies' totals
+([#30](https://github.com/yuchia329/kvroute/issues/30)).
 
 ## The pressure map
 

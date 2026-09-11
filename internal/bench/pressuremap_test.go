@@ -438,10 +438,15 @@ func TestValidityReportsPrefillCacheAndBothSpillBranches(t *testing.T) {
 
 	// Pooled over the three repetitions, because these are counts of work and
 	// two windows of work combine by adding: 3 x 800,000 recomputed against
-	// 3 x 500,000.
-	if !v.PrefillMeasured || v.RedundantPrefill != 900_000 {
-		t.Errorf("redundant prefill = %v (measured %v), want the 900,000 tokens session affinity computed over prefix affinity across three repetitions",
-			v.RedundantPrefill, v.PrefillMeasured)
+	// 3 x 500,000, each over 3 x 100 requests. So 8,000 tokens per request
+	// against 5,000, and the 900,000-token total is that 3,000 against the 300
+	// requests the policy carrying it served.
+	if !v.PrefillMeasured || v.RedundantPerRequest != 3000 {
+		t.Errorf("redundant prefill = %v per request (measured %v), want the 3,000 tokens per request session affinity computed over prefix affinity",
+			v.RedundantPerRequest, v.PrefillMeasured)
+	}
+	if v.RedundantTokens != 900_000 {
+		t.Errorf("redundant prefill = %v tokens, want 3,000 against the 300 requests session affinity served", v.RedundantTokens)
 	}
 	if !v.HitRateMeasured || !closeTo(v.HitRateSpread, 0.3) {
 		t.Errorf("hit rate spread = %v (measured %v), want 70%% against 40%%", v.HitRateSpread, v.HitRateMeasured)

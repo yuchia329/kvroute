@@ -1,5 +1,13 @@
 # The pressure map — where cache-aware routing pays
 
+> ⚠️ **Historical artifact, kept as it was drawn.** Its validity table's redundant-prefill column
+> is the absolute recomputed-token spread, which under this closed loop credits the slower policy
+> ([#30](https://github.com/yuchia329/kvroute/issues/30)). It is not regenerated because it was
+> drawn over session and prefix affinity alone, before the two context policies ran, and that
+> subset no longer exists as a directory. Read the per-request column in
+> [`pressuremap.md`](pressuremap.md), and the re-read table in [`README.md`](README.md).
+
+
 Goodput delta between **session_affinity** and **prefix_affinity** across the working set × skew grid,
 at a single concurrency. Positive means prefix_affinity served more requests inside the SLO.
 

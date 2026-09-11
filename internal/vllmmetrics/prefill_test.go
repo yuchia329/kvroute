@@ -39,25 +39,6 @@ func TestPrefillNeedsBothCountersOrNeither(t *testing.T) {
 	}
 }
 
-// Redundant prefill in CONTEXT.md's sense is work one replica did that another
-// already held, and no replica's own counters can see that. It is measured as
-// the excess one policy computes over another on identical bytes.
-func TestRedundantPrefillIsTheExcessOverAnotherPolicyOnTheSameBytes(t *testing.T) {
-	scattered := vllmmetrics.Prefill{PromptTokens: 10000, CachedTokens: 1000, Read: true}
-	kept := vllmmetrics.Prefill{PromptTokens: 10000, CachedTokens: 7000, Read: true}
-
-	got, ok := scattered.RedundantAgainst(kept)
-	if !ok {
-		t.Fatal("two read measurements could not be compared")
-	}
-	if got != 6000 {
-		t.Errorf("redundant prefill = %v, want 6000", got)
-	}
-	if _, ok := scattered.RedundantAgainst(vllmmetrics.Prefill{}); ok {
-		t.Error("a comparison against an unread baseline reported a figure")
-	}
-}
-
 // A window is the difference between two readings, and a replica that restarted
 // inside one did not measure a window at all.
 func TestAWindowIsTheDifferenceAndARestartVoidsIt(t *testing.T) {

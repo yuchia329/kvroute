@@ -80,16 +80,23 @@ func TestTheFourPolicyTableReportsGoodputHitRateAndRedundantPrefill(t *testing.T
 	}
 
 	// And the redundant part: what each policy computed over the policy that
-	// computed least, on identical bytes.
-	redundant, ok := row.Redundant(policy.RoundRobinName)
+	// computed least per request, on identical bytes. Every policy here served
+	// 200 requests, so the per-request figure and the token total agree on which
+	// policy wasted more — which is exactly what stops being true when the
+	// closed-loop driver gives them different request counts (see
+	// TestRedundantPrefillCreditsTheFasterPolicyThatWastesLessPerRequest).
+	redundant, ok := row.RedundantPerRequest(policy.RoundRobinName)
 	if !ok {
 		t.Fatal("round-robin's redundant prefill could not be derived")
 	}
-	if redundant != 1_380_000 {
-		t.Errorf("round-robin's redundant prefill = %v, want 1380000 over prefix affinity", redundant)
+	if redundant != 6900 {
+		t.Errorf("round-robin's redundant prefill = %v per request, want 9000 − 2100 = 6900 over prefix affinity", redundant)
 	}
-	if best, _ := row.Redundant(policy.PrefixAffinityName); best != 0 {
-		t.Errorf("the policy that recomputed least carries %v redundant prefill, want none", best)
+	if tokens, _ := row.RedundantTokens(policy.RoundRobinName); tokens != 1_380_000 {
+		t.Errorf("round-robin's redundant prefill = %v tokens, want 6900 against its own 200 requests", tokens)
+	}
+	if best, _ := row.RedundantPerRequest(policy.PrefixAffinityName); best != 0 {
+		t.Errorf("the policy that recomputed least carries %v redundant prefill per request, want none", best)
 	}
 }
 
@@ -110,7 +117,7 @@ func TestOneUnreadPrefillMakesTheRedundantColumnAbsent(t *testing.T) {
 	if p, ok := row.Prefill[policy.PrefixAffinityName]; ok && p.Read {
 		t.Errorf("a policy with an unscraped repetition reported prefill: %v", p)
 	}
-	if _, ok := row.Redundant(policy.RoundRobinName); ok {
+	if _, ok := row.RedundantPerRequest(policy.RoundRobinName); ok {
 		t.Error("redundant prefill was derived against a policy whose own prefill was unread")
 	}
 }
@@ -216,7 +223,7 @@ func TestRedundantPrefillNeedsEveryPolicyThatRanAtThisLoadPoint(t *testing.T) {
 	if _, ok := at8Row.Prefill[policy.PrefixAffinityName]; ok {
 		t.Fatal("the load point under test was supposed to be missing prefix affinity")
 	}
-	if excess, ok := at8Row.Redundant(policy.RoundRobinName); ok {
+	if excess, ok := at8Row.RedundantPerRequest(policy.RoundRobinName); ok {
 		t.Errorf("redundant prefill of %v was reported against a floor that excluded a policy of the comparison", excess)
 	}
 }

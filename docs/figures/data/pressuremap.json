@@ -185,8 +185,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 3841.861322,
       "prefix_cache_hit_rate": 0.5424537231988805,
+      "requests": 6271,
       "recomputed_prefill": 8806316,
-      "redundant_prefill": 8542547
+      "recomputed_prefill_per_request": 1404.2921384149258,
+      "redundant_prefill": 8742041.844219934,
+      "redundant_prefill_per_request": 1394.0427115643333
     },
     {
       "working_set": 0.25,
@@ -204,8 +207,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1785.660273,
       "prefix_cache_hit_rate": 0.6798168874937169,
+      "requests": 9715,
       "recomputed_prefill": 9518908,
-      "redundant_prefill": 9255139
+      "recomputed_prefill_per_request": 979.8155429747812,
+      "redundant_prefill": 9419334.818146493,
+      "redundant_prefill_per_request": 969.5661161241886
     },
     {
       "working_set": 0.25,
@@ -223,8 +229,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 152.552571,
       "prefix_cache_hit_rate": 0.9966442190932395,
+      "requests": 25735,
       "recomputed_prefill": 263769,
-      "redundant_prefill": 0
+      "recomputed_prefill_per_request": 10.249426850592577,
+      "redundant_prefill": 0,
+      "redundant_prefill_per_request": 0
     },
     {
       "working_set": 0.25,
@@ -242,8 +251,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1013.167589,
       "prefix_cache_hit_rate": 0.9742774378508455,
+      "requests": 24922,
       "recomputed_prefill": 1960576,
-      "redundant_prefill": 1696807
+      "recomputed_prefill_per_request": 78.66848567530695,
+      "redundant_prefill": 1705139.7840295315,
+      "redundant_prefill_per_request": 68.41905882471437
     },
     {
       "working_set": 0.25,
@@ -261,8 +273,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 2939.265055,
       "prefix_cache_hit_rate": 0.7733676930423272,
+      "requests": 9991,
       "recomputed_prefill": 6896749,
-      "redundant_prefill": 6460962
+      "recomputed_prefill_per_request": 690.2961665498949,
+      "redundant_prefill": 6521473.365023272,
+      "redundant_prefill_per_request": 652.7347978203655
     },
     {
       "working_set": 0.25,
@@ -280,8 +295,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1512.448366,
       "prefix_cache_hit_rate": 0.8386559168935287,
+      "requests": 14501,
       "recomputed_prefill": 7106174,
-      "redundant_prefill": 6670387
+      "recomputed_prefill_per_request": 490.04716916074756,
+      "redundant_prefill": 6561496.592053095,
+      "redundant_prefill_per_request": 452.4858004312182
     },
     {
       "working_set": 0.25,
@@ -299,8 +317,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 435.31616,
       "prefix_cache_hit_rate": 0.9877286801261121,
+      "requests": 11602,
       "recomputed_prefill": 435787,
-      "redundant_prefill": 0
+      "recomputed_prefill_per_request": 37.56136872952939,
+      "redundant_prefill": 0,
+      "redundant_prefill_per_request": 0
     },
     {
       "working_set": 0.25,
@@ -318,8 +339,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 494.999085,
       "prefix_cache_hit_rate": 0.9825856994453582,
+      "requests": 26061,
       "recomputed_prefill": 1375869,
-      "redundant_prefill": 940082
+      "recomputed_prefill_per_request": 52.794175204328305,
+      "redundant_prefill": 396982.1695397345,
+      "redundant_prefill_per_request": 15.232806474798913
     },
     {
       "working_set": 0.25,
@@ -337,8 +361,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 2300.983845,
       "prefix_cache_hit_rate": 0.8880353178316661,
+      "requests": 14558,
       "recomputed_prefill": 4958964,
-      "redundant_prefill": 4333974
+      "recomputed_prefill_per_request": 340.6349773320511,
+      "redundant_prefill": 4305938.490777291,
+      "redundant_prefill_per_request": 295.7781625757172
     },
     {
       "working_set": 0.25,
@@ -356,8 +383,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1289.224518,
       "prefix_cache_hit_rate": 0.9201908847771963,
+      "requests": 19442,
       "recomputed_prefill": 4714186,
-      "redundant_prefill": 4089196
+      "recomputed_prefill_per_request": 242.47433391626376,
+      "redundant_prefill": 3842079.8075073566,
+      "redundant_prefill_per_request": 197.61751915992988
     },
     {
       "working_set": 0.25,
@@ -375,8 +405,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 527.263715,
       "prefix_cache_hit_rate": 0.9851900166004532,
+      "requests": 13933,
       "recomputed_prefill": 624990,
-      "redundant_prefill": 0
+      "recomputed_prefill_per_request": 44.85681475633388,
+      "redundant_prefill": 0,
+      "redundant_prefill_per_request": 0
     },
     {
       "working_set": 0.25,
@@ -394,8 +427,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 458.035199,
       "prefix_cache_hit_rate": 0.9840482414370698,
+      "requests": 26412,
       "recomputed_prefill": 1277473,
-      "redundant_prefill": 652483
+      "recomputed_prefill_per_request": 48.36714372255035,
+      "redundant_prefill": 92714.8086557094,
+      "redundant_prefill_per_request": 3.51032896621647
     },
     {
       "working_set": 1,
@@ -413,8 +449,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 3917.850155,
       "prefix_cache_hit_rate": 0.3388154263891035,
+      "requests": 4753,
       "recomputed_prefill": 9741520,
-      "redundant_prefill": 3401991
+      "recomputed_prefill_per_request": 2049.5518619819063,
+      "redundant_prefill": 6435860.341446981,
+      "redundant_prefill_per_request": 1354.0627690820495
     },
     {
       "working_set": 1,
@@ -432,8 +471,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 2130.496896,
       "prefix_cache_hit_rate": 0.5637487718877975,
+      "requests": 7790,
       "recomputed_prefill": 10479634,
-      "redundant_prefill": 4140105
+      "recomputed_prefill_per_request": 1345.2675224646982,
+      "redundant_prefill": 5061773.966310115,
+      "redundant_prefill_per_request": 649.7784295648414
     },
     {
       "working_set": 1,
@@ -451,8 +493,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1621.653376,
       "prefix_cache_hit_rate": 0.7660598060934225,
+      "requests": 8781,
       "recomputed_prefill": 6339529,
-      "redundant_prefill": 0
+      "recomputed_prefill_per_request": 721.9597995672475,
+      "redundant_prefill": 232439.27524635763,
+      "redundant_prefill_per_request": 26.470706667390687
     },
     {
       "working_set": 1,
@@ -470,8 +515,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1440.219561,
       "prefix_cache_hit_rate": 0.7746509751229409,
+      "requests": 11873,
       "recomputed_prefill": 8257542,
-      "redundant_prefill": 1918013
+      "recomputed_prefill_per_request": 695.4890928998568,
+      "redundant_prefill": 0,
+      "redundant_prefill_per_request": 0
     },
     {
       "working_set": 1,
@@ -489,8 +537,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 3262.051255,
       "prefix_cache_hit_rate": 0.624985571052575,
+      "requests": 7322,
       "recomputed_prefill": 8383985,
-      "redundant_prefill": 4487719
+      "recomputed_prefill_per_request": 1145.0402895383775,
+      "redundant_prefill": 6426897.831721204,
+      "redundant_prefill_per_request": 877.7516842012025
     },
     {
       "working_set": 1,
@@ -508,8 +559,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1708.905864,
       "prefix_cache_hit_rate": 0.7441761146845516,
+      "requests": 11188,
       "recomputed_prefill": 8741478,
-      "redundant_prefill": 4845212
+      "recomputed_prefill_per_request": 781.3262424025742,
+      "redundant_prefill": 5751053.083487686,
+      "redundant_prefill_per_request": 514.0376370653992
     },
     {
       "working_set": 1,
@@ -527,8 +581,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 979.7637,
       "prefix_cache_hit_rate": 0.9124459137831238,
+      "requests": 14577,
       "recomputed_prefill": 3896266,
-      "redundant_prefill": 0
+      "recomputed_prefill_per_request": 267.288605337175,
+      "redundant_prefill": 0,
+      "redundant_prefill_per_request": 0
     },
     {
       "working_set": 1,
@@ -546,8 +603,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1065.285241,
       "prefix_cache_hit_rate": 0.9012519651285413,
+      "requests": 17867,
       "recomputed_prefill": 5384274,
-      "redundant_prefill": 1488008
+      "recomputed_prefill_per_request": 301.3529971455756,
+      "redundant_prefill": 608628.4884406938,
+      "redundant_prefill_per_request": 34.064391808400615
     },
     {
       "working_set": 1,
@@ -565,8 +625,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 2490.186761,
       "prefix_cache_hit_rate": 0.8234140325699594,
+      "requests": 11466,
       "recomputed_prefill": 6156267,
-      "redundant_prefill": 4444593
+      "recomputed_prefill_per_request": 536.9149659863946,
+      "redundant_prefill": 4810922.670304076,
+      "redundant_prefill_per_request": 419.58160389883795
     },
     {
       "working_set": 1,
@@ -584,8 +647,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1401.602221,
       "prefix_cache_hit_rate": 0.8765766391447869,
+      "requests": 16358,
       "recomputed_prefill": 6129291,
-      "redundant_prefill": 4417617
+      "recomputed_prefill_per_request": 374.69684558014427,
+      "redundant_prefill": 4209951.862971749,
+      "redundant_prefill_per_request": 257.36348349258765
     },
     {
       "working_set": 1,
@@ -603,8 +669,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 644.829165,
       "prefix_cache_hit_rate": 0.9613008658040978,
+      "requests": 14588,
       "recomputed_prefill": 1711674,
-      "redundant_prefill": 0
+      "recomputed_prefill_per_request": 117.33438442555526,
+      "redundant_prefill": 14.913866724284048,
+      "redundant_prefill_per_request": 0.0010223379986484815
     },
     {
       "working_set": 1,
@@ -622,8 +691,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 734.690253,
       "prefix_cache_hit_rate": 0.9613012614589046,
+      "requests": 23185,
       "recomputed_prefill": 2720374,
-      "redundant_prefill": 1008700
+      "recomputed_prefill_per_request": 117.33336208755661,
+      "redundant_prefill": 0,
+      "redundant_prefill_per_request": 0
     },
     {
       "working_set": 3,
@@ -641,8 +713,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 3813.505741,
       "prefix_cache_hit_rate": 0.3005242498114095,
+      "requests": 4584,
       "recomputed_prefill": 9962907,
-      "redundant_prefill": 1760259
+      "recomputed_prefill_per_request": 2173.4090314136124,
+      "redundant_prefill": 5507650.664869348,
+      "redundant_prefill_per_request": 1201.4944731390374
     },
     {
       "working_set": 3,
@@ -660,8 +735,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 2004.117988,
       "prefix_cache_hit_rate": 0.5407254516069475,
+      "requests": 7456,
       "recomputed_prefill": 10586503,
-      "redundant_prefill": 2383855
+      "recomputed_prefill_per_request": 1419.8635997854078,
+      "redundant_prefill": 3339908.05350477,
+      "redundant_prefill_per_request": 447.9490415108329
     },
     {
       "working_set": 3,
@@ -679,8 +757,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1613.922484,
       "prefix_cache_hit_rate": 0.6761741450367402,
+      "requests": 8179,
       "recomputed_prefill": 8202648,
-      "redundant_prefill": 0
+      "recomputed_prefill_per_request": 1002.8913070057464,
+      "redundant_prefill": 253358.82787225157,
+      "redundant_prefill_per_request": 30.976748731171483
     },
     {
       "working_set": 3,
@@ -698,8 +779,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1503.669255,
       "prefix_cache_hit_rate": 0.6860890570249866,
+      "requests": 9644,
       "recomputed_prefill": 9373144,
-      "redundant_prefill": 1170496
+      "recomputed_prefill_per_request": 971.9145582745749,
+      "redundant_prefill": 0,
+      "redundant_prefill_per_request": 0
     },
     {
       "working_set": 3,
@@ -717,8 +801,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 3425.87896,
       "prefix_cache_hit_rate": 0.5463749894866059,
+      "requests": 6334,
       "recomputed_prefill": 8791449,
-      "redundant_prefill": 3418648
+      "recomputed_prefill_per_request": 1387.9774234291128,
+      "redundant_prefill": 5948397.911111112,
+      "redundant_prefill_per_request": 939.1218678735572
     },
     {
       "working_set": 3,
@@ -736,8 +823,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1758.755888,
       "prefix_cache_hit_rate": 0.7034699304279057,
+      "requests": 10207,
       "recomputed_prefill": 9242405,
-      "redundant_prefill": 3869604
+      "recomputed_prefill_per_request": 905.4967179386696,
+      "redundant_prefill": 4660936.344444444,
+      "redundant_prefill_per_request": 456.641162383114
     },
     {
       "working_set": 3,
@@ -755,8 +845,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1253.763577,
       "prefix_cache_hit_rate": 0.8528622812390182,
+      "requests": 11970,
       "recomputed_prefill": 5372801,
-      "redundant_prefill": 0
+      "recomputed_prefill_per_request": 448.85555555555555,
+      "redundant_prefill": 0,
+      "redundant_prefill_per_request": 0
     },
     {
       "working_set": 3,
@@ -774,8 +867,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1215.382034,
       "prefix_cache_hit_rate": 0.8477235970602522,
+      "requests": 14775,
       "recomputed_prefill": 6859918,
-      "redundant_prefill": 1487117
+      "recomputed_prefill_per_request": 464.29225042301186,
+      "redundant_prefill": 228077.16666666698,
+      "redundant_prefill_per_request": 15.43669486745631
     },
     {
       "working_set": 3,
@@ -793,8 +889,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 2611.088137,
       "prefix_cache_hit_rate": 0.8035241913813682,
+      "requests": 10981,
       "recomputed_prefill": 6560075,
-      "redundant_prefill": 4517356
+      "recomputed_prefill_per_request": 597.4023312995173,
+      "redundant_prefill": 4840155.245372067,
+      "redundant_prefill_per_request": 440.77545263382814
     },
     {
       "working_set": 3,
@@ -812,8 +911,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1425.173115,
       "prefix_cache_hit_rate": 0.8621713717340254,
+      "requests": 15599,
       "recomputed_prefill": 6535158,
-      "redundant_prefill": 4492439
+      "recomputed_prefill_per_request": 418.94724020770565,
+      "redundant_prefill": 4091935.319693915,
+      "redundant_prefill_per_request": 262.3203615420165
     },
     {
       "working_set": 3,
@@ -831,8 +933,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 716.194142,
       "prefix_cache_hit_rate": 0.9447673056282337,
+      "requests": 12188,
       "recomputed_prefill": 2042719,
-      "redundant_prefill": 0
+      "recomputed_prefill_per_request": 167.60083688874303,
+      "redundant_prefill": 133750.60282258058,
+      "redundant_prefill_per_request": 10.97395822305387
     },
     {
       "working_set": 3,
@@ -850,8 +955,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 778.434032,
       "prefix_cache_hit_rate": 0.9484446932367411,
+      "requests": 21824,
       "recomputed_prefill": 3418225,
-      "redundant_prefill": 1375506
+      "recomputed_prefill_per_request": 156.62687866568916,
+      "redundant_prefill": 0,
+      "redundant_prefill_per_request": 0
     },
     {
       "working_set": 8,
@@ -869,8 +977,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 4252.062274,
       "prefix_cache_hit_rate": 0.27840573159601484,
+      "requests": 4465,
       "recomputed_prefill": 9981745,
-      "redundant_prefill": 1208332
+      "recomputed_prefill_per_request": 2235.553191489362,
+      "redundant_prefill": 5240061.053707592,
+      "redundant_prefill_per_request": 1173.5859022861348
     },
     {
       "working_set": 8,
@@ -888,8 +999,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 2143.88805,
       "prefix_cache_hit_rate": 0.534196933044244,
+      "requests": 7372,
       "recomputed_prefill": 10605007,
-      "redundant_prefill": 1831594
+      "recomputed_prefill_per_request": 1438.5522246337493,
+      "redundant_prefill": 2776184.1439938108,
+      "redundant_prefill_per_request": 376.58493543052236
     },
     {
       "working_set": 8,
@@ -907,8 +1021,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1923.767954,
       "prefix_cache_hit_rate": 0.642686095821658,
+      "requests": 7944,
       "recomputed_prefill": 8773413,
-      "redundant_prefill": 0
+      "recomputed_prefill_per_request": 1104.4074773413897,
+      "redundant_prefill": 337144.8545695648,
+      "redundant_prefill_per_request": 42.44018813816274
     },
     {
       "working_set": 8,
@@ -926,8 +1043,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1551.177974,
       "prefix_cache_hit_rate": 0.6557099763875012,
+      "requests": 9049,
       "recomputed_prefill": 9609742,
-      "redundant_prefill": 836329
+      "recomputed_prefill_per_request": 1061.967289203227,
+      "redundant_prefill": 0,
+      "redundant_prefill_per_request": 0
     },
     {
       "working_set": 8,
@@ -945,8 +1065,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 4043.486335,
       "prefix_cache_hit_rate": 0.5034211341468424,
+      "requests": 5880,
       "recomputed_prefill": 8934622,
-      "redundant_prefill": 2528359
+      "recomputed_prefill_per_request": 1519.4935374149659,
+      "redundant_prefill": 5668727.562684238,
+      "redundant_prefill_per_request": 964.069313381673
     },
     {
       "working_set": 8,
@@ -964,8 +1087,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1851.337173,
       "prefix_cache_hit_rate": 0.6737570842117118,
+      "requests": 9561,
       "recomputed_prefill": 9526975,
-      "redundant_prefill": 3120712
+      "recomputed_prefill_per_request": 996.4412718334902,
+      "redundant_prefill": 4216563.994017687,
+      "redundant_prefill_per_request": 441.01704780019736
     },
     {
       "working_set": 8,
@@ -983,8 +1109,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1381.264116,
       "prefix_cache_hit_rate": 0.8180854370437152,
+      "requests": 11534,
       "recomputed_prefill": 6406263,
-      "redundant_prefill": 0
+      "recomputed_prefill_per_request": 555.4242240332928,
+      "redundant_prefill": 0,
+      "redundant_prefill_per_request": 0
     },
     {
       "working_set": 8,
@@ -1002,8 +1131,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1412.462076,
       "prefix_cache_hit_rate": 0.8150210338273429,
+      "requests": 13379,
       "recomputed_prefill": 7558279,
-      "redundant_prefill": 1152016
+      "recomputed_prefill_per_request": 564.9360191344645,
+      "redundant_prefill": 127258.30665857522,
+      "redundant_prefill_per_request": 9.511795101171629
     },
     {
       "working_set": 8,
@@ -1021,8 +1153,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 3033.893073,
       "prefix_cache_hit_rate": 0.786270040161278,
+      "requests": 10260,
       "recomputed_prefill": 6676294,
-      "redundant_prefill": 4282433
+      "recomputed_prefill_per_request": 650.7109161793372,
+      "redundant_prefill": 4836879.41641079,
+      "redundant_prefill_per_request": 471.4307423402329
     },
     {
       "working_set": 8,
@@ -1040,8 +1175,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1417.464988,
       "prefix_cache_hit_rate": 0.8528616150111447,
+      "requests": 15175,
       "recomputed_prefill": 6783352,
-      "redundant_prefill": 4389491
+      "recomputed_prefill_per_request": 447.0083690280066,
+      "redundant_prefill": 4062775.3619915918,
+      "redundant_prefill_per_request": 267.72819518890225
     },
     {
       "working_set": 8,
@@ -1059,8 +1197,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 749.737839,
       "prefix_cache_hit_rate": 0.9383499397343672,
+      "requests": 12809,
       "recomputed_prefill": 2393861,
-      "redundant_prefill": 0
+      "recomputed_prefill_per_request": 186.88898430790852,
+      "redundant_prefill": 97461.25329491256,
+      "redundant_prefill_per_request": 7.608810468804165
     },
     {
       "working_set": 8,
@@ -1078,8 +1219,11 @@
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 783.496897,
       "prefix_cache_hit_rate": 0.9409782951680571,
+      "requests": 21169,
       "recomputed_prefill": 3795182,
-      "redundant_prefill": 1401321
+      "recomputed_prefill_per_request": 179.28017383910435,
+      "redundant_prefill": 0,
+      "redundant_prefill_per_request": 0
     }
   ],
   "missing": [],

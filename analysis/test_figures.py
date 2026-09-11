@@ -19,7 +19,9 @@ def point(policy, load, median, **extra):
         "policy": policy, "driver": "closed-loop", "load": load, "load_label": f"{load} users",
         "repetitions": 3, "goodput_median": median, "goodput_min": median - 1, "goodput_max": median + 1,
         "over_failure_threshold": 0, "ttft_p50_ms": 300, "ttft_p90_ms": 500, "ttft_p99_ms": 900,
-        "prefix_cache_hit_rate": 0.5, "recomputed_prefill": 1000.0, "redundant_prefill": 0.0,
+        "prefix_cache_hit_rate": 0.5, "requests": 100.0,
+        "recomputed_prefill": 1000.0, "recomputed_prefill_per_request": 10.0,
+        "redundant_prefill": 0.0, "redundant_prefill_per_request": 0.0,
     }
     p.update(extra)
     return p
@@ -29,7 +31,8 @@ COMPARISON = {
     "slo": SLO, "workload": "fixture", "policies": ["session_affinity", "prefix_affinity"],
     "points": [
         point("session_affinity", 8, 5),
-        point("session_affinity", 32, 6, prefix_cache_hit_rate=None, redundant_prefill=None),
+        point("session_affinity", 32, 6, prefix_cache_hit_rate=None,
+              redundant_prefill=None, redundant_prefill_per_request=None),
         point("prefix_affinity", 8, 7), point("prefix_affinity", 32, 9, over_failure_threshold=1),
     ],
     "excluded": [], "surfaced": ["`prefix_affinity-c32-r2`: failure rate 5.00% exceeds the 1.00% threshold"],

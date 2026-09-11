@@ -38,71 +38,83 @@ is recorded in bytes, and this is what converts it — it is not assumed.
 ## What produced it — TTFT percentiles, prefix cache hit rate and prefill work
 
 The percentiles are each the median across a cell's repetitions of that repetition's own
-percentile, pooled the way the goodput above is. The hit rate is vLLM's own counters,
-summed across those repetitions rather than averaged, because a rate is a ratio of counts.
-An em dash is no usable cell; a hit rate of — is a fleet whose counters were not read,
-which is not the same as a cache that never hit.
+percentile, pooled the way the goodput above is. The prefix cache hit rate is vLLM's own
+counters, summed across those repetitions rather than averaged, because a rate is a ratio of counts.
+An em dash is no usable cell; a prefix cache hit rate of — is a fleet whose counters were not
+read, which is not the same as a cache that never hit.
 
-The last two columns are the physical work. Prompt tokens recomputed is what the GPUs
-actually prefilled; redundant prefill is what a policy computed over and above the policy
-that computed least on the same bytes, which is the work cache-aware routing removed.
-The policy that computed least is the floor the column is measured from and is marked
-best. A hit rate and a token count can disagree, and idea.md §1 predicts two published
-results where they did.
+The last four columns are the physical work, and the requests column before them is
+their denominator. Prompt tokens recomputed is what the GPUs actually prefilled;
+redundant prefill is what a policy computed over and above the policy that computed
+least on the same bytes, which is the work cache-aware routing removed. The policy
+that computed least per request is the floor the column is measured from and is
+marked best.
 
-| driver | load | policy | TTFT p50 | TTFT p99 | prefix cache hit rate | prompt tokens recomputed | redundant prefill |
-|---|---:|---|---:|---:|---:|---:|---:|
-| closed-loop | 1 users | round_robin | 640ms | 1285ms | 6.0% | 473189 | +179827 |
-| closed-loop | 1 users | least_outstanding | 637ms | 1286ms | 6.0% | 468323 | +174961 |
-| closed-loop | 1 users | session_affinity | 353ms | 402ms | 60.4% | 293362 | best |
-| closed-loop | 4 users | round_robin | 617ms | 1346ms | 27.4% | 1529774 | +742622 |
-| closed-loop | 4 users | least_outstanding | 382ms | 1329ms | 40.5% | 1468698 | +681546 |
-| closed-loop | 4 users | session_affinity | 355ms | 746ms | 69.6% | 787152 | best |
-| closed-loop | 8 users | round_robin | 422ms | 1723ms | 36.1% | 1315354 | +97995 |
-| closed-loop | 8 users | least_outstanding | 392ms | 1590ms | 46.1% | 1990659 | +773300 |
-| closed-loop | 8 users | session_affinity | 365ms | 872ms | 71.3% | 1217359 | best |
-| closed-loop | 16 users | round_robin | 641ms | 2622ms | 36.6% | 2299972 | +748577 |
-| closed-loop | 16 users | least_outstanding | 415ms | 1632ms | 59.1% | 2273530 | +722135 |
-| closed-loop | 16 users | session_affinity | 376ms | 1239ms | 73.5% | 1551395 | best |
-| closed-loop | 32 users | round_robin | 745ms | 5160ms | 32.2% | 2485239 | +700733 |
-| closed-loop | 32 users | least_outstanding | 487ms | 2084ms | 54.3% | 2697014 | +912508 |
-| closed-loop | 32 users | session_affinity | 419ms | 1573ms | 74.5% | 1784506 | best |
-| closed-loop | 64 users | round_robin | 971ms | 5500ms | 31.3% | 1790261 | best |
-| closed-loop | 64 users | least_outstanding | 843ms | 2935ms | 50.8% | 2944972 | +1154711 |
-| closed-loop | 64 users | session_affinity | 441ms | 2369ms | 75.3% | 1874602 | +84341 |
-| closed-loop | 128 users | round_robin | 1956ms | 12701ms | 28.9% | 2035180 | +83410 |
-| closed-loop | 128 users | least_outstanding | 1240ms | 4646ms | 50.2% | 1951770 | best |
-| closed-loop | 128 users | session_affinity | 633ms | 2646ms | 78.0% | 2244950 | +293180 |
-| closed-loop | 256 users | round_robin | 7067ms | 30234ms | 22.9% | 3938171 | best |
-| closed-loop | 256 users | least_outstanding | 13002ms | 31759ms | 28.5% | 4096361 | +158190 |
-| closed-loop | 256 users | session_affinity | — | — | — | — | — |
-| open-loop | 2 req/s | round_robin | — | — | — | — | — |
-| open-loop | 2 req/s | least_outstanding | 604ms | 1308ms | 23.1% | 301329 | best |
-| open-loop | 2 req/s | session_affinity | 349ms | 410ms | 63.2% | 434108 | +132779 |
-| open-loop | 4 req/s | round_robin | — | — | — | — | — |
-| open-loop | 4 req/s | least_outstanding | 616ms | 2101ms | 27.6% | 568984 | best |
-| open-loop | 4 req/s | session_affinity | 354ms | 557ms | 67.2% | 772668 | +203684 |
-| open-loop | 6 req/s | round_robin | 666ms | 3054ms | 28.7% | 2527082 | +1431305 |
-| open-loop | 6 req/s | least_outstanding | 665ms | 3124ms | 28.9% | 1679825 | +584048 |
-| open-loop | 6 req/s | session_affinity | 363ms | 842ms | 69.1% | 1095777 | best |
-| open-loop | 8 req/s | round_robin | 6545ms | 16322ms | 29.6% | 3428102 | +2125599 |
-| open-loop | 8 req/s | least_outstanding | 6830ms | 15803ms | 31.3% | 3366122 | +2063619 |
-| open-loop | 8 req/s | session_affinity | 368ms | 1229ms | 72.4% | 1302503 | best |
-| open-loop | 10 req/s | round_robin | 20456ms | 35057ms | 30.8% | 4374664 | +2818272 |
-| open-loop | 10 req/s | least_outstanding | 21310ms | 42693ms | 30.9% | 4424548 | +2868156 |
-| open-loop | 10 req/s | session_affinity | 373ms | 2022ms | 73.7% | 1556392 | best |
-| open-loop | 12 req/s | round_robin | 33440ms | 62256ms | 31.8% | 5391341 | +3585018 |
-| open-loop | 12 req/s | least_outstanding | 33962ms | 61362ms | 32.5% | 5359552 | +3553229 |
-| open-loop | 12 req/s | session_affinity | 426ms | 2773ms | 74.5% | 1806323 | best |
-| open-loop | 14 req/s | round_robin | 48134ms | 83018ms | 32.5% | 6412355 | +5109607 |
-| open-loop | 14 req/s | least_outstanding | 47929ms | 79508ms | 33.7% | 6278831 | +4976083 |
-| open-loop | 14 req/s | session_affinity | 422ms | 11170ms | 76.6% | 1302748 | best |
-| open-loop | 16 req/s | round_robin | 63853ms | 105838ms | 32.4% | 7395296 | +5865666 |
-| open-loop | 16 req/s | least_outstanding | 64403ms | 113659ms | 31.9% | 7492044 | +5962414 |
-| open-loop | 16 req/s | session_affinity | 2529ms | 29525ms | 76.9% | 1529630 | best |
-| open-loop | 20 req/s | round_robin | 100020ms | 162347ms | 29.3% | 10003986 | +7064255 |
-| open-loop | 20 req/s | least_outstanding | 101395ms | 161645ms | 29.6% | 9928161 | +6988430 |
-| open-loop | 20 req/s | session_affinity | 11934ms | 46664ms | 76.5% | 2939731 | best |
+Both are compared **per request**, and the totals are printed beside them only so the
+two can be told apart. Under the closed-loop driver a virtual user sends its next turn
+when its last one returns, so a policy that answers faster offers more prompts in the
+same window: an identical workload guarantees both policies the same generator, not the
+same number of prompts. A column of absolute totals therefore rises with throughput and
+credits the slower policy with having wasted less. A redundant-prefill total here is
+that policy's per-request excess times its *own* requests, never a difference of two
+policies' totals.
+
+A prefix cache hit rate and a token count can disagree, and idea.md §1 predicts two
+published results where they did.
+
+| driver | load | policy | TTFT p50 | TTFT p90 | TTFT p99 | prefix cache hit rate | requests | prompt tokens recomputed | recomputed / request | redundant prefill / request | redundant prefill, tokens |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| closed-loop | 1 users | round_robin | 640ms | — | 1285ms | 6.0% | 159 | 473189 | 2976.0 | +1758.8 | +279643 |
+| closed-loop | 1 users | least_outstanding | 637ms | — | 1286ms | 6.0% | 158 | 468323 | 2964.1 | +1746.8 | +275994 |
+| closed-loop | 1 users | session_affinity | 353ms | — | 402ms | 60.4% | 241 | 293362 | 1217.3 | best | best |
+| closed-loop | 4 users | round_robin | 617ms | — | 1346ms | 27.4% | 674 | 1529774 | 2269.7 | +1323.6 | +892105 |
+| closed-loop | 4 users | least_outstanding | 382ms | — | 1329ms | 40.5% | 790 | 1468698 | 1859.1 | +913.0 | +721282 |
+| closed-loop | 4 users | session_affinity | 355ms | — | 746ms | 69.6% | 832 | 787152 | 946.1 | best | best |
+| closed-loop | 8 users | round_robin | 422ms | — | 1723ms | 36.1% | 657 | 1315354 | 2002.1 | +1108.3 | +728126 |
+| closed-loop | 8 users | least_outstanding | 392ms | — | 1590ms | 46.1% | 1179 | 1990659 | 1688.4 | +794.6 | +936866 |
+| closed-loop | 8 users | session_affinity | 365ms | — | 872ms | 71.3% | 1362 | 1217359 | 893.8 | best | best |
+| closed-loop | 16 users | round_robin | 641ms | — | 2622ms | 36.6% | 1159 | 2299972 | 1984.4 | +1159.2 | +1343553 |
+| closed-loop | 16 users | least_outstanding | 415ms | — | 1632ms | 59.1% | 1775 | 2273530 | 1280.9 | +455.7 | +808782 |
+| closed-loop | 16 users | session_affinity | 376ms | — | 1239ms | 73.5% | 1880 | 1551395 | 825.2 | best | best |
+| closed-loop | 32 users | round_robin | 745ms | — | 5160ms | 32.2% | 1175 | 2485239 | 2115.1 | +1328.3 | +1560726 |
+| closed-loop | 32 users | least_outstanding | 487ms | — | 2084ms | 54.3% | 1933 | 2697014 | 1395.2 | +608.4 | +1176092 |
+| closed-loop | 32 users | session_affinity | 419ms | — | 1573ms | 74.5% | 2268 | 1784506 | 786.8 | best | best |
+| closed-loop | 64 users | round_robin | 971ms | — | 5500ms | 31.3% | 821 | 1790261 | 2180.6 | +1417.6 | +1163868 |
+| closed-loop | 64 users | least_outstanding | 843ms | — | 2935ms | 50.8% | 2000 | 2944972 | 1472.5 | +709.5 | +1419044 |
+| closed-loop | 64 users | session_affinity | 441ms | — | 2369ms | 75.3% | 2457 | 1874602 | 763.0 | best | best |
+| closed-loop | 128 users | round_robin | 1956ms | — | 12701ms | 28.9% | 850 | 2035180 | 2394.3 | +1710.3 | +1453764 |
+| closed-loop | 128 users | least_outstanding | 1240ms | — | 4646ms | 50.2% | 1182 | 1951770 | 1651.2 | +967.2 | +1143260 |
+| closed-loop | 128 users | session_affinity | 633ms | — | 2646ms | 78.0% | 3282 | 2244950 | 684.0 | best | best |
+| closed-loop | 256 users | round_robin | 7067ms | — | 30234ms | 22.9% | 1432 | 3938171 | 2750.1 | — | — |
+| closed-loop | 256 users | least_outstanding | 13002ms | — | 31759ms | 28.5% | 1419 | 4096361 | 2886.8 | — | — |
+| closed-loop | 256 users | session_affinity | — | — | — | — | — | — | — | — | — |
+| open-loop | 2 req/s | round_robin | — | — | — | — | — | — | — | — | — |
+| open-loop | 2 req/s | least_outstanding | 604ms | — | 1308ms | 23.1% | 130 | 301329 | 2317.9 | — | — |
+| open-loop | 2 req/s | session_affinity | 349ms | — | 410ms | 63.2% | 390 | 434108 | 1113.1 | — | — |
+| open-loop | 4 req/s | round_robin | — | — | — | — | — | — | — | — | — |
+| open-loop | 4 req/s | least_outstanding | 616ms | — | 2101ms | 27.6% | 260 | 568984 | 2188.4 | — | — |
+| open-loop | 4 req/s | session_affinity | 354ms | — | 557ms | 67.2% | 780 | 772668 | 990.6 | — | — |
+| open-loop | 6 req/s | round_robin | 666ms | — | 3054ms | 28.7% | 1173 | 2527082 | 2154.4 | +1220.2 | +1431305 |
+| open-loop | 6 req/s | least_outstanding | 665ms | — | 3124ms | 28.9% | 782 | 1679825 | 2148.1 | +1213.9 | +949307 |
+| open-loop | 6 req/s | session_affinity | 363ms | — | 842ms | 69.1% | 1173 | 1095777 | 934.2 | best | best |
+| open-loop | 8 req/s | round_robin | 6545ms | — | 16322ms | 29.6% | 1560 | 3428102 | 2197.5 | +1362.6 | +2125599 |
+| open-loop | 8 req/s | least_outstanding | 6830ms | — | 15803ms | 31.3% | 1560 | 3366122 | 2157.8 | +1322.8 | +2063619 |
+| open-loop | 8 req/s | session_affinity | 368ms | — | 1229ms | 72.4% | 1560 | 1302503 | 834.9 | best | best |
+| open-loop | 10 req/s | round_robin | 20456ms | — | 35057ms | 30.8% | 1950 | 4374664 | 2243.4 | +1445.3 | +2818272 |
+| open-loop | 10 req/s | least_outstanding | 21310ms | — | 42693ms | 30.9% | 1950 | 4424548 | 2269.0 | +1470.8 | +2868156 |
+| open-loop | 10 req/s | session_affinity | 373ms | — | 2022ms | 73.7% | 1950 | 1556392 | 798.1 | best | best |
+| open-loop | 12 req/s | round_robin | 33440ms | — | 62256ms | 31.8% | 2343 | 5391341 | 2301.0 | +1530.1 | +3585018 |
+| open-loop | 12 req/s | least_outstanding | 33962ms | — | 61362ms | 32.5% | 2343 | 5359552 | 2287.5 | +1516.5 | +3553229 |
+| open-loop | 12 req/s | session_affinity | 426ms | — | 2773ms | 74.5% | 2343 | 1806323 | 770.9 | best | best |
+| open-loop | 14 req/s | round_robin | 48134ms | — | 83018ms | 32.5% | 2733 | 6412355 | 2346.3 | +1631.3 | +4458233 |
+| open-loop | 14 req/s | least_outstanding | 47929ms | — | 79508ms | 33.7% | 2733 | 6278831 | 2297.4 | +1582.4 | +4324709 |
+| open-loop | 14 req/s | session_affinity | 422ms | — | 11170ms | 76.6% | 1822 | 1302748 | 715.0 | best | best |
+| open-loop | 16 req/s | round_robin | 63853ms | — | 105838ms | 32.4% | 3120 | 7395296 | 2370.3 | +1634.9 | +5100851 |
+| open-loop | 16 req/s | least_outstanding | 64403ms | — | 113659ms | 31.9% | 3120 | 7492044 | 2401.3 | +1665.9 | +5197599 |
+| open-loop | 16 req/s | session_affinity | 2529ms | — | 29525ms | 76.9% | 2080 | 1529630 | 735.4 | best | best |
+| open-loop | 20 req/s | round_robin | 100020ms | — | 162347ms | 29.3% | 3900 | 10003986 | 2565.1 | +1811.3 | +7064255 |
+| open-loop | 20 req/s | least_outstanding | 101395ms | — | 161645ms | 29.6% | 3900 | 9928161 | 2545.7 | +1791.9 | +6988430 |
+| open-loop | 20 req/s | session_affinity | 11934ms | — | 46664ms | 76.5% | 3900 | 2939731 | 753.8 | best | best |
 
 Excluded from every figure above — §6 discards these rather than averaging them in:
 

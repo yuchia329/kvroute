@@ -35,30 +35,15 @@ type Prefill struct {
 //
 // This is not yet redundant prefill in CONTEXT.md's sense: that term is
 // reserved for work one replica did which another replica already held, and no
-// single replica's counters can know what its siblings held. RedundantAgainst
-// is where that comparison is made.
+// single replica's counters can know what its siblings held. Nor can this type
+// make that comparison, because under a closed loop it needs a denominator these
+// counters do not carry — the requests the work served, which rise with a
+// policy's own speed. bench.PolicyPrefill is where the comparison is made.
 func (p Prefill) Recomputed() float64 {
 	if !p.Read {
 		return 0
 	}
 	return p.PromptTokens - p.CachedTokens
-}
-
-// RedundantAgainst is the redundant prefill this reading carries over a
-// baseline: the extra prompt tokens computed, on the same bytes.
-//
-// The comparison is what makes it redundant rather than merely computed. Every
-// policy in the sweep sends the identical workload — the harness refuses to
-// compare cells whose workloads differ — so a policy that leaves the fleet
-// computing more prompt tokens than another did so by scattering conversations
-// across replicas that had to prefill what a sibling was already holding. That
-// difference is the physical work routing can remove, measured rather than
-// inferred from the router's own beliefs.
-func (p Prefill) RedundantAgainst(baseline Prefill) (float64, bool) {
-	if !p.Read || !baseline.Read {
-		return 0, false
-	}
-	return p.Recomputed() - baseline.Recomputed(), true
 }
 
 // CacheRate is the share of prompt tokens the replica did not have to compute.

@@ -32,9 +32,19 @@ tripped collapses policy 4 into policy 3 and returns a flat map that says nothin
 about either. These three columns are read before the map below it.
 
 Redundant prefill is the worst policy's excess prompt tokens over the best at that
-point; hit rate spread is the gap between the highest and lowest prefix cache hit
-rate there. The two spill columns stay apart because they answer to different axes
-of this grid. An em dash is a counter nobody read, which is not a zero.
+point, **per request served**; hit rate spread is the gap between the highest and
+lowest prefix cache hit rate there. The two spill columns stay apart because they
+answer to different axes of this grid. An em dash is a counter nobody read, which is
+not a zero.
+
+The per-request normalisation is not cosmetic. This grid runs the closed-loop driver,
+where a virtual user sends its next turn when its last one returns — so a policy that
+answers faster gets further through the same sequence and offers more prompts in the
+same window. An identical workload guarantees both policies the same generator, not
+the same number of prompts, so a column of absolute totals rises with throughput and
+names the slower policy as the one that wasted less. The token column beside it is
+the same worst policy's per-request excess against its own requests, and is there so
+the size of the waste is visible — it is not what the verdict is read from.
 
 Spill rate is the share of the challenger's decisions that declined a prefix match,
 and it is expected to be small. The valve is self-limiting: declining a match moves
@@ -43,20 +53,20 @@ being true. #16 measured 0.674% of decisions declined on a fleet where an
 uncorrected run would have qualified 55% of the time. A near-zero rate here is the
 mechanism working, not a rule that failed to fire.
 
-| point | redundant prefill | hit rate spread | spill: KV | spill: load | spill rate | exercised |
-|---|---:|---:|---:|---:|---:|---|
-| WS 0.25, skew 0 | 9255139 | 45.4 pp | 0 | 626 | 2.512% | yes |
-| WS 0.25, skew 1 | 6670387 | 21.4 pp | 0 | 243 | 0.932% | yes |
-| WS 0.25, skew 1.4 | 4333974 | 9.7 pp | 0 | 87 | 0.329% | yes |
-| WS 1, skew 0 | 4140105 | 43.6 pp | 0 | 159 | 1.339% | yes |
-| WS 1, skew 1 | 4845212 | 28.7 pp | 0 | 253 | 1.416% | yes |
-| WS 1, skew 1.4 | 4444593 | 13.8 pp | 0 | 98 | 0.423% | yes |
-| WS 3, skew 0 | 2383855 | 38.6 pp | 0 | 31 | 0.321% | yes |
-| WS 3, skew 1 | 3869604 | 30.6 pp | 0 | 199 | 1.347% | yes |
-| WS 3, skew 1.4 | 4517356 | 14.5 pp | 0 | 118 | 0.541% | yes |
-| WS 8, skew 0 | 1831594 | 37.7 pp | 0 | 22 | 0.243% | yes |
-| WS 8, skew 1 | 3120712 | 31.5 pp | 0 | 146 | 1.091% | yes |
-| WS 8, skew 1.4 | 4389491 | 15.5 pp | 0 | 104 | 0.491% | yes |
+| point | redundant prefill / request | redundant prefill, tokens | hit rate spread | spill: KV | spill: load | spill rate | exercised |
+|---|---:|---:|---:|---:|---:|---:|---|
+| WS 0.25, skew 0 | 1394.0 | 8742042 | 45.4 pp | 0 | 626 | 2.512% | yes |
+| WS 0.25, skew 1 | 652.7 | 6521473 | 21.4 pp | 0 | 243 | 0.932% | yes |
+| WS 0.25, skew 1.4 | 295.8 | 4305938 | 9.7 pp | 0 | 87 | 0.329% | yes |
+| WS 1, skew 0 | 1354.1 | 6435860 | 43.6 pp | 0 | 159 | 1.339% | yes |
+| WS 1, skew 1 | 877.8 | 6426898 | 28.7 pp | 0 | 253 | 1.416% | yes |
+| WS 1, skew 1.4 | 419.6 | 4810923 | 13.8 pp | 0 | 98 | 0.423% | yes |
+| WS 3, skew 0 | 1201.5 | 5507651 | 38.6 pp | 0 | 31 | 0.321% | yes |
+| WS 3, skew 1 | 939.1 | 5948398 | 30.6 pp | 0 | 199 | 1.347% | yes |
+| WS 3, skew 1.4 | 440.8 | 4840155 | 14.5 pp | 0 | 118 | 0.541% | yes |
+| WS 8, skew 0 | 1173.6 | 5240061 | 37.7 pp | 0 | 22 | 0.243% | yes |
+| WS 8, skew 1 | 964.1 | 5668728 | 31.5 pp | 0 | 146 | 1.091% | yes |
+| WS 8, skew 1.4 | 471.4 | 4836879 | 15.5 pp | 0 | 104 | 0.491% | yes |
 
 The mechanism fired and at least one point separated by more than its spread.
 The map below is measuring the policies.

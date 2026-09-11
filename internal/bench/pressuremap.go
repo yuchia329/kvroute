@@ -456,12 +456,24 @@ func (g PolicyGoodput) Spread() (float64, bool) {
 // things §0 names, each read off a different part of the record so that no one
 // failure can flatten all three at once.
 type Validity struct {
-	// RedundantPrefill is the spread in prompt tokens the policies left the GPUs
-	// to compute at this point: the worst policy's excess over the best. Zero
-	// means every policy computed the same prefill, so no policy kept anything
-	// warm that another did not.
-	RedundantPrefill float64
-	PrefillMeasured  bool
+	// RedundantPerRequest is the spread in prompt tokens the policies left the
+	// GPUs to compute at this point, per request served: the worst policy's
+	// excess over the best. Zero means every policy computed the same prefill per
+	// request, so no policy kept anything warm that another did not.
+	//
+	// Per request because this grid is run under the closed-loop driver, where a
+	// faster policy offers more prompts in the same window. A spread in absolute
+	// totals there is partly a spread in throughput, so a point could read as
+	// having exercised the mechanism on the strength of one policy having served
+	// more traffic — and, worse, the sign of the column would name the wrong
+	// policy as the wasteful one.
+	RedundantPerRequest float64
+	// RedundantTokens is that same worst-case excess as prompt tokens, against
+	// the requests the policy carrying it actually served. Printed beside the
+	// per-request figure so the size of the waste is visible, never instead of
+	// it.
+	RedundantTokens float64
+	PrefillMeasured bool
 	// HitRateSpread is the gap between the highest and lowest prefix cache hit
 	// rate at this point. Zero means the fleet's caches served every policy
 	// alike.
@@ -491,7 +503,7 @@ type Validity struct {
 // all. A point where this is false ran the grid without exercising the
 // mechanism the grid is about.
 func (v Validity) Fired() bool {
-	return v.RedundantPrefill > 0 || v.HitRateSpread > 0 || v.SpillKV > 0 || v.SpillLoad > 0
+	return v.RedundantPerRequest > 0 || v.HitRateSpread > 0 || v.SpillKV > 0 || v.SpillLoad > 0
 }
 
 // Validity is the evidence at this grid point.
@@ -508,14 +520,24 @@ func (g GridComparison) Validity(challenger string) Validity {
 		v.SpillRate, v.Decisions = mix.SpillRate(), mix.Total()
 	}
 	for _, row := range g.Comparison.Rows {
-		var worst float64
+		// The worst policy's excess is taken per request, and its token figure is
+		// that same policy's — not the largest token figure in the row, which
+		// under a closed loop can belong to a different policy entirely.
+		var worstPerRequest, worstTokens float64
 		for _, name := range g.Comparison.Policies {
-			if excess, ok := row.Redundant(name); ok {
-				v.PrefillMeasured = true
-				worst = max(worst, excess)
+			excess, ok := row.RedundantPerRequest(name)
+			if !ok {
+				continue
+			}
+			v.PrefillMeasured = true
+			if excess > worstPerRequest {
+				worstPerRequest = excess
+				worstTokens, _ = row.RedundantTokens(name)
 			}
 		}
-		v.RedundantPrefill = max(v.RedundantPrefill, worst)
+		if worstPerRequest > v.RedundantPerRequest {
+			v.RedundantPerRequest, v.RedundantTokens = worstPerRequest, worstTokens
+		}
 
 		low, high, seen := 0.0, 0.0, false
 		for _, name := range g.Comparison.Policies {

@@ -102,8 +102,26 @@ type PolicyPoint struct {
 	TTFTP99Ms *float64 `json:"ttft_p99_ms"`
 
 	PrefixCacheHitRate *float64 `json:"prefix_cache_hit_rate"`
-	RecomputedPrefill  *float64 `json:"recomputed_prefill"`
-	RedundantPrefill   *float64 `json:"redundant_prefill"`
+	// Requests is the measured requests behind the two per-request figures below,
+	// which is their denominator and is therefore published with them: a ratio
+	// whose denominator the figure data omits is a ratio a plot cannot be checked
+	// against. Null where the policy's cells recorded none.
+	Requests *float64 `json:"requests"`
+	// RecomputedPrefill and RedundantPrefill are prompt-token totals, and the two
+	// PerRequest figures beside them are those totals over the requests that
+	// earned them.
+	//
+	// The per-request figures are the ones a policy is judged on. Under the
+	// closed-loop driver a faster policy gets further through the same sequence
+	// and offers more prompts in the same window, so the totals rise with
+	// throughput and a plot of them credits the slower policy with having wasted
+	// less. They are carried anyway, because a reader comparing a per-request
+	// figure to a token count is how the difference between throughput and waste
+	// stays visible.
+	RecomputedPrefill           *float64 `json:"recomputed_prefill"`
+	RecomputedPrefillPerRequest *float64 `json:"recomputed_prefill_per_request"`
+	RedundantPrefill            *float64 `json:"redundant_prefill"`
+	RedundantPrefillPerRequest  *float64 `json:"redundant_prefill_per_request"`
 }
 
 // Figure is the comparison's figure data.
@@ -149,11 +167,20 @@ func (r ComparisonRow) point(name string) (PolicyPoint, bool) {
 	if cache := r.PrefixCache[name]; cache.Evidenced() {
 		p.PrefixCacheHitRate = ref(cache.HitRate())
 	}
+	if prefill := r.Prefill[name]; prefill.Requests > 0 {
+		p.Requests = ref(float64(prefill.Requests))
+	}
 	if prefill := r.Prefill[name]; prefill.Evidenced() {
 		p.RecomputedPrefill = ref(prefill.Recomputed())
+		if perRequest, ok := prefill.RecomputedPerRequest(); ok {
+			p.RecomputedPrefillPerRequest = ref(perRequest)
+		}
 	}
-	if excess, ok := r.Redundant(name); ok {
-		p.RedundantPrefill = ref(excess)
+	if excess, ok := r.RedundantPerRequest(name); ok {
+		p.RedundantPrefillPerRequest = ref(excess)
+	}
+	if tokens, ok := r.RedundantTokens(name); ok {
+		p.RedundantPrefill = ref(tokens)
 	}
 	return p, true
 }

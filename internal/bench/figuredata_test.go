@@ -44,6 +44,13 @@ func TestTheComparisonFigureCarriesTheTablesNumbers(t *testing.T) {
 		t.Errorf("round robin mechanism = hit %v, recomputed %v, redundant %v; want 0.1, 2700, 2100",
 			deref(rr.PrefixCacheHitRate), deref(rr.RecomputedPrefill), deref(rr.RedundantPrefill))
 	}
+	// The per-request figures a plot reads, and the denominator they are checkable
+	// against: 2,700 tokens over 300 requests, 7 of each request's 9 redundant.
+	if rr.Requests == nil || *rr.Requests != 300 || rr.RecomputedPrefillPerRequest == nil || *rr.RecomputedPrefillPerRequest != 9 ||
+		rr.RedundantPrefillPerRequest == nil || *rr.RedundantPrefillPerRequest != 7 {
+		t.Errorf("round robin per request = %v requests, recomputed %v, redundant %v; want 300, 9, 7",
+			deref(rr.Requests), deref(rr.RecomputedPrefillPerRequest), deref(rr.RedundantPrefillPerRequest))
+	}
 
 	prefix := pointOf(t, f, policy.PrefixAffinityName)
 	if prefix.GoodputMedian != 10 || prefix.OverFailureThreshold != 1 {
@@ -74,9 +81,11 @@ func TestAnUnreadCounterIsNullInTheFigureNotZero(t *testing.T) {
 	f := compare(t, cs).Figure()
 
 	p := pointOf(t, f, policy.RoundRobinName)
-	if p.PrefixCacheHitRate != nil || p.RecomputedPrefill != nil || p.RedundantPrefill != nil {
-		t.Errorf("unread counters became numbers: hit %v, recomputed %v, redundant %v",
-			deref(p.PrefixCacheHitRate), deref(p.RecomputedPrefill), deref(p.RedundantPrefill))
+	if p.PrefixCacheHitRate != nil || p.RecomputedPrefill != nil || p.RedundantPrefill != nil ||
+		p.RecomputedPrefillPerRequest != nil || p.RedundantPrefillPerRequest != nil {
+		t.Errorf("unread counters became numbers: hit %v, recomputed %v (%v per request), redundant %v (%v per request)",
+			deref(p.PrefixCacheHitRate), deref(p.RecomputedPrefill), deref(p.RecomputedPrefillPerRequest),
+			deref(p.RedundantPrefill), deref(p.RedundantPrefillPerRequest))
 	}
 	encoded, err := json.Marshal(f)
 	if err != nil {

@@ -176,7 +176,7 @@ def _gapped(series, key, scale=1.0):
 
 def cache(data):
     """The mechanism: what each policy left the prefix caches serving, and the
-    prefill it left the GPUs over the policy that computed least."""
+    prefill per request it left the GPUs over the policy that computed least."""
     drivers = _drivers(data["points"])
     fig, axes = plt.subplots(2, max(len(drivers), 1), figsize=(5.2 * max(len(drivers), 1), 6), squeeze=False)
     for col, driver in enumerate(drivers):
@@ -188,7 +188,7 @@ def cache(data):
             x = [p["load"] for p in series]
             hit.plot(x, _gapped(series, "prefix_cache_hit_rate", 100), marker="o", markersize=3,
                      color=colour(policy), label=policy)
-            redundant.plot(x, _gapped(series, "redundant_prefill", 1e-6), marker="o", markersize=3,
+            redundant.plot(x, _gapped(series, "redundant_prefill_per_request"), marker="o", markersize=3,
                            color=colour(policy), label=policy)
         for ax in (hit, redundant):
             _load_axis(ax, driver, _loads(data["points"], driver))
@@ -196,13 +196,13 @@ def cache(data):
         hit.set_ylabel("prefix cache hit rate, %")
         hit.set_ylim(0, 100)
         hit.legend(fontsize=7)
-        redundant.set_ylabel("redundant prefill, M tokens")
+        redundant.set_ylabel("redundant prefill, tokens / request")
         redundant.set_ylim(bottom=0)
     fig.suptitle("What produced it — vLLM's own counters; a gap is a counter nobody read, never a zero", fontsize=9)
-    fig.text(0.01, -0.01, "Redundant prefill is absolute tokens over the policy that computed least on identical bytes, "
-             "so it is also a gap wherever any policy had no usable cell.\nUnder a closed loop the faster policy serves "
-             "more requests, so this column credits the slower one (#30) — read it as the mechanism's direction, "
-             "not as waste.", fontsize=7, va="top")
+    fig.text(0.01, -0.01, "Redundant prefill is tokens per request over the policy that recomputed least per request on "
+             "identical bytes, so it is also a gap wherever any policy had no usable cell.\nPer request because under a "
+             "closed loop a faster policy offers more prompts in the same window: absolute totals rise with throughput "
+             "and credit the slower policy with wasting less.", fontsize=7, va="top")
     return fig
 
 

@@ -305,10 +305,36 @@ _Avoid_: prefill (unqualified), redundant prefill (that is the comparison below)
 Prompt tokens a replica had to compute because it did not hold them, which some other replica did
 hold. The physical work prefix affinity exists to eliminate, and therefore the measurement of the
 mechanism rather than of the outcome. No single fleet's counters can see it, because holding is a
-fact about the siblings: it is measured as the recomputed prefill one policy carries over the
-policy that recomputed least on identical bytes, which the comparison guarantees by refusing
-cells whose workloads differ.
+fact about the siblings: it is measured as the recomputed prefill **per request** one policy
+carries over the policy that recomputed least per request on identical bytes.
+
+Per request, not in total. Refusing cells whose workloads differ guarantees both policies the same
+*generator*; it does not guarantee them the same number of *prompts*. Under the closed-loop driver
+a virtual user sends its next turn when its last one returns, so a policy that answers faster gets
+further through the same sequence and offers more prompts in the same window. Absolute recomputed
+tokens then rise with throughput, and a column built on them credits the slower policy with having
+wasted less — which is false, and which #18's grid showed at six of its twelve points. Where a
+token total is wanted it is a policy's per-request excess times **its own** requests, never a
+difference of two policies' raw totals.
 _Avoid_: wasted prefill, recompute, duplicate work
+
+**Placement**:
+Which replica served a request, counted per replica over a cell's measured rows. It is the
+fleet-side view of a cell, where the decision mix is the router-side one: the mix says what
+reasons the policy gave, and this says what fleet it left behind. Counted whatever each request's
+outcome, because a request a replica accepted and then failed still occupied it.
+_Avoid_: distribution, assignment, routing (that is the decision)
+
+**Fleet imbalance**:
+How unevenly a policy spread a cell's requests across its replicas, reported as the busiest
+replica's share of the placed requests against the fair share one replica would carry if the load
+were even, and as the spread between the busiest and the quietest. It is what idea.md §5 predicts
+consistent hashing pays for its locality, and it is counted from the rows rather than read off the
+per-decision inflight column — which recorded zero on every session-affinity row written before
+9311e68 (#27). The replica count in the figure is the replicas that served at least one request,
+not the fleet: one that served nothing is in no row, so the figures understate an imbalance that
+bad rather than overstate it.
+_Avoid_: skew (that is the workload's Zipf exponent), load spread, hot spotting
 
 **Router overhead**:
 Time from the router accepting a request to dispatching it upstream. Distinct from any latency

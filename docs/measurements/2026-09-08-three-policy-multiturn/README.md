@@ -87,6 +87,28 @@ Least-outstanding's 47.9% is earned rather than accidental: under a closed-loop 
 replica that just answered you has the lowest inflight, so it gets your next turn too. That is
 most of why it beats round-robin here.
 
+### The prefill column was re-read per request, and two of its verdicts inverted
+
+`comparison.md` compares redundant prefill **per request** from
+[#30](https://github.com/yuchia329/kvroute/issues/30) on. The old column was absolute recomputed
+tokens, and under this closed loop that measures throughput as much as waste: session affinity
+served 2,457 requests at 64 users against round-robin's 821, so its total rose with its own speed.
+
+| closed loop | old absolute floor | per-request floor | session / req | the policy the old column called best |
+|---|---|---|---:|---|
+| 1–32 users | session affinity | session affinity | 786–1,217 | unchanged |
+| 64 users | round robin | **session affinity** | 763 | round robin, at 2,181 / request |
+| 128 users | least outstanding | **session affinity** | 684 | least outstanding, at 1,651 / request |
+
+So session affinity wasted least per request at every closed-loop point it ran, where the absolute
+column had it losing to a load-blind policy at the top two rungs — the exact inversion #30
+describes. The narrative above ("kept conversations together, which raised its hit rate, which cut
+its prefill") is what the corrected column says, and the old one contradicted it above 32 users.
+
+The regeneration also removed three floors the old file should never have printed: at 256 users and
+at open-loop 2 and 4 req/s one policy had no usable cell, so there is no floor to measure the others
+against, and those cells are now em dashes. That guard post-dates the file, not the change here.
+
 ## The open-loop axis was measured twice, and the first one is wrong
 
 `superseded-goodput/` is kept as evidence, not as a result. **Do not read it as one.**
@@ -130,7 +152,7 @@ cheating.
 
 | | |
 |---|---|
-| `comparison.md` | the generated table: kept closed-loop cells plus corrected open-loop cells |
+| `comparison.md` | the generated table: kept closed-loop cells plus corrected open-loop cells. Regenerated for [#30](https://github.com/yuchia329/kvroute/issues/30), which is what moved the prefill columns |
 | `concurrency/`, `goodput/` | cell records and compacted parquet for the two axes |
 | `superseded-goodput/` | the first open-loop pass, kept as evidence of the rotation artifact |
 | `evidence/` | run logs, and the engine's prefix-cache counters before and after each pass |
