@@ -45,11 +45,18 @@ type CurvePoint struct {
 //
 // The buckets are anchored at the fault, so the fault falls exactly on a bucket
 // boundary and never splits one between a whole fleet and a broken one.
-func RecoveryCurve(rows []Result, fault time.Time, bucket time.Duration, slo SLO) []CurvePoint {
+//
+// end is where the run stopped offering load. The driver keeps its own clock,
+// started a moment after the run's, so the last arrival can be sent a hair past
+// end; it counts in the bucket end closes rather than opening one of its own,
+// where one request across a whole bucket would read as goodput collapsing as
+// the run finished.
+func RecoveryCurve(rows []Result, fault, end time.Time, bucket time.Duration, slo SLO) []CurvePoint {
 	if bucket <= 0 {
 		return nil
 	}
 	width := bucket.Nanoseconds()
+	closing := floorDiv(end.UnixNano()-fault.UnixNano()-1, width)
 	points := map[int64]*CurvePoint{}
 	met := map[int64]int{}
 	first, last := int64(math.MaxInt64), int64(math.MinInt64)
@@ -58,7 +65,7 @@ func RecoveryCurve(rows []Result, fault time.Time, bucket time.Duration, slo SLO
 		if r.Warmup {
 			continue
 		}
-		i := floorDiv(r.StartedAtNs-fault.UnixNano(), width)
+		i := min(floorDiv(r.StartedAtNs-fault.UnixNano(), width), closing)
 		first, last = min(first, i), max(last, i)
 		p := points[i]
 		if p == nil {

@@ -54,7 +54,7 @@ func TestTheRecoveryCurveIsGoodputBucketedAroundTheFault(t *testing.T) {
 	warm.Warmup = true
 	rows = append(rows, warm)
 
-	curve := bench.RecoveryCurve(rows, fault, second, slo)
+	curve := bench.RecoveryCurve(rows, fault, fault.Add(4*second), second, slo)
 
 	want := []struct {
 		at                                 time.Duration
@@ -83,6 +83,31 @@ func TestTheRecoveryCurveIsGoodputBucketedAroundTheFault(t *testing.T) {
 		if got.GoodputRPS != w.goodput {
 			t.Errorf("point at %v: goodput %.2f/s, want %.2f/s", w.at, got.GoodputRPS, w.goodput)
 		}
+	}
+}
+
+// A run's last arrival can be sent a hair after the run ends, because the driver
+// keeps its own clock, started a moment after the run's. It counts in the run's
+// last bucket. Given a bucket of its own it is one request across a whole bucket,
+// which reads as goodput collapsing just as the run ended: on the fleet it put
+// both policies' trough at 0.2/s after the run was over, left both reading "not
+// recovered", and was most of session affinity's deficit.
+func TestTheRunsLastArrivalCountsInItsLastBucketThoughSentAfterTheEnd(t *testing.T) {
+	fault := time.Unix(1757000000, 0)
+	end := fault.Add(2 * time.Second)
+	var rows []bench.Result
+	rows = append(rows, offeredAt(fault.Add(-time.Second), 4, record.OutcomeSuccess)...)
+	rows = append(rows, offeredAt(fault, 4, record.OutcomeSuccess)...)
+	rows = append(rows, offeredAt(fault.Add(time.Second), 4, record.OutcomeSuccess)...)
+	// Sent a millisecond after the run ended.
+	rows = append(rows, success(end.Add(time.Millisecond), time.Second))
+
+	curve := bench.RecoveryCurve(rows, fault, end, time.Second, slo)
+
+	last := curve[len(curve)-1]
+	if time.Duration(last.AtNs) != time.Second || last.Offered != 5 {
+		t.Fatalf("the curve ends with a bucket at %v holding %d requests, want the 1s bucket holding all 5 offered in it: %+v",
+			time.Duration(last.AtNs), last.Offered, curve)
 	}
 }
 

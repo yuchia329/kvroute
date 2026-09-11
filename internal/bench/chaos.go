@@ -161,7 +161,7 @@ func (s *ChaosRun) Assess(rows []Result, events []Event) {
 	}
 
 	bucket := time.Duration(s.BucketNs)
-	s.Curve = RecoveryCurve(rows, time.Unix(0, s.StartedAtNs+s.FaultAtNs), bucket, s.SLO)
+	s.Curve = RecoveryCurve(rows, time.Unix(0, s.StartedAtNs+s.FaultAtNs), time.Unix(0, s.StartedAtNs+s.DurationNs), bucket, s.SLO)
 	s.Recovery = MeasureRecovery(s.Curve, bucket, s.Tolerance)
 }
 
