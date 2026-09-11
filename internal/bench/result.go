@@ -67,6 +67,11 @@ type Result struct {
 	// having to reimplement the policy.
 	Replica  string `json:"replica" parquet:"replica"`
 	Decision string `json:"decision" parquet:"decision"`
+	// Reroutes is how many times the router moved this request to another
+	// replica before one answered it, read back off its response header for the
+	// reason Replica is. A reroute is invisible in the body by design, so the
+	// router saying so is the only way the harness can count one.
+	Reroutes int `json:"reroutes" parquet:"reroutes"`
 	// PrefixMatchBytes is what the router believed the chosen replica already
 	// held of this prompt, read back off its response header for the same reason
 	// Replica and Decision are: the belief is the router's, and a harness that

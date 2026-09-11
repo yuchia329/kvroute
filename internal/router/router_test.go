@@ -142,8 +142,11 @@ func startRouter(t *testing.T, specs ...string) (string, *rowSink) {
 func (r routed) inflight(t *testing.T) int {
 	t.Helper()
 	total := 0
-	for _, c := range r.fleet.State().Replicas {
-		total += c.Inflight
+	// Every member, in rotation or not: a request still on a replica that has
+	// been drained or ejected is still in flight, and it is exactly the one a
+	// check for leaked counts has to see.
+	for _, m := range r.fleet.Members() {
+		total += m.Inflight
 	}
 	return total
 }
@@ -171,6 +174,7 @@ type response struct {
 	contentType string
 	body        []byte
 	replica     string
+	reroutes    string
 	// err is set when the request never produced a response at all, for the
 	// callers that send from their own goroutine and have to report it back on
 	// the test's.
@@ -210,6 +214,7 @@ func send(baseURL, body string) (response, error) {
 		contentType: resp.Header.Get("Content-Type"),
 		body:        got,
 		replica:     resp.Header.Get(router.ReplicaHeader),
+		reroutes:    resp.Header.Get(router.ReroutesHeader),
 	}, nil
 }
 

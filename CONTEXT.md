@@ -171,6 +171,60 @@ not a defect to be patched.
 _Avoid_: sticky sessions, session pinning, affinity (unqualified — that is the prefix-match
 decision above)
 
+### Failure and recovery
+
+**In rotation**:
+A replica the router is offering to the policy. A replica leaves rotation by ejection or by drain,
+and while it is out it is simply absent from the snapshot a policy decides from, so no policy has to
+know that replicas can leave. It is still counted: the requests it was already serving finish, and
+are counted down, whichever way it left.
+_Avoid_: healthy (that is one of the two reasons, not the state), available, up
+
+**Health check**:
+The router asking a running replica whether it is alive — a GET of its `/health`, once a second —
+and the active half of ejection: two in a row failed eject it, and two in a row passed readmit it.
+Distinct from preflight, which asks whether the GPUs are free before any replica exists.
+_Avoid_: probe (that is a characterization measurement), heartbeat, ping
+
+**Ejection**:
+The router taking a replica out of rotation because it stopped answering: found actively, when two
+health checks in a row fail, or passively, when a real request cannot reach it or loses it
+mid-stream. Undone by the same tracking — two health checks in a row passed readmit it, with nothing
+restarted. Only a failure to answer counts. A replica that answers with an error status is
+overloaded rather than gone, and ejecting it would change the fleet under the load being measured.
+_Avoid_: removal, blacklisting, circuit breaking, outlier detection
+
+**Drain**:
+An operator taking a replica out of rotation gracefully: from that moment it is given no new
+request, and every request it is already serving finishes. Undone only by the operator, by restoring
+it. A drained replica that comes back healthy stays out, because the drain was a decision and not a
+symptom.
+_Avoid_: cordon, decommission, graceful shutdown (that is the replica process's own, which a drain
+comes before)
+
+**Reroute**:
+Sending a request to another replica because the one it was placed on failed before emitting any of
+its answer. The client cannot tell: nothing reached it before the failure, and the second replica's
+answer is the whole of what it receives. Only a request with nothing emitted can be rerouted; one
+already streaming when its replica is lost is dropped, and never rerouted.
+_Avoid_: retry (that is the client's), failover, resend
+
+**Recovery curve**:
+Goodput sampled through a replica failure and its recovery, in buckets of the time requests were
+offered, read relative to the moment of the fault. A curve rather than a before-and-after pair,
+because what the two affinity policies are predicted to differ in is its shape, and they are
+predicted to differ twice: when the replica leaves, and again when it returns — session affinity's
+ring moves that replica's sessions back onto an empty cache, and a prefix index does not.
+_Avoid_: failure graph, chaos graph, recovery time (that is one number read off it)
+
+**Chaos run**:
+One policy's run of a chaos scenario: a replica taken away from the fleet under steady open-loop
+load and brought back, with every request, what the router did with the replica, and the recovery
+curve recorded. The scenario is what two policies' runs share — which replica, which fault, the
+load, the timing, the SLO and the workload — and two runs are compared only if they share all of it.
+_Avoid_: chaos cell (a cell is a point of the policy comparison, on a whole fleet), chaos test (that
+is the whole experiment)
+
 ### Measurement
 
 **Goodput**:
@@ -336,8 +390,10 @@ the clearest place prefix affinity with spill can beat it.
 _Avoid_: distribution, hotness, locality
 
 **Dropped request**:
-A request that received no complete response because the router could not place it — the failure
-the chaos test counts.
+A request that received no complete response because the router could not place it, or because the
+replica it was placed on was lost after its stream had begun — the failure the chaos test counts. A
+request whose replica is lost before any of its answer has reached the client is not dropped but
+rerouted, so a drop count is only a claim when the reroute count stands beside it.
 _Avoid_: failed, errored
 
 **Failed request**:
@@ -369,4 +425,4 @@ _Avoid_: other process, stray process, someone else's job
 The check that refuses to bring the fleet up while any GPU already holds memory. It is the same
 probe that samples for foreign processes during a cell, differing only in that nothing is exempt:
 before the fleet exists, every process on a card is contamination whoever started it.
-_Avoid_: health check, precheck
+_Avoid_: health check (that is the router asking a running replica whether it is alive), precheck

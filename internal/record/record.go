@@ -29,7 +29,13 @@ const (
 	OutcomeSuccess Outcome = "success"
 	// OutcomeFailed is a request a replica accepted and then errored on.
 	OutcomeFailed Outcome = "failed"
-	// OutcomeDropped is a request the router could not place at all.
+	// OutcomeDropped is a request that received no complete response because
+	// the router could not place it, or because the replica it was placed on was
+	// lost after its stream had begun. The second is the chaos test's case: a
+	// replica that dies before a request's first token has emitted nothing and
+	// the request is rerouted, but one that dies mid-stream has, and nothing the
+	// router can do gives the client a whole answer. Neither is failed, because
+	// no replica answered either with an error.
 	OutcomeDropped Outcome = "dropped"
 	// OutcomeCancelled is a request whose client went away before the response
 	// finished. It is neither dropped nor failed: no replica errored and the
@@ -64,6 +70,20 @@ type Request struct {
 	Policy         string `json:"policy" parquet:"policy"`
 	Replica        string `json:"replica" parquet:"replica"`
 	DecisionReason string `json:"decision_reason" parquet:"decision_reason"`
+	// Reroutes is how many times the request was moved to another replica
+	// because the one it had been sent to failed before emitting anything, and
+	// ReroutedFrom is the first replica that failed it. Zero and empty for nearly
+	// every request; Replica and DecisionReason above describe where it was
+	// finally served.
+	//
+	// On the row because a reroute is invisible in the response by design: the
+	// client receives exactly what the second replica would have sent it, so the
+	// row is the only place the failure the reroute hid can be counted. A chaos
+	// run reports rerouted requests beside dropped ones, and a count of drops
+	// means something only next to the count of requests that would have been
+	// dropped had nothing been rerouted.
+	Reroutes     int    `json:"reroutes" parquet:"reroutes"`
+	ReroutedFrom string `json:"rerouted_from" parquet:"rerouted_from"`
 	// PrefixMatchBytes is how much of this prompt's leading bytes the router
 	// believed the chosen replica already held. Zero under the policies that
 	// consult no prefix index.

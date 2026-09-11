@@ -179,6 +179,8 @@ linux: ## Cross-compile every command for the GPU box, which has no Go toolchain
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/calibrate-linux-amd64 ./cmd/calibrate
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/divergence-linux-amd64 ./cmd/divergence
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/pressuremap-linux-amd64 ./cmd/pressuremap
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/chaos-linux-amd64 ./cmd/chaos
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/recovery-linux-amd64 ./cmd/recovery
 
 .PHONY: test
 test: ## Run the full suite under the race detector
@@ -410,6 +412,54 @@ PRESSURE_MAP_OUT ?= runs/pressuremap.md
 pressure-map: build ## Draw the pressure map across every point of the grid that has been run
 	@test -n "$(PRESSURE_MAP_DIRS)" || { echo "pressure-map: no grid points under $(PRESSURE_DIR); run pressure-grid first" >&2; exit 1; }
 	$(BIN)/pressuremap -out $(PRESSURE_MAP_OUT) $(PRESSURE_MAP_DIRS)
+
+# The chaos test (#19, idea.md §7): one replica taken away under steady
+# open-loop load and brought back, once per policy, and the recovery curves
+# compared. ops/chaos.sh runs one policy and says what the operator does between
+# them: bring the fleet down and up, and start the router on the next policy.
+#
+# Kill and drain are separate runs into separate directories. A kill forces the
+# reroute and produces the drops nothing can save; a drain should cost nothing.
+#
+# The run's shape is fixed here, so both policies' runs line up bucket for
+# bucket — which the comparison checks rather than trusts: a 50 s warm-up for
+# the prefix index to fill (ADR-0007's), 50 s of healthy baseline, the fault at
+# 100 s, the replica restarted at 160 s — a restart takes about 40 s, so it is
+# back in rotation near 200 s — and 100 s after that to see whether goodput comes
+# back and stays.
+#
+# CHAOS_RATE is a judgement, and is stated as one. It has to sit where the whole
+# fleet holds goodput comfortably, or there is no healthy baseline to recover
+# to: take it from the goodput sweep, below both affinity policies' knees.
+CHAOS_DIR   ?= runs/chaos
+CHAOS_FAULT ?= kill
+CHAOS_GPU   ?= 2
+CHAOS_RATE  ?= 8
+CHAOS_ARGS  ?=
+CHAOS_RUN    = -duration 300s -warmup 50s -fault-at 100s -recover-at 160s -bucket 5s
+# A kill is ops/replica.sh kill: SIGKILL to the replica and its engine at once. A
+# drain is stopped with ops/replica.sh down, and only after the router has
+# drained it — the run waits for its in-flight count to reach zero first.
+CHAOS_STOP   = $(if $(filter drain,$(CHAOS_FAULT)),ops/replica.sh down $(CHAOS_GPU),ops/replica.sh kill $(CHAOS_GPU))
+
+.PHONY: chaos
+chaos: build ## Take one replica away under load and record its recovery: CHAOS_FAULT=kill|drain
+	@test -n "$(SLO_FROM)" || { echo "chaos: SLO_FROM is required: goodput is defined by the SLO, and a recovery curve without one has nothing to plot" >&2; exit 1; }
+	$(BIN)/chaos -router $(ROUTER) -dir $(CHAOS_DIR)/$(CHAOS_FAULT)-$(POLICY) -policy $(POLICY) \
+		-replica replica-$(CHAOS_GPU) -fault $(CHAOS_FAULT) \
+		-stop-cmd "$(CHAOS_STOP)" -start-cmd "ops/replica.sh up $(CHAOS_GPU)" \
+		-arrival-rate $(CHAOS_RATE) $(CHAOS_RUN) \
+		-model "$$(ops/fleet.sh env MODEL)" \
+		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
+		$(WORKLOAD_ARGS) \
+		-slo-from $(SLO_FROM) \
+		$(CHAOS_ARGS)
+
+# The comparison. Like compare it reads records only, so a checkout is enough.
+.PHONY: recovery
+recovery: build ## Compare the recovery curves of every policy that ran CHAOS_FAULT
+	@test -n "$(wildcard $(CHAOS_DIR)/$(CHAOS_FAULT)-*)" || { echo "recovery: no $(CHAOS_FAULT) runs under $(CHAOS_DIR); run ops/chaos.sh first" >&2; exit 1; }
+	$(BIN)/recovery -out runs/recovery-$(CHAOS_FAULT).md $(wildcard $(CHAOS_DIR)/$(CHAOS_FAULT)-*)
 
 .PHONY: bench
 bench: build ## Sweep concurrency against the running fleet, resuming from RUN_DIR

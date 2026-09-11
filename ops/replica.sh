@@ -7,7 +7,8 @@
 # bare PID is lower-latency and less noisy than killing a container.
 #
 #   ops/replica.sh up 0       # start replica-0 on GPU 0, port 8000
-#   ops/replica.sh down 0
+#   ops/replica.sh down 0     # stop it, letting the engine exit cleanly
+#   ops/replica.sh kill 0     # SIGKILL it and its engine at once, as a crash would
 #   ops/replica.sh status
 #
 # Startup asserts the pinned engine version and that the log confirms the forced
@@ -260,6 +261,53 @@ down() {
   rm -f "$pid"
 }
 
+# descendants prints every process below a pid, children before grandchildren.
+descendants() {
+  local child
+  for child in $(pgrep -P "$1" 2>/dev/null); do
+    echo "$child"
+    descendants "$child"
+  done
+}
+
+# kill_hard does to a replica what a crash does: SIGKILL to the vLLM supervisor
+# and to every process under it at once, with no chance to finish anything in
+# flight. It is the chaos test's fault, and its difference from `down` is the
+# experiment: `down` lets the engine exit cleanly, this does not.
+#
+# The whole tree rather than the pid in the pid file, because the process that
+# holds the GPU is the supervisor's EngineCore child. Killing the supervisor
+# alone would orphan the child with the card still full, and the replica
+# restarted there would come up beside its own leftover or not at all. The tree
+# is collected before anything is signalled, so no child is reparented between
+# two kills and escapes the second.
+kill_hard() {
+  local index="$1"
+  assert_index "$index"
+  local id pid target tree p alive
+  id="$(replica_id "$index")"
+  pid="$(pid_file "$index")"
+  [[ -f "$pid" ]] || die "$id has no pid file, so there is nothing to kill"
+  target="$(cat "$pid")"
+  kill -0 "$target" 2>/dev/null || die "$id (PID $target) is not running"
+
+  tree="$target $(descendants "$target" | tr '\n' ' ')"
+  echo "killing $id with SIGKILL: $tree"
+  # shellcheck disable=SC2086
+  kill -9 $tree 2>/dev/null || true
+  # Waited out, so that whoever timestamps the fault starts the clock when the
+  # replica is really gone rather than when it was asked to go.
+  for _ in $(seq 1 50); do
+    alive=0
+    for p in $tree; do
+      if kill -0 "$p" 2>/dev/null; then alive=1; fi
+    done
+    (( alive )) || break
+    sleep 0.1
+  done
+  rm -f "$pid"
+}
+
 status() {
   shopt -s nullglob
   local any=0
@@ -278,6 +326,7 @@ status() {
 case "${1:-}" in
   up)     shift; up "${1:-}" ;;
   down)   shift; down "${1:-}" ;;
+  kill)   shift; kill_hard "${1:-}" ;;
   status) status ;;
-  *)      die "usage: $0 up|down <gpu index> | status" ;;
+  *)      die "usage: $0 up|down|kill <gpu index> | status" ;;
 esac

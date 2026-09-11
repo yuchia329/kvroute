@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -320,6 +321,9 @@ func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int, warmUntil, 
 	// replica is being driven directly. Both are honestly zero: no prefix match
 	// was predicted because nothing predicted one.
 	row.PrefixMatchBytes, _ = strconv.Atoi(resp.Header.Get(router.PrefixMatchHeader))
+	// Absent when a replica is driven directly, which is honestly zero: with no
+	// router in the path, nothing could have moved the request.
+	row.Reroutes, _ = strconv.Atoi(resp.Header.Get(router.ReroutesHeader))
 	if cfg.DirectReplica != "" {
 		// Driving a replica directly, so the harness knows where the request
 		// went without being told: it chose. Attributing it here rather than
@@ -364,8 +368,21 @@ func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int, warmUntil, 
 		if ctx.Err() != nil {
 			return finish(record.OutcomeCancelled, readErr)
 		}
-		// The replica accepted the request and the exchange then broke.
-		return finish(record.OutcomeFailed, readErr)
+		// The stream began and then broke, which is a request whose replica was
+		// lost under it: placed, answered in part, and never answered in full.
+		// CONTEXT.md counts that as dropped rather than failed — no replica
+		// answered it with an error — and it is the one loss a reroute cannot
+		// save, because a first token had already reached the client.
+		return finish(record.OutcomeDropped, fmt.Errorf("the stream from %s broke after %d bytes, so its replica was lost mid-response: %w", row.Replica, s.bytes, readErr))
+	}
+	if !s.done && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		// The same loss by a quieter path: a stream that stopped without the
+		// terminator every engine response ends with. A router that ends the
+		// response rather than aborting it when its replica goes — as this one did
+		// before ADR-0009 — produces exactly this, and booked as a success it would
+		// put a truncated answer in the success column and its latency in the
+		// percentiles.
+		return finish(record.OutcomeDropped, fmt.Errorf("the stream from %s ended after %d bytes without its [DONE] terminator, so it was cut short rather than finished", row.Replica, s.bytes))
 	}
 	return finish(record.OutcomeSuccess, nil)
 }

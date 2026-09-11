@@ -106,11 +106,10 @@ type Fleet struct {
 	// measured in microseconds.
 	//
 	// All three are fixed at New: nothing here removes or adds a replica, so a
-	// position is stable for the life of the fleet and Dispatch can resolve one
-	// under a read lock and then count against it without holding anything. Ejection
-	// changes that — a Dispatch in flight holds a position, so whatever introduces it
-	// has to keep a departed replica's counter alive until its requests have drained
-	// rather than compacting these slices under it.
+	// position is stable for the life of the fleet. Leaving rotation does not
+	// change that. A replica that is drained or ejected keeps its position and its
+	// counter, because the requests it was already serving are still in flight and
+	// still have to be counted down; State simply stops offering it to the policy.
 	inflight []atomic.Int64
 	index    map[string]int
 	// kv is indexed as replicas, and holds the last reading the scraper took of
@@ -119,6 +118,11 @@ type Fleet struct {
 	// once per replica per scrape interval and read on every routing decision,
 	// so it is a pointer swap rather than anything held under the fleet's mutex.
 	kv []atomic.Pointer[vllmmetrics.KVUtilization]
+	// rotation is indexed as replicas, and says why a replica is out of rotation
+	// when it is. Under mu rather than atomic like the counts above: it changes
+	// rarely, and it has to change atomically with the check Dispatch makes
+	// against it, which is what lets a drain promise that nothing lands after it.
+	rotation []rotation
 }
 
 // New builds a fleet. It rejects duplicate ids and unusable base URLs, because
@@ -154,23 +158,38 @@ func New(replicas []Replica) (*Fleet, error) {
 		replicas: append([]Replica(nil), replicas...),
 		inflight: make([]atomic.Int64, len(replicas)),
 		kv:       make([]atomic.Pointer[vllmmetrics.KVUtilization], len(replicas)),
+		rotation: make([]rotation, len(replicas)),
 		index:    index,
 	}, nil
 }
 
 // State returns a snapshot for one routing decision.
+//
+// Only the replicas in rotation are in it. A replica that has been drained or
+// ejected is not a candidate at all, which is how its leaving reaches a policy:
+// no policy has to know that replicas can leave, and none can route to one that
+// has by forgetting to check.
 func (f *Fleet) State() State {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	candidates := make([]Candidate, len(f.replicas))
-	for i, r := range f.replicas {
-		candidates[i] = Candidate{Replica: r, Inflight: int(f.inflight[i].Load())}
-		if reading := f.kv[i].Load(); reading != nil {
-			candidates[i].KV = *reading
+	candidates := make([]Candidate, 0, len(f.replicas))
+	for i := range f.replicas {
+		if f.rotation[i].in() {
+			candidates = append(candidates, f.candidate(i))
 		}
 	}
 	return State{Replicas: candidates}
+}
+
+// candidate is replica i with the load the fleet knows it is under. The caller
+// holds mu.
+func (f *Fleet) candidate(i int) Candidate {
+	c := Candidate{Replica: f.replicas[i], Inflight: int(f.inflight[i].Load())}
+	if reading := f.kv[i].Load(); reading != nil {
+		c.KV = *reading
+	}
+	return c
 }
 
 // Dispatch records that a request is on its way to a replica, and returns the
@@ -187,12 +206,20 @@ func (f *Fleet) State() State {
 // what makes a policy pile more work onto a replica that is already busy. A
 // missed call is the direction that cannot be defended against here, and it
 // would leave a replica permanently and wrongly loaded.
+//
+// A replica that has left rotation since the policy's snapshot was taken is
+// refused with ErrOutOfRotation. The check and the count happen under one read
+// lock, and leaving rotation takes the write lock, so a dispatch lands either
+// wholly before a drain or not at all: see Drain.
 func (f *Fleet) Dispatch(id string) (func(), error) {
 	f.mu.RLock()
+	defer f.mu.RUnlock()
 	i, ok := f.index[id]
-	f.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("fleet: no replica %q to dispatch to", id)
+	}
+	if !f.rotation[i].in() {
+		return nil, fmt.Errorf("fleet: %s: %w", id, ErrOutOfRotation)
 	}
 
 	f.inflight[i].Add(1)

@@ -48,6 +48,8 @@ func run() error {
 				"0 disables the condition")
 		kvScrapeInterval = flag.Duration("kv-scrape-interval", fleet.DefaultKVScrapeInterval,
 			"how often each replica's KV utilization is re-read. Only -kv-high-water reads it")
+		healthInterval = flag.Duration("health-interval", fleet.DefaultHealthInterval,
+			"how often every replica's /health is checked. Two failed checks in a row eject a replica and two passed ones readmit it; a request that cannot reach a replica ejects it at once")
 		recordsPath  = flag.String("records", "", "path to append per-request JSONL rows to; empty discards them")
 		logLevel     = flag.String("log-level", "info", "log level: debug, info, warn or error. debug logs every routing decision")
 		shutdownWait = flag.Duration("shutdown-grace", 30*time.Second, "how long to let in-flight requests finish on shutdown")
@@ -91,6 +93,23 @@ func run() error {
 		return err
 	}
 	defer records.Close()
+
+	// Health checks run under every policy alike. A replica that has died has to
+	// leave rotation the same way whichever policy is routing, or two policies
+	// would differ in how they meet a failure rather than in how they route.
+	//
+	// There is no way to switch them off. The request that finds a replica dead
+	// ejects it whether or not anything is checking, and only these checks ever
+	// put an ejected replica back: without them, one refused connection would
+	// take a replica out for the life of the router.
+	if *healthInterval <= 0 {
+		return fmt.Errorf("-health-interval must be positive: the health checks are the only thing that readmits an ejected replica")
+	}
+	checkCtx, stopChecking := context.WithCancel(context.Background())
+	defer stopChecking()
+	go fleet.CheckHealth(checkCtx, fleet.HealthConfig{Fleet: f, Interval: *healthInterval, Log: log})
+	log.Info("checking replica health", "interval", *healthInterval,
+		"eject_after", fleet.EjectAfter, "readmit_after", fleet.ReadmitAfter)
 
 	// The KV signal is scraped only when something reads it. A fleet polled for a
 	// gauge no policy consults is six extra HTTP round trips per interval against

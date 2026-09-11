@@ -25,6 +25,10 @@ type stream struct {
 	itlP50    time.Duration
 	itlMax    time.Duration
 	usage     engineUsage
+	// done is whether the stream reached the [DONE] terminator every engine
+	// response ends with. A stream that stops without it was cut short, however
+	// cleanly its connection closed.
+	done bool
 }
 
 // engineUsage is the engine's own account of one request's prompt, off the
@@ -98,6 +102,7 @@ func readStream(body io.Reader) (stream, error) {
 		}
 		payload := bytes.TrimSpace(line[len(dataPrefix):])
 		if bytes.Equal(payload, doneMarker) {
+			s.done = true
 			break
 		}
 		var chunk sseChunk

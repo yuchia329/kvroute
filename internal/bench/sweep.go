@@ -311,6 +311,23 @@ type Cell struct {
 	PrefixIndexNodes int `json:"prefix_index_nodes" parquet:"prefix_index_nodes"`
 	PrefixIndexCap   int `json:"prefix_index_cap" parquet:"prefix_index_cap"`
 
+	// Ejections is how many times the router ejected a replica while this cell
+	// ran, read off its stats either side of the cell. A cell during which it
+	// moved measured a smaller fleet for part of its window, and because the
+	// router reroutes around a missing replica rather than dropping into the gap,
+	// nothing else in the cell would show it. Such a cell is flagged (ADR-0009).
+	Ejections int `json:"ejections" parquet:"ejections"`
+	// EjectionsRead says whether the router's stats were read either side of the
+	// cell, so an ejection count nobody could take does not read as a fleet that
+	// stayed whole. Recorded rather than flagged, as PrefixCacheRead is: cells
+	// recorded before the router published ejections have none to read.
+	EjectionsRead bool `json:"ejections_read" parquet:"ejections_read"`
+	// OutOfRotation names the replicas the router was not routing to when the
+	// cell ended. A cell that ended with one measured a smaller fleet for at
+	// least its tail and is flagged, and the sweep stops rather than run the next
+	// cell on a fleet it does not describe.
+	OutOfRotation []string `json:"out_of_rotation,omitempty" parquet:"out_of_rotation"`
+
 	Summary       `json:"summary"`
 	Contamination `json:"contamination"`
 }
@@ -874,6 +891,13 @@ func checkRouter(ctx context.Context, cfg SweepConfig) error {
 		return fmt.Errorf("bench: the router at %s fronts %d replicas but this sweep was given %d, so the harness and the router are pointed at different fleets",
 			cfg.Target, len(stats.Replicas), len(cfg.Replicas))
 	}
+	for _, r := range stats.Replicas {
+		if !r.InRotation() {
+			return fmt.Errorf("bench: the router at %s is not routing to %s (%s), so every cell of this sweep would measure a smaller fleet than it says — "+
+				"and nothing would be dropped to show it, because the router routes around the gap. Restore a drained replica, or let an ejected one pass its health checks, before sweeping",
+				cfg.Target, r.ID, r.Rotation())
+		}
+	}
 	cfg.Log.Info("router is up and running the policy these cells will name",
 		"router", cfg.Target, "policy", stats.Policy, "spill", cfg.Spill, "replicas", len(stats.Replicas))
 	return nil
@@ -905,40 +929,42 @@ func checkGridPoint(cfg SweepConfig, stats router.Stats) error {
 		cfg.Target, running, cfg.Spill)
 }
 
-// readIndexStats asks the router how much belief its index is holding.
+// readRouterStats asks the router what it can say about a cell from its own
+// side: how much belief its index is holding, and how many times it has ejected
+// a replica.
 //
 // A failure is not an error, for the same reason a failed metrics scrape is not:
 // the cell measured whatever it measured, and losing a completed cell over a
-// stats endpoint that did not answer would cost far more than the column does.
-// The three policies that consult no index report none, which reads as zero and
-// is the honest answer — there was no index to be full.
-func readIndexStats(ctx context.Context, cfg SweepConfig) prefix.Stats {
-	url := strings.TrimSuffix(cfg.Target, "/") + "/router/stats"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+// stats endpoint that did not answer would cost far more than the columns do. It
+// reports whether it read anything, so that an ejection count is never derived
+// from a reading nobody took. The three policies that consult no index report
+// none, which reads as zero and is the honest answer — there was no index to be
+// full.
+func readRouterStats(ctx context.Context, cfg SweepConfig) (router.Stats, bool) {
+	stats, err := fetchRouterStats(ctx, cfg.Target)
 	if err != nil {
-		return prefix.Stats{}
+		cfg.Log.Warn("could not read the router's stats, so this cell records no index occupancy and no ejection count", "err", err)
+		return router.Stats{}, false
 	}
-	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
-	if err != nil {
-		cfg.Log.Warn("could not read the router's index occupancy, so this cell records none", "err", err)
-		return prefix.Stats{}
+	return stats, true
+}
+
+// totalEjections is how many times the router has ejected any of its replicas.
+func totalEjections(stats router.Stats) int {
+	total := 0
+	for _, r := range stats.Replicas {
+		total += r.Ejections
 	}
-	defer resp.Body.Close()
-	var stats router.Stats
-	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil || stats.PrefixIndex == nil {
-		return prefix.Stats{}
-	}
-	return *stats.PrefixIndex
+	return total
 }
 
 // checkFleet refuses to start a sweep unless every replica answers /health.
 //
-// Nothing below this ejects a dead replica — health checking and ejection are
-// their own ticket — so round-robin would keep dispatching to it, the router
-// would fail to place one request in six, and the cell would fill with drops.
-// The sweep is hours long, so the difference between catching that here and
-// catching it in the results is a wasted night on a box that is only idle until
-// the 20th.
+// The router ejects a dead replica and reroutes around it, which makes a missing
+// replica worse to start on rather than better: nothing is dropped, so every cell
+// quietly measures a smaller fleet than it claims to. The sweep is hours long, so
+// the difference between catching that here and catching it in the results is a
+// wasted night on a box that is only idle until the 20th.
 func checkFleet(ctx context.Context, cfg SweepConfig) error {
 	if len(cfg.Replicas) == 0 {
 		cfg.Log.Warn("no replica URLs given, so the fleet was not checked before the sweep")
@@ -990,6 +1016,19 @@ func ping(ctx context.Context, client *http.Client, base string) error {
 
 // runCell runs one cell and writes it to disk.
 func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load, repetition int) (Cell, error) {
+	// Read before the cell as well as after it, so the ejections the cell
+	// records are its own rather than every one since the router started — and
+	// so no cell starts on a fleet with a replica already out of rotation. That
+	// is what a replica that died in an earlier cell and was not brought back
+	// looks like, and every cell run on it would measure a smaller fleet with no
+	// ejection of its own to be flagged for.
+	before, beforeRead := readRouterStats(ctx, cfg)
+	if out := outOfRotation(before); len(out) > 0 {
+		return Cell{}, fmt.Errorf("bench: stopping before cell %s: the router is not routing to %s, so this cell and every one after it would measure a smaller fleet than they say. "+
+			"Bring the replica back — restart an ejected one and let it pass its health checks, or restore a drained one — and run the sweep again: it resumes from here",
+			id, strings.Join(out, ", "))
+	}
+
 	// Rows stream to a partial file and are renamed into place only once the
 	// cell has finished. A crash therefore leaves readable partial data under a
 	// name that is visibly incomplete, and never leaves a half-run cell looking
@@ -1045,9 +1084,18 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 	}
 	contamination := watcher.Stop()
 	served := prefixCache.Stop(ctx)
-	// Read after the cell rather than before it, because the question is how much
-	// belief the run built up and not how much it started with.
-	index := readIndexStats(ctx, cfg)
+	// The index is read after the cell rather than before it, because the
+	// question is how much belief the run built up and not how much it started
+	// with.
+	after, afterRead := readRouterStats(ctx, cfg)
+	var index prefix.Stats
+	if after.PrefixIndex != nil {
+		index = *after.PrefixIndex
+	}
+	ejections, ejectionsRead := 0, beforeRead && afterRead
+	if ejectionsRead {
+		ejections = totalEjections(after) - totalEjections(before)
+	}
 	ended := time.Now()
 
 	if closeErr := rows.Close(); closeErr != nil && runErr == nil {
@@ -1098,10 +1146,15 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		PrefixIndexNodes: index.Nodes,
 		PrefixIndexCap:   index.NodeCap,
 
+		Ejections:     ejections,
+		EjectionsRead: ejectionsRead,
+		OutOfRotation: outOfRotation(after),
+
 		Summary:       Summarize(results, cfg.summaryOptions()),
 		Contamination: contamination,
 	}
 	flagContamination(&cell)
+	flagFleetChanges(&cell)
 
 	if err := writeCell(cellDir, cell); err != nil {
 		return Cell{}, err
@@ -1120,6 +1173,33 @@ func flagContamination(cell *Cell) {
 	for _, reason := range cell.Contamination.Reasons() {
 		cell.Flag(reason)
 	}
+}
+
+// flagFleetChanges adds the reasons a cell that did not run on the whole fleet
+// must not be averaged in with the others: a replica ejected during it, or one
+// out of rotation when it ended. Like the contamination evidence these come from
+// the cell's record rather than its rows, so they are reapplied whenever the
+// cell is resummarised.
+func flagFleetChanges(cell *Cell) {
+	if cell.Ejections > 0 {
+		cell.Flag(fmt.Sprintf("the router ejected a replica %d time(s) during this cell, so it measured a smaller fleet for part of its window; "+
+			"nothing was dropped to show it, because the router reroutes around a missing replica. Re-run it", cell.Ejections))
+	}
+	if len(cell.OutOfRotation) > 0 {
+		cell.Flag(fmt.Sprintf("the router was not routing to %s when this cell ended, so it measured a smaller fleet for at least its tail. Re-run it once the fleet is whole",
+			strings.Join(cell.OutOfRotation, ", ")))
+	}
+}
+
+// outOfRotation names the replicas a router's stats say it is not routing to.
+func outOfRotation(stats router.Stats) []string {
+	var out []string
+	for _, r := range stats.Replicas {
+		if !r.InRotation() {
+			out = append(out, r.ID)
+		}
+	}
+	return out
 }
 
 // loadCell reads a completed cell, if there is one.
@@ -1153,6 +1233,7 @@ func resummarize(cellDir string, cached Cell, cfg SweepConfig) (Cell, error) {
 	}
 	cached.Summary = Summarize(rows, cfg.summaryOptions())
 	flagContamination(&cached)
+	flagFleetChanges(&cached)
 	if err := writeCell(cellDir, cached); err != nil {
 		return Cell{}, err
 	}

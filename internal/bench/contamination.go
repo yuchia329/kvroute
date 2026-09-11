@@ -31,7 +31,13 @@ type ContaminationConfig struct {
 	// descendants are the fleet; everything else on the fleet's cards is
 	// foreign.
 	OwnPIDs []int
-	Log     *slog.Logger
+	// OwnPIDsNow, when set, is asked for the replica supervisors at every sample
+	// in place of OwnPIDs. A chaos run restarts the replica it takes away, and
+	// the restarted supervisor is a process nobody knew the pid of when sampling
+	// began: judged against the pids read at the start, its engine would be a
+	// foreign process, and every kill run would be discarded as unclean.
+	OwnPIDsNow func() []int
+	Log        *slog.Logger
 }
 
 // Contamination is one measurement's cleanliness evidence — a cell's, or a
@@ -123,6 +129,10 @@ func (w *Watcher) sample(ctx context.Context) {
 
 func (w *Watcher) once(ctx context.Context) {
 	snapshot, err := w.cfg.Prober.Snapshot(ctx)
+	own := w.cfg.OwnPIDs
+	if w.cfg.OwnPIDsNow != nil {
+		own = w.cfg.OwnPIDsNow()
+	}
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -141,13 +151,13 @@ func (w *Watcher) once(ctx context.Context) {
 	}
 	w.result.GPUSamples++
 
-	for _, p := range snapshot.Foreign(w.cfg.OwnPIDs) {
+	for _, p := range snapshot.Foreign(own) {
 		if !w.procSeen[p.PID] {
 			w.procSeen[p.PID] = true
 			w.result.ForeignProcs = append(w.result.ForeignProcs, p.String())
 		}
 	}
-	if held := snapshot.ForeignMemoryMiB(w.cfg.OwnPIDs); held > w.result.MaxForeignGPUMemMiB {
+	if held := snapshot.ForeignMemoryMiB(own); held > w.result.MaxForeignGPUMemMiB {
 		w.result.MaxForeignGPUMemMiB = held
 	}
 }

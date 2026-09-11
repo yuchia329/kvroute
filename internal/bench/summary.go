@@ -86,6 +86,12 @@ type Summary struct {
 	Dropped       int `json:"dropped" parquet:"dropped"`
 	Cancelled     int `json:"cancelled" parquet:"cancelled"`
 	SLOViolations int `json:"slo_violations" parquet:"slo_violations"`
+	// Rerouted is how many measured requests the router moved to another replica
+	// because the one it first chose failed before emitting anything. It is not
+	// an outcome and is not one of the columns above: a rerouted request ends
+	// like any other, usually as a success, and this counts the losses the
+	// reroute hid. A drop count means something only beside it.
+	Rerouted int `json:"rerouted" parquet:"rerouted"`
 
 	// WindowNs is the span the rates below are computed over, derived from the
 	// rows rather than from the driver's clock so that the denominator cannot
@@ -205,6 +211,9 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 		s.Requests++
 		s.PromptBytes += r.PromptBytes
 		s.Decisions.count(r.Decision)
+		if r.Reroutes > 0 {
+			s.Rerouted++
+		}
 
 		started := time.Unix(0, r.StartedAtNs)
 		if first.IsZero() || started.Before(first) {
