@@ -257,6 +257,19 @@ type Cell struct {
 	// to put the two in one table (ADR-0010). False on every cell recorded before
 	// #24, which is the truth about them: no fleet published before it.
 	KVEvents bool `json:"kv_events" parquet:"kv_events"`
+	// CellDurationNs and WarmupNs are how long this cell kept starting new
+	// turns and how much of that opening stretch was recorded but left out of
+	// the summary. Its measured window is the difference.
+	//
+	// On the cell for the reason the think time is: neither changes a byte of
+	// what is sent, so neither is in the workload's name, and two cells of one
+	// id that differ only here would otherwise resume one another. #18's smoke
+	// cell would have done exactly that — 150 s, sharing an id with the first
+	// repetition of a grid that then ran at 300 s. A zero length means the cell
+	// predates these fields; a zero warm-up is a real setting, so it is the
+	// length that says whether the pair was recorded.
+	CellDurationNs int64 `json:"cell_duration_ns" parquet:"cell_duration_ns"`
+	WarmupNs       int64 `json:"warmup_ns" parquet:"warmup_ns"`
 
 	StartedAtNs int64 `json:"started_at_ns" parquet:"started_at_ns"`
 	EndedAtNs   int64 `json:"ended_at_ns" parquet:"ended_at_ns"`
@@ -887,6 +900,22 @@ func checkCachedWorkload(cfg SweepConfig) error {
 				"Sweep into a new -dir — make pressure-grid picks one of its own when ops/versions.env turns the events on. Publishing is work the engine does on every step, so cells recorded with and without it are two measurements, not repetitions of one (ADR-0010)",
 				cfg.Dir, withOrWithout(cached.KVEvents), withOrWithout(cfg.FleetKVEvents), cached.ID)
 		}
+		// And the cell's length and warm-up, which no byte of the workload shows
+		// either. A cell's measured window is its length less its warm-up, so a
+		// cell of another length or warm-up is another measurement under the same
+		// id — #18's 150 s smoke cell shared an id with the first repetition of a
+		// 300 s grid and was kept out of it only by being deleted by hand. A cell
+		// recorded before these fields carries no length and is not compared; a
+		// recorded warm-up of zero is a real setting and is, which is why the
+		// length and not the warm-up says whether the pair was recorded.
+		if cached.CellDurationNs != 0 &&
+			(cached.CellDurationNs != cfg.CellDuration.Nanoseconds() || cached.WarmupNs != cfg.Warmup.Nanoseconds()) {
+			return fmt.Errorf("bench: %s already holds cells of a different length or warm-up, and neither is in the workload's name, so these cells would be resumed as though they were this sweep's own (cell %s).\n"+
+				"  cell ran:          %v long, %v warm-up\n"+
+				"  this sweep offers: %v long, %v warm-up\n"+
+				"Sweep into a new -dir. A cell's measured window is its length less its warm-up, so two geometries are two measurements and not two repetitions of one",
+				cfg.Dir, cached.ID, time.Duration(cached.CellDurationNs), time.Duration(cached.WarmupNs), cfg.CellDuration, cfg.Warmup)
+		}
 	}
 	return nil
 }
@@ -1198,11 +1227,13 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		KVHighWater:         cfg.Spill.KVHighWater,
 		LoadImbalanceFactor: cfg.Spill.LoadImbalanceFactor,
 
-		ArrivalPlan: arrivalPlanFor(load),
-		ThinkTimeNs: thinkTimeFor(load, cfg.ThinkTime).Nanoseconds(),
-		KVEvents:    cfg.FleetKVEvents,
-		StartedAtNs: started.UnixNano(),
-		EndedAtNs:   ended.UnixNano(),
+		ArrivalPlan:    arrivalPlanFor(load),
+		ThinkTimeNs:    thinkTimeFor(load, cfg.ThinkTime).Nanoseconds(),
+		KVEvents:       cfg.FleetKVEvents,
+		CellDurationNs: cfg.CellDuration.Nanoseconds(),
+		WarmupNs:       cfg.Warmup.Nanoseconds(),
+		StartedAtNs:    started.UnixNano(),
+		EndedAtNs:      ended.UnixNano(),
 
 		PrefixCacheHits:    served.Cache.Hits,
 		PrefixCacheQueries: served.Cache.Queries,
