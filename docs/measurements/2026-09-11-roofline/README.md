@@ -16,7 +16,7 @@ them can hope to change.
 | engine | vLLM 0.28.0, `Meta-Llama-3.1-8B-Instruct-AWQ-INT4`, every setting from `ops/versions.env` ([`evidence/engine-args.txt`](evidence/engine-args.txt)) |
 | profiler | Nsight Systems 2026.1.3, CUDA and NVTX, per-node CUDA graph tracing, driver 595.84 |
 | plan | prompts of 128 to 8,000 tokens prefilled alone, ×3; decode batches of 1 to 256 at ~256 tokens of context and of 1 to 48 at ~2,048, 64 tokens each |
-| steps | **1,001 captured**, 740 pooled into the 22 points below, 261 not drawn |
+| steps | **1,001 captured**, 740 pooled into the 21 points below, 261 not drawn |
 | report | [`roofline.md`](roofline.md) — the table this README reads from |
 
 ## How it is measured
@@ -29,11 +29,18 @@ attention its exact query-key pairs.
 
 They are counted because they cannot be read here: **Nsight Compute needs GPU performance counters,
 and this driver reserves them for root** (`RmProfilingAdminOnly: 1`, and there is no sudo on a shared
-box). That is a real limitation and it cuts one way only. The count is the *least* the step could
-have done — every weight read once, every key and value fetched once, each linear layer's input read
-and output written — so a kernel that moves more bytes than it must appears as a lower achieved
-rate, never as a different intensity. The horizontal position of every point is the model's; only
-its height is the engine's.
+box). That is a real limitation, and it binds the two halves of a point differently.
+
+**A point's height is a lower bound.** The count is the least arithmetic a step could have done, so
+the rate it implies is the least the step could have achieved: a kernel that wastes work or traffic
+sinks its point rather than lifting it.
+
+**A point's intensity is bounded in neither direction**, because it is one count divided by another —
+the least arithmetic over the least traffic. The likely error does have a direction: real kernels
+move *more* bytes than the floor, re-reading KV tiles and spilling activations, and extra bytes push
+a point **left**, toward memory. Every decode verdict below is safe under that, since leftward is
+further beneath the bandwidth roof. The one claim that is not is the crossing — see the ×32 caveat
+with it.
 
 The roofs are measured on the same card minutes before the run, with library calls rather than the
 datasheet: a large fp16 GEMM through cuBLAS (fp32 accumulate, which is what Marlin accumulates in
@@ -45,6 +52,13 @@ and 936 — the card under its own clocks and power cap, which is what the steps
 **Every prefill point reaches 95–100% of the measured compute roof**, from a 128-token prompt at 339
 FLOP/byte to a chunk of an 8,000-token one at 2,303. Prefill is arithmetic, and this engine is
 already extracting essentially all of the card's arithmetic.
+
+One of them reads **100.2%**: the standalone 2,048-token prefill, at 62.1 TFLOP/s against a roof of
+62.0. Nothing outran the card. It is the half-percent disagreement between two independently
+obtained numbers — the FLOPs counted off a step, and the rate cuBLAS reached on a square GEMM — and
+it is the scale at which every figure here should be read. What a point cannot do is cross the
+*datasheet's* 71 TFLOP/s, which is physical; `roofline report` refuses to draw a run that does,
+because that would mean the counting is wrong rather than the card is fast.
 
 **Decode at a realistic context never gets near it.** At ~2,048 tokens — a session of the frozen
 workload — even 48 sequences decoding together reach only 42.9 FLOP/byte, against a ridge at 73.5,
@@ -70,6 +84,14 @@ context the batch of 32 is the first compute-bound point.
 | FLOP/byte | 3.2 | 24.2 | 45.3 | **80.3** | 192 | 249 |
 | bound by | bandwidth | bandwidth | bandwidth | compute | compute | compute |
 | of the measured roof | 92% | 87% | 79% | 64% | 80% | 83% |
+
+Two things to read carefully in that row. **"Of the measured roof" changes denominator at the
+crossing** — it is always the roof that bounds the point, bandwidth to the left of the ridge and
+compute to the right — so the drop from 79% to 64% at ×32 is the axis changing under it, not the
+engine falling off. And **the crossing itself is the least robust figure here**: ×32 sits at 80.3
+FLOP/byte against a ridge at 73.5, a 9% margin, and traffic the count does not know about would move
+it back across. It is reported as the first compute-bound point because that is what counting says,
+not because 9% is comfortable.
 
 So "decode is memory-bandwidth-bound" is true of this fleet rather than of decode in general: it is
 true because the sessions are long, and it would stop being true if they were short and the batches

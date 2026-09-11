@@ -242,7 +242,6 @@ up() {
   fi
 
   engine_args "$index"
-  local args=("${ENGINE_ARGS[@]}")
 
   local pin
   pin="$(pin_prefix "$index")"
@@ -253,7 +252,7 @@ up() {
   # shellcheck disable=SC2086
   CUDA_VISIBLE_DEVICES="$index" \
   VLLM_USE_FLASHINFER_SAMPLER="$VLLM_USE_FLASHINFER_SAMPLER" \
-    nohup $pin "$VENV/bin/vllm" "${args[@]}" >"$log" 2>&1 &
+    nohup $pin "$VENV/bin/vllm" "${ENGINE_ARGS[@]}" >"$log" 2>&1 &
   echo $! >"$pid"
 
   local deadline=$(( SECONDS + STARTUP_TIMEOUT_SECONDS ))

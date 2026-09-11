@@ -24,8 +24,8 @@ type Phase struct {
 	QQ, QK int64
 }
 
-// Step is one engine iteration, read off the NVTX range vLLM wraps it in when
-// its profiler runs with detailed_trace_annotation.
+// Step is one engine step, read off the NVTX range vLLM wraps it in when its
+// profiler runs with detailed_trace_annotation.
 type Step struct {
 	Context    Phase
 	Generation Phase

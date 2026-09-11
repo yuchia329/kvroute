@@ -38,7 +38,7 @@ func decodeSteps(t *testing.T, n int) []roofline.Timed {
 
 const prefill2048 = "execute_2048_context_1(sq2048sk2048sqsq4194304sqsk4194304)_generation_0(sq0sk0sqsq0sqsk0)"
 
-// The ticket's claim, on the probe's own numbers. A 2,048-token prefill that
+// The ticket's claim, on the run's own numbers. A 2,048-token prefill that
 // took 475.83 ms of GPU time does 2,070 FLOPs per byte, far right of the ridge;
 // four sequences decoding do about 12, far left of it.
 func TestDecodeIsBoundByBandwidthAndPrefillByCompute(t *testing.T) {

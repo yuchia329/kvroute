@@ -31,7 +31,7 @@ func (r Roofline) Report() string {
 	for _, p := range r.Points {
 		fmt.Fprintf(&b, "| %s | %d | %s | %.1f | %.0f | %s | %.0f%% |\n",
 			p.Label(), p.Steps, intensity(p.Intensity()), p.Rate()/1e12,
-			float64(p.Work.Bytes)/p.Busy.Seconds()/1e9, p.Bound,
+			p.Bandwidth()/1e9, p.Bound,
 			100*p.Rate()/r.Ceilings.Measured.Attainable(p.Intensity()))
 	}
 	if r.Undrawn > 0 {

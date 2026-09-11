@@ -16,7 +16,12 @@ import (
 type Timed struct {
 	Step Step
 	// Span is from the step's first GPU operation starting to its last ending,
-	// as nsys projects the step's NVTX range onto the GPU.
+	// as nsys projects the step's NVTX range onto the GPU. Nothing is computed
+	// from it. It is kept, and written out beside the busy time, as the evidence
+	// that a step's rate is not hiding a stretch where the GPU sat waiting on
+	// the CPU: the two agree within a couple of percent on every step of this
+	// hardware, and a run where they stopped agreeing would be measuring the
+	// engine's launch path rather than the model's work.
 	Span time.Duration
 	// Busy is the part of the span in which at least one of the step's
 	// operations was running. The rest of the span is the GPU waiting on the

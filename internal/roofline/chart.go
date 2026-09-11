@@ -79,13 +79,13 @@ func (r Roofline) Chart() string {
 		s := series[at]
 		px, py := x(p.Intensity()), y(p.Rate())
 		tip := fmt.Sprintf("%s: %s FLOP/byte, %.1f TFLOP/s, %.0f GB/s, %d steps",
-			p.Label(), intensity(p.Intensity()), p.Rate()/1e12, float64(p.Work.Bytes)/p.Busy.Seconds()/1e9, p.Steps)
+			p.Label(), intensity(p.Intensity()), p.Rate()/1e12, p.Bandwidth()/1e9, p.Steps)
 		if p.Kind == Prefill {
 			fmt.Fprintf(&b, `<rect x="%.1f" y="%.1f" width="9" height="9" fill="%s"><title>%s</title></rect>`+"\n", px-4.5, py-4.5, s.color, escape(tip))
 		} else {
 			fmt.Fprintf(&b, `<circle cx="%.1f" cy="%.1f" r="4.5" fill="%s"><title>%s</title></circle>`+"\n", px, py, s.color, escape(tip))
 		}
-		if label := mark(p); label != "" {
+		if label := p.Mark(); label != "" {
 			lx, ly, anchor := px, py-9, "middle"
 			if p.Kind == Decode {
 				if at%2 == 1 {
@@ -142,20 +142,6 @@ func (r Roofline) series() []chartSeries {
 			name: fmt.Sprintf("decode at ~%d tokens", p.Context), color: seriesColors[n%len(seriesColors)]})
 	}
 	return out
-}
-
-// mark is a point's label on the chart itself: the batch size for a decode and
-// the prompt's tokens for a prefill. A chunk of a longer prompt has none — they
-// crowd together near the compute roof, and its tooltip and table row name it.
-func mark(p Point) string {
-	switch {
-	case p.Kind == Decode:
-		return fmt.Sprintf("×%d", p.Sequences)
-	case p.Context > p.Tokens:
-		return ""
-	default:
-		return fmt.Sprintf("%d", p.Tokens)
-	}
 }
 
 func decadeBelow(v float64) float64 { return math.Pow(10, math.Floor(math.Log10(v))) }

@@ -75,6 +75,24 @@ func (p Point) Intensity() float64 { return float64(p.Work.FLOPs) / float64(p.Wo
 // Rate is the point's FLOPs per second of GPU time.
 func (p Point) Rate() float64 { return float64(p.Work.FLOPs) / p.Busy.Seconds() }
 
+// Bandwidth is the point's bytes of GPU memory traffic per second of GPU time.
+func (p Point) Bandwidth() float64 { return float64(p.Work.Bytes) / p.Busy.Seconds() }
+
+// Mark is the point's label on the chart itself, where there is room for its
+// batch size or its prompt's tokens and no more. A chunk of a longer prompt has
+// none: those crowd together near the compute roof, and the chart names each in
+// its tooltip and the report gives it a row.
+func (p Point) Mark() string {
+	switch {
+	case p.Kind == Decode:
+		return fmt.Sprintf("×%d", p.Sequences)
+	case p.Context > p.Tokens:
+		return ""
+	default:
+		return fmt.Sprintf("%d", p.Tokens)
+	}
+}
+
 // Label names the point's shape.
 func (p Point) Label() string {
 	switch {
@@ -109,8 +127,8 @@ const minDecodeSteps = 8
 // with no prompt in its steps.
 func Build(m Model, c Ceilings, steps []Timed) (Roofline, error) {
 	type shape struct {
-		kind                      Kind
-		sequences, tokens, contxt int64
+		kind                          Kind
+		sequences, tokens, contextLen int64
 	}
 	r := Roofline{Model: m, Ceilings: c}
 	pooled := map[shape]*Point{}
@@ -127,7 +145,7 @@ func Build(m Model, c Ceilings, steps []Timed) (Roofline, error) {
 		}
 		p := pooled[k]
 		if p == nil {
-			p = &Point{Kind: k.kind, Sequences: k.sequences, Tokens: k.tokens, Context: k.contxt}
+			p = &Point{Kind: k.kind, Sequences: k.sequences, Tokens: k.tokens, Context: k.contextLen}
 			pooled[k] = p
 		}
 		w := m.Work(s.Step)
