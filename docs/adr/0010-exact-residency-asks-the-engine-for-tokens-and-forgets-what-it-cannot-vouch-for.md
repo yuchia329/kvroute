@@ -157,6 +157,9 @@ the wire against the libzmq 4.3.5 bundled with pyzmq 27.2.0 (`KVROUTE_LIBZMQ=1`)
 - **The tokenization rides on the replicas' API servers.** Every prompt is tokenized twice on the
   fleet. Asking in turn spreads it across all five alike, but it is load the other policies do not
   add, and it counts as this policy's cost.
-- **Not yet checked on the box:** that `/tokenize` returns exactly as many tokens as a chat
-  completion's `usage.prompt_tokens` for the workload's own bodies. The exactness claim rests on
-  it, so it is checked against the live fleet before the comparison runs.
+- **Checked on the box, 2026-09-11:** `/tokenize` does not merely agree in count with a chat
+  completion's `usage.prompt_tokens`, it returns the same token ids. Asked with
+  `return_token_ids`, the engine echoed its prompt's ids and they were equal to `/tokenize`'s for
+  all three of the workload's body shapes — a lone user turn (395 tokens), a system prompt before
+  it (467), and a history with an assistant turn in it (701). The exactness claim rests on this,
+  so `ops/probe-tokenize.sh` runs before every comparison rather than being trusted once.
