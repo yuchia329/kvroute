@@ -280,6 +280,23 @@ the fleet contributes, and reported separately so the router's own cost is never
 TTFT.
 _Avoid_: routing latency, proxy overhead
 
+**Engine step**:
+One iteration of a replica's scheduler: every token the engine computes in one forward pass, across
+every request it scheduled — a whole prompt or a chunk of one for a request still prefilling, one
+token for each request decoding. It is the unit the GPU executes, so it is the unit the roofline
+places: a request is many steps, and a step is many requests. vLLM names each one's composition when
+its profiler runs, which is where the roofline reads it from.
+_Avoid_: iteration, forward pass, batch (a batch is the requests a step serves, not the work it does)
+
+**Roofline**:
+Engine steps placed by arithmetic intensity — FLOPs per byte of GPU memory traffic — against the rate
+they achieved, under the card's two ceilings: memory bandwidth times intensity, and peak compute.
+Left of the ridge where the two meet a step waits on memory, and right of it on arithmetic. The
+intensity is counted from the model's shapes rather than read off hardware counters, which this
+box reserves for root, so it is exact about what a step had to do and blind to what its kernels
+wasted doing it; only the time is measured.
+_Avoid_: speed of light (that is Nsight Compute's per-kernel section), performance model
+
 **Latency floor**:
 What a request costs with nothing in the way: one at a time, straight at a replica, no router and
 no competing load. Measured across every replica and pooled, because an SLO derived from the

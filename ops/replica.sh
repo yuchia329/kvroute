@@ -181,6 +181,50 @@ assert_forced_backend() {
      QUANTIZATION_LOG_PATTERN in ops/versions.env once you have confirmed which."
 }
 
+# engine_args sets ENGINE_ARGS to the vllm argv of the replica on one GPU:
+# every pinned engine setting, read from versions.env and nowhere else. It is
+# its own function so that anything else that has to start the same engine —
+# the roofline's profiled replica (ops/roofline.sh, via `replica.sh args`) —
+# asks for it here rather than restating it and drifting.
+engine_args() {
+  local index="$1"
+  ENGINE_ARGS=(
+    serve "$MODEL"
+    --host 0.0.0.0
+    --port "$(replica_port "$index")"
+    --quantization "$QUANTIZATION"
+    --linear-backend "$LINEAR_BACKEND"
+    --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION"
+    --max-num-seqs "$MAX_NUM_SEQS"
+    --block-size "$BLOCK_SIZE"
+    --max-model-len "$MAX_MODEL_LEN"
+  )
+  # Written as if/then, not `[[ ... ]] && ...`: under `set -e` a false test as
+  # the whole statement would exit the script, so turning a knob off would kill
+  # the launch instead of dropping the flag.
+  if [[ "$ENABLE_PREFIX_CACHING" == "1" ]]; then
+    ENGINE_ARGS+=(--enable-prefix-caching)
+  fi
+  if [[ "$ENABLE_CHUNKED_PREFILL" == "1" ]]; then
+    ENGINE_ARGS+=(--enable-chunked-prefill)
+  fi
+  if [[ "$KV_CACHE_METRICS" == "1" ]]; then
+    ENGINE_ARGS+=(--kv-cache-metrics)
+  fi
+  # Defaulted rather than bare, unlike the knobs above it. Those are all defined
+  # in versions.env and have been since before this script could run; this one
+  # arrives with a config change, and under `set -u` a replica.sh that reached
+  # the box before its versions.env would kill every launch with an unbound
+  # variable rather than simply not passing the flag.
+  if [[ "${ENABLE_PROMPT_TOKENS_DETAILS:-0}" == "1" ]]; then
+    ENGINE_ARGS+=(--enable-prompt-tokens-details)
+  fi
+  # KV cache events (#24), defaulted for the reason the flag above is.
+  if [[ "${KV_EVENTS:-0}" == "1" ]]; then
+    ENGINE_ARGS+=(--kv-events-config "$(kv_events_config "$index")")
+  fi
+}
+
 up() {
   local index="$1"
   assert_index "$index"
@@ -197,41 +241,8 @@ up() {
     die "$id is already running as PID $(cat "$pid")"
   fi
 
-  local args=(
-    serve "$MODEL"
-    --host 0.0.0.0
-    --port "$port"
-    --quantization "$QUANTIZATION"
-    --linear-backend "$LINEAR_BACKEND"
-    --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION"
-    --max-num-seqs "$MAX_NUM_SEQS"
-    --block-size "$BLOCK_SIZE"
-    --max-model-len "$MAX_MODEL_LEN"
-  )
-  # Written as if/then, not `[[ ... ]] && ...`: under `set -e` a false test as
-  # the whole statement would exit the script, so turning a knob off would kill
-  # the launch instead of dropping the flag.
-  if [[ "$ENABLE_PREFIX_CACHING" == "1" ]]; then
-    args+=(--enable-prefix-caching)
-  fi
-  if [[ "$ENABLE_CHUNKED_PREFILL" == "1" ]]; then
-    args+=(--enable-chunked-prefill)
-  fi
-  if [[ "$KV_CACHE_METRICS" == "1" ]]; then
-    args+=(--kv-cache-metrics)
-  fi
-  # Defaulted rather than bare, unlike the knobs above it. Those are all defined
-  # in versions.env and have been since before this script could run; this one
-  # arrives with a config change, and under `set -u` a replica.sh that reached
-  # the box before its versions.env would kill every launch with an unbound
-  # variable rather than simply not passing the flag.
-  if [[ "${ENABLE_PROMPT_TOKENS_DETAILS:-0}" == "1" ]]; then
-    args+=(--enable-prompt-tokens-details)
-  fi
-  # KV cache events (#24), defaulted for the reason the flag above is.
-  if [[ "${KV_EVENTS:-0}" == "1" ]]; then
-    args+=(--kv-events-config "$(kv_events_config "$index")")
-  fi
+  engine_args "$index"
+  local args=("${ENGINE_ARGS[@]}")
 
   local pin
   pin="$(pin_prefix "$index")"
@@ -346,5 +357,7 @@ case "${1:-}" in
   down)   shift; down "${1:-}" ;;
   kill)   shift; kill_hard "${1:-}" ;;
   status) status ;;
-  *)      die "usage: $0 up|down|kill <gpu index> | status" ;;
+  # One argument per line: the argv `up` would start the engine with.
+  args)   shift; assert_index "${1:-}"; engine_args "$1"; printf '%s\n' "${ENGINE_ARGS[@]}" ;;
+  *)      die "usage: $0 up|down|kill|args <gpu index> | status" ;;
 esac

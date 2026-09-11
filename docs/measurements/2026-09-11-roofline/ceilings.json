@@ -1,0 +1,22 @@
+{
+  "card": "NVIDIA GeForce RTX 3090",
+  "compute_flops_per_second": 62026741113230.33,
+  "bandwidth_bytes_per_second": 844298053242.0171,
+  "gemm_trials_flops_per_second": [
+    61381225949850.34,
+    62026741113230.33,
+    60284980312965.24,
+    61994508956232.56,
+    60403509956708.484
+  ],
+  "copy_trials_bytes_per_second": [
+    843110078886.193,
+    843567928384.3241,
+    843822461989.669,
+    843941309564.522,
+    844298053242.0171
+  ],
+  "gemm": "fp16 8192x8192x8192, torch.matmul",
+  "copy": "1073741824 bytes, Tensor.copy_",
+  "torch": "2.13.0+cu130"
+}

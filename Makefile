@@ -181,6 +181,7 @@ linux: ## Cross-compile every command for the GPU box, which has no Go toolchain
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/pressuremap-linux-amd64 ./cmd/pressuremap
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/chaos-linux-amd64 ./cmd/chaos
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/recovery-linux-amd64 ./cmd/recovery
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/roofline-linux-amd64 ./cmd/roofline
 
 .PHONY: test
 test: ## Run the full suite under the race detector
