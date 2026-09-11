@@ -153,8 +153,9 @@ _Avoid_: memory pressure, cache usage
 ### Routing
 
 **Policy**:
-A pluggable rule mapping a request plus fleet state to a chosen replica. Five exist; only the
-policy varies between benchmark runs.
+A pluggable rule mapping a request plus fleet state to a chosen replica. Six exist — idea.md §5's
+five, and the stateless prefix hash it does not number; only the policy varies between benchmark
+runs.
 _Avoid_: strategy, algorithm, scheduler
 
 **Candidate**:
@@ -197,6 +198,41 @@ It is deliberately blind to load — that blindness is the mechanism prefix affi
 not a defect to be patched.
 _Avoid_: sticky sessions, session pinning, affinity (unqualified — that is the prefix-match
 decision above)
+
+**Stateless prefix hash**:
+Routing on a hash of the prompt's leading blocks, placed on the same ring session affinity uses,
+weighed against replica inflight, and remembering nothing. It is the third kind of cache-aware
+routing here and the bottom rung of the residency ladder: it holds no index and no belief, where
+prefix affinity holds a believed one and exact residency the engines' own. Named for what it
+hashes rather than for the lab that documented one — the mechanism is inferred from OpenAI's
+public documentation of a hash of "the initial tokens" plus machine load, and is never reported as
+a reproduction of their router.
+_Avoid_: OpenAI routing, prompt cache key routing, content hash (unqualified), prefix hashing
+(unqualified — the prefix index hashes blocks too)
+
+**Hash window**:
+How many of a prompt's leading blocks the stateless prefix hash covers, and therefore how much of
+a prompt decides where it goes. A window and not a prefix length, because both ends of it bind: a
+short one hashes every conversation carrying the shared system prompt to one key, and a long one
+reaches into the part of the prompt that grows, so a conversation's second turn lands somewhere
+other than its first. Stated for every run rather than defaulted, because no number for it has
+ever been published.
+_Avoid_: initial tokens, prefix length, hash depth
+
+**Deflection**:
+The stateless prefix hash's decision to pass over the replica its hash ranked first because a
+sibling was enough less loaded to outweigh it. Distinct from a spill, which declines a prefix
+match the router believes in and pays a prefill to escape pressure; a deflection gives up no
+belief, because that policy holds none. How often it fires is how the weighting between the two
+terms is read.
+_Avoid_: spill, overflow, rebalance
+
+**Unhashed**:
+A request whose prompt was shorter than the hash window, routed on load because it had no leading
+blocks to hash. Its own decision rather than cold, for the reason untokenized is: cold says no
+replica held the prompt, and this says the prompt was too short to ask about. A cell full of them
+offered prompts the window never fitted, which no goodput figure beside it would reveal.
+_Avoid_: cold, short prompt, unhashable
 
 ### Failure and recovery
 

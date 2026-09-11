@@ -238,6 +238,9 @@ func addDecisions(a, b DecisionMix) DecisionMix {
 		SpillKV:             a.SpillKV + b.SpillKV,
 		SpillLoad:           a.SpillLoad + b.SpillLoad,
 		PromptUntokenized:   a.PromptUntokenized + b.PromptUntokenized,
+		PrefixHash:          a.PrefixHash + b.PrefixHash,
+		HashDeflected:       a.HashDeflected + b.HashDeflected,
+		PromptUnhashed:      a.PromptUnhashed + b.PromptUnhashed,
 		Undecided:           a.Undecided + b.Undecided,
 	}
 }

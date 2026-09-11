@@ -44,6 +44,25 @@ const (
 	// ReasonPrefixAffinity is the replica believed to hold the longest leading
 	// run of this prompt's blocks.
 	ReasonPrefixAffinity Reason = "PREFIX_AFFINITY"
+	// ReasonPrefixHash is the replica the stateless hash of this prompt's leading
+	// blocks ranked first, kept because load did not argue against it.
+	ReasonPrefixHash Reason = "PREFIX_HASH"
+	// ReasonHashDeflected is a request the load term moved off the replica the
+	// hash ranked first.
+	//
+	// Its own reason because the balance between the two terms is the policy: the
+	// weight is swept, and a grid point that deflected nothing and one that
+	// deflected everything would otherwise be told apart only by their goodput,
+	// which is the number the sweep is trying to explain rather than a way of
+	// explaining it.
+	ReasonHashDeflected Reason = "HASH_DEFLECTED"
+	// ReasonPromptUnhashed is a request whose prompt was shorter than the hash's
+	// window, placed on load because it had no leading blocks to hash.
+	//
+	// Its own reason for the reason PROMPT_UNTOKENIZED is: a run whose prompts
+	// never filled the window routed on load throughout, and folded into the hash
+	// decisions that would read as a hash that preferred nothing.
+	ReasonPromptUnhashed Reason = "PROMPT_UNHASHED"
 	// ReasonCold is a request no replica was believed to hold anything for,
 	// placed on load because there was no cache locality to preserve.
 	//
@@ -89,10 +108,19 @@ func (r Reason) Spilled() bool { return r == ReasonSpillKV || r == ReasonSpillLo
 // It is here rather than in the harness because the comparison table has to put
 // the baseline in the same column whichever order the runs happened in, and the
 // policies are what the ordering is about.
+//
+// The stateless prefix hash is the one entry idea.md §5 does not number. It sits
+// immediately before prefix affinity so that the three cache-aware policies read
+// as the ladder they are — none, then believed, then exact residency knowledge —
+// and §5's five keep their own order among themselves. Listed rather than left
+// to sort after them: the table's trailing group is for names no policy has, so
+// that a mistyped -policy shows up instead of disappearing, and a real policy
+// landing there would be indistinguishable from that typo.
 var Order = []string{
 	RoundRobinName,
 	LeastOutstandingName,
 	SessionAffinityName,
+	PrefixHashName,
 	PrefixAffinityName,
 	ExactResidencyName,
 }
@@ -228,6 +256,11 @@ type Options struct {
 	// PrefixIndex is the index prefix affinity routes on. Required by that
 	// policy and ignored by the others, which route on the fleet snapshot alone.
 	PrefixIndex *prefix.Index
+	// Hash is the window and weighting the stateless prefix hash routes at.
+	// Required by that policy, which will not invent either, and ignored by the
+	// others. See Hash: neither figure is a measurement, and neither is
+	// defaulted.
+	Hash Hash
 	// Spill is the pressure at which prefix affinity is declined. Its zero value
 	// is no spill rule, which is the policy measured before one existed, so this
 	// is optional where PrefixIndex is required: an unset threshold is a
@@ -252,6 +285,14 @@ func ByName(name string, opts Options) (Policy, error) {
 		return NewLeastOutstanding(), nil
 	case SessionAffinityName:
 		return NewSessionAffinity(), nil
+	case PrefixHashName:
+		if err := opts.Hash.Validate(); err != nil {
+			return nil, err
+		}
+		if !opts.Hash.Stated() {
+			return nil, fmt.Errorf("policy: %s needs a hash window: how many leading blocks it covers is a number nobody has published, so it is stated for every run rather than defaulted", PrefixHashName)
+		}
+		return NewPrefixHash(opts.Hash), nil
 	case PrefixAffinityName:
 		if opts.PrefixIndex == nil {
 			return nil, fmt.Errorf("policy: %s needs a prefix index, and its bounds are measurements rather than defaults: build one with prefix.Calibration", PrefixAffinityName)

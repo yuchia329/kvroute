@@ -1,11 +1,6 @@
 package policy
 
 import (
-	"fmt"
-	"hash/fnv"
-	"slices"
-	"sort"
-	"strings"
 	"sync/atomic"
 
 	"github.com/yuchia329/kvroute/internal/fleet"
@@ -14,17 +9,6 @@ import (
 // SessionAffinityName is the configuration name of the consistent-hash session
 // affinity policy.
 const SessionAffinityName = "session_affinity"
-
-// virtualNodesPerReplica is how many points on the ring each replica occupies.
-//
-// One point per replica would leave six replicas splitting the hash space at six
-// arbitrary cuts, and the widest arc can easily be several times the narrowest —
-// an imbalance belonging to the ring rather than to the workload, which would
-// land in the skew axis's column and be read as a result. A hundred and twenty
-// eight points each smooths that to within the bound
-// TestSessionsSpreadAcrossTheWholeFleet checks, at the cost of a 768-entry
-// sorted slice built once per fleet topology.
-const virtualNodesPerReplica = 128
 
 // SessionAffinity routes every turn of a conversation to the same replica, by
 // hashing the session onto a ring of the replicas.
@@ -53,7 +37,7 @@ type SessionAffinity struct {
 	// ring is rebuilt when the replica set changes and reused when it does not,
 	// because hashing 768 virtual nodes on every request would put the ring's
 	// construction inside the router overhead figure §4.1 reports.
-	ring atomic.Pointer[ring]
+	ring ringCache
 	// next spreads the requests no session could be identified for. They have
 	// nothing to hash, so they are rotated rather than all landing on whichever
 	// replica the empty string maps to.
@@ -80,7 +64,7 @@ func (p *SessionAffinity) Choose(req Request, state fleet.State) (Choice, error)
 		return Choice{Replica: chosen.Replica, Reason: ReasonSessionUnidentified, Inflight: chosen.Inflight}, nil
 	}
 
-	replica := p.ringFor(state).lookup(req.Session.ID)
+	replica := p.ring.For(state).lookup(req.Session.ID)
 	// The load is reported even though the hash did not weigh it. How badly this
 	// policy leaves the fleet imbalanced under skew is the comparison §5 is
 	// about, and it has to be a figure the rows can show rather than a claim
@@ -101,130 +85,4 @@ func (p *SessionAffinity) Choose(req Request, state fleet.State) (Choice, error)
 		return Choice{Replica: replica, Reason: ReasonSessionAffinity}, nil
 	}
 	return Choice{Replica: chosen.Replica, Reason: ReasonSessionAffinity, Inflight: chosen.Inflight}, nil
-}
-
-// ringFor returns the ring for this fleet, building it only when the replica set
-// has changed since the last request.
-//
-// The set is what is compared, not the candidates: a replica's inflight changes
-// on every request and has no business rebuilding a ring that does not depend on
-// it. Two requests arriving during a rebuild may each build one and one of them
-// wins; both rings are the same ring, because it is derived from the replica set
-// and nothing else.
-func (p *SessionAffinity) ringFor(state fleet.State) *ring {
-	key := topologyOf(state.Replicas)
-	if current := p.ring.Load(); current != nil && current.topology == key {
-		return current
-	}
-	built := newRing(state.Replicas)
-	p.ring.Store(built)
-	return built
-}
-
-// topologyOf names the replica set a ring was built for. Sorted, so that a fleet
-// listing its replicas in a different order is the same fleet rather than a
-// reason to rehash every session in it.
-func topologyOf(replicas []fleet.Candidate) string {
-	ids := make([]string, 0, len(replicas))
-	for _, c := range replicas {
-		ids = append(ids, c.ID)
-	}
-	slices.Sort(ids)
-	return strings.Join(ids, "\x00")
-}
-
-// ring is the hash ring: virtual node positions in ascending order, each mapping
-// to the replica that owns it.
-//
-// Consistent hashing rather than hash-modulo-count, because the two differ
-// exactly where it matters. Modulo remaps almost every session when the replica
-// count changes — five in six of them when one replica of six leaves — and every
-// remapped session arrives at a replica that has never seen its history and must
-// prefill the whole conversation again. A ring moves only the sessions that
-// lived on the replica that left. That difference is what §7's chaos recovery
-// measures, so the policy has to actually have the property rather than
-// approximate it.
-//
-// It carries replicas rather than candidates: a candidate holds load as well as
-// identity, and load read off a structure rebuilt only on topology change would
-// be frozen at whichever request first built it. Keeping identity alone here
-// makes that mistake unrepresentable rather than merely fixed.
-type ring struct {
-	topology  string
-	positions []uint64
-	owners    []fleet.Replica
-}
-
-func newRing(replicas []fleet.Candidate) *ring {
-	type node struct {
-		position uint64
-		owner    fleet.Replica
-	}
-	nodes := make([]node, 0, len(replicas)*virtualNodesPerReplica)
-	for _, r := range replicas {
-		for v := range virtualNodesPerReplica {
-			nodes = append(nodes, node{position: hash(fmt.Sprintf("%s#%d", r.ID, v)), owner: r.Replica})
-		}
-	}
-	// Ties are broken by replica id so that the ring is a function of the
-	// replica set alone: two routers over one fleet have to send a session to
-	// the same replica, and a collision resolved by iteration order would make
-	// that a per-process accident.
-	sort.Slice(nodes, func(i, j int) bool {
-		if nodes[i].position != nodes[j].position {
-			return nodes[i].position < nodes[j].position
-		}
-		return nodes[i].owner.ID < nodes[j].owner.ID
-	})
-
-	r := &ring{
-		topology:  topologyOf(replicas),
-		positions: make([]uint64, len(nodes)),
-		owners:    make([]fleet.Replica, len(nodes)),
-	}
-	for i, n := range nodes {
-		r.positions[i], r.owners[i] = n.position, n.owner
-	}
-	return r
-}
-
-// lookup walks clockwise from the session's position to the first virtual node,
-// wrapping at the end of the ring.
-func (r *ring) lookup(sessionID string) fleet.Replica {
-	i, _ := slices.BinarySearch(r.positions, hash(sessionID))
-	return r.owners[i%len(r.owners)]
-}
-
-// hash places a key on the ring: FNV-1a, then avalanched.
-//
-// FNV-1a because the ring wants a fast, stable function and nothing here is
-// adversarial — a session id is a key a client supplies to be routed by, not one
-// it is authenticated on. Stability across processes and across runs is the
-// property that matters, so this must not be swapped for anything seeded per
-// process: maphash would move every session on every restart.
-//
-// The avalanche is not optional. FNV-1a diffuses short, near-identical keys
-// poorly, and every session id this fleet will ever see is one of those —
-// "user-0", "user-1", "user-2" out of the generator, and a derived id is a hex
-// string. Measured over 600 such ids on a six-replica ring, raw FNV-1a put 10
-// sessions on one replica and 200 on another, a twenty-fold imbalance belonging
-// to the hash rather than to the workload. That would have landed in the skew
-// axis's column and been read as the load imbalance §5 predicts, which is the
-// one result this policy exists to establish honestly.
-//
-// The finalizer is splitmix64's, which is a bijection, so it spreads the bits
-// without introducing a collision FNV did not already have.
-func hash(key string) uint64 {
-	h := fnv.New64a()
-	h.Write([]byte(key))
-	return avalanche(h.Sum64())
-}
-
-func avalanche(x uint64) uint64 {
-	x ^= x >> 30
-	x *= 0xbf58476d1ce4e5b9
-	x ^= x >> 27
-	x *= 0x94d049bb133111eb
-	x ^= x >> 31
-	return x
 }

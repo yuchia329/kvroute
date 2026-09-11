@@ -271,6 +271,27 @@ SPILL_ARGS = $(if $(KV_HIGH_WATER),-kv-high-water $(KV_HIGH_WATER),) $(if $(LOAD
 # the router will happily run unreachable from the harness.
 SPILL_LABEL = $(if $(KV_HIGH_WATER)$(LOAD_IMBALANCE),-spill $(if $(KV_HIGH_WATER),$(KV_HIGH_WATER),0)/$(if $(LOAD_IMBALANCE),$(LOAD_IMBALANCE),0),)
 
+# The stateless prefix hash's own grid point (#26): how many leading 64-byte
+# prefix blocks it hashes, and what that hash is worth against load in inflight
+# requests. It is spelled twice for the reason the spill point is — the router
+# applies it, the sweep labels its cells with it, and the harness refuses to
+# start when the two disagree.
+#
+# Neither is defaulted here or in the router. The window is the number OpenAI has
+# never published for "the initial tokens", and defaulting it would make a guess
+# look like a citation; the weight is the axis this policy is swept along, so a
+# default would be one point of it wearing the name of the policy.
+#
+#	make run-router POLICY=prefix_hash HASH_BLOCKS=16 HASH_WEIGHT=4
+#	make hash-weight HASH_BLOCKS=16 HASH_WEIGHT=4
+HASH_BLOCKS ?=
+HASH_WEIGHT ?=
+HASH_ARGS = $(if $(HASH_BLOCKS),-hash-leading-blocks $(HASH_BLOCKS),) $(if $(HASH_WEIGHT),-hash-weight $(HASH_WEIGHT),)
+# A weight of zero is a real point — least-outstanding with a hash that decides
+# nothing — so the label defaults the weight rather than the window: an empty
+# window is no policy at all and is left to the router to refuse.
+HASH_LABEL = $(if $(HASH_BLOCKS),-hash $(HASH_BLOCKS)/$(if $(HASH_WEIGHT),$(HASH_WEIGHT),0),)
+
 # The spill thresholds are measured on two workload points, one each, rather
 # than crossed on one. The generator will not let both pressures be high at
 # once: concentrating the draws onto hot conversations means touching fewer
@@ -324,6 +345,35 @@ tunables-load: build ## Run one point of the load imbalance sweep (WS 1, skew 1.
 	@test -n "$(LOAD_IMBALANCE)" || { echo "tunables-load: set LOAD_IMBALANCE to a level from bench.LoadImbalanceGrid, or to 0 for the spill-off reference cell" >&2; exit 1; }
 	@test -z "$(KV_HIGH_WATER)" || { echo "tunables-load: KV_HIGH_WATER must stay unset; this point measures the imbalance factor alone" >&2; exit 1; }
 	$(BIN)/bench -router $(ROUTER) -dir $(TUNABLES_DIR)/load -policy prefix_affinity $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
+		-concurrency $(TUNABLES_CONCURRENCY) \
+		-model "$$(ops/fleet.sh env MODEL)" \
+		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
+		-replicas "$$(ops/fleet.sh replicas)" \
+		-repetitions $(REPS) \
+		$(TUNABLES_LOAD_WORKLOAD) \
+		$(if $(SLO_FROM),-slo-from $(SLO_FROM),) \
+		$(BENCH_ARGS)
+
+# The stateless prefix hash's weight sweep (#26): one point per invocation, at
+# the load point's own pressure.
+#
+# It runs at WS 1 / skew 1.4 — the same point the load imbalance factor is swept
+# at — because the balance between the hash and the load term is the same
+# tradeoff the spill rule's load condition makes, and it is only live where
+# conversations pile up. At skew 0 the hash lands traffic evenly by construction
+# and every weight would read the same.
+#
+# Each point goes into its own directory. A cell's id names the policy, the load
+# level and the repetition and nothing about the weight, so two weights swept
+# into one directory would resume each other — the harness refuses that now, and
+# the layout here is what keeps it from coming up.
+HASH_DIR ?= runs/hash-weight
+
+.PHONY: hash-weight
+hash-weight: build ## Run one point of the stateless hash's weight sweep (WS 1, skew 1.4)
+	@test -n "$(HASH_BLOCKS)" || { echo "hash-weight: set HASH_BLOCKS to the window the run states, bench.HashLeadingBlocks" >&2; exit 1; }
+	@test -n "$(HASH_WEIGHT)" || { echo "hash-weight: set HASH_WEIGHT to a level from bench.HashWeightGrid; 0 is the least-outstanding end of the axis and is a point, not an unset flag" >&2; exit 1; }
+	$(BIN)/bench -router $(ROUTER) -dir $(HASH_DIR)/w$(HASH_WEIGHT) -policy prefix_hash $(HASH_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		-concurrency $(TUNABLES_CONCURRENCY) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
@@ -429,13 +479,20 @@ PRESSURE_CELL = -cell-duration 150s -warmup 50s -settle 10s
 PRESSURE_SPILL ?= 0/2
 PRESSURE_SPILL_LABEL = $(if $(filter prefix_affinity exact_residency,$(POLICY)),-spill $(PRESSURE_SPILL),)
 
+# And the same for the one policy with a hash point rather than a spill rule.
+# PRESSURE_HASH is the point the grid arm runs at, which is the weight the weight
+# sweep settled on: the grid compares policies at one setting each, and the axis
+# is swept separately by `make hash-weight`.
+PRESSURE_HASH ?= 16/4
+PRESSURE_HASH_LABEL = $(if $(filter prefix_hash,$(POLICY)),-hash $(PRESSURE_HASH),)
+
 .PHONY: pressure-grid
 pressure-grid: build ## Run one point of the pressure grid: PRESSURE_WS x PRESSURE_SKEW at one concurrency
 	@test -n "$(PRESSURE_WS)" || { echo "pressure-grid: set PRESSURE_WS to a point of bench.PressureWorkingSets (0.25, 1, 3 or 8)" >&2; exit 1; }
 	@test -n "$(PRESSURE_SKEW)" || { echo "pressure-grid: set PRESSURE_SKEW to a point of bench.PressureSkews (0, 1 or 1.4)" >&2; exit 1; }
 	@test -n "$(KV_CAPACITY)" || { echo "pressure-grid: KV_CAPACITY is required, or the cells state no working set and the map has no axis" >&2; exit 1; }
 	$(BIN)/bench -router $(ROUTER) -dir $(PRESSURE_DIR)/ws$(PRESSURE_WS)-skew$(PRESSURE_SKEW) \
-		-policy $(POLICY) $(PRESSURE_SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
+		-policy $(POLICY) $(PRESSURE_SPILL_LABEL) $(PRESSURE_HASH_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		-concurrency $(PRESSURE_CONCURRENCY) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
@@ -678,7 +735,7 @@ run-router: build ## Run the router against REPLICAS, keeping its own rows in RE
 	$(BIN)/router -listen $(LISTEN) -replicas $(REPLICAS) -policy $(POLICY) -records $(RECORDS) \
 		$(if $(wildcard $(PREFIX_CALIBRATION)),-prefix-calibration $(PREFIX_CALIBRATION),) \
 		$(if $(filter exact_residency,$(POLICY)),$(KV_EVENTS_ARGS),) \
-		$(SPILL_ARGS)
+		$(SPILL_ARGS) $(HASH_ARGS)
 
 # exact_residency follows every engine's KV cache events, so it needs a fleet
 # brought up with KV_EVENTS=1 (ops/versions.env) and the endpoints that fleet

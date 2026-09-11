@@ -171,7 +171,12 @@ func TestExactCountsPreventTheHerdAStaleViewWouldCause(t *testing.T) {
 
 func TestByNameResolvesEveryPolicyTheComparisonReports(t *testing.T) {
 	_, residencyIndex := exactFleet(t, 2)
-	options := policy.Options{PrefixIndex: prefixIndex(t), ResidencyIndex: residencyIndex, Tokenizer: tokenizer()}
+	options := policy.Options{
+		PrefixIndex:    prefixIndex(t),
+		ResidencyIndex: residencyIndex,
+		Tokenizer:      tokenizer(),
+		Hash:           policy.Hash{LeadingBlocks: 16, HashWeight: 4},
+	}
 	for _, name := range policy.Order {
 		p, err := policy.ByName(name, options)
 		if err != nil {

@@ -30,6 +30,19 @@ type DecisionMix struct {
 	SessionUnidentified int `json:"session_unidentified" parquet:"session_unidentified"`
 	PrefixAffinity      int `json:"prefix_affinity" parquet:"prefix_affinity"`
 	Cold                int `json:"cold" parquet:"cold"`
+	// PrefixHash and HashDeflected are the stateless prefix hash's two
+	// decisions: the replica its hash ranked first, and the one load moved it to
+	// instead. Two columns for the reason the two spill conditions are two: the
+	// weighting between the hash and the load term is the whole of that policy,
+	// and a single column would leave a run unable to say whether its weight was
+	// doing anything.
+	PrefixHash    int `json:"prefix_hash" parquet:"prefix_hash"`
+	HashDeflected int `json:"hash_deflected" parquet:"hash_deflected"`
+	// PromptUnhashed is a request whose prompt was shorter than the hash's
+	// window. Its own column rather than one of the two above: a cell full of
+	// these offered prompts the window never fitted, which is a fact about the
+	// workload rather than a hash that preferred nothing.
+	PromptUnhashed int `json:"prompt_unhashed" parquet:"prompt_unhashed"`
 	// SpillKV and SpillLoad are the two spill conditions, and they stay two
 	// columns all the way to the table. Collapsing them here would undo in the
 	// summary what the policy took two reasons to keep apart: the pressure grid
@@ -64,6 +77,12 @@ func (m *DecisionMix) count(reason string) {
 		m.PrefixAffinity++
 	case policy.ReasonCold:
 		m.Cold++
+	case policy.ReasonPrefixHash:
+		m.PrefixHash++
+	case policy.ReasonHashDeflected:
+		m.HashDeflected++
+	case policy.ReasonPromptUnhashed:
+		m.PromptUnhashed++
 	case policy.ReasonSpillKV:
 		m.SpillKV++
 	case policy.ReasonSpillLoad:
@@ -89,7 +108,8 @@ func (m DecisionMix) Spilled() int { return m.SpillKV + m.SpillLoad }
 // cell.
 func (m DecisionMix) Total() int {
 	return m.RoundRobin + m.LeastOutstanding + m.SessionAffinity + m.SessionUnidentified +
-		m.PrefixAffinity + m.Cold + m.SpillKV + m.SpillLoad + m.PromptUntokenized + m.Undecided
+		m.PrefixAffinity + m.Cold + m.SpillKV + m.SpillLoad + m.PromptUntokenized +
+		m.PrefixHash + m.HashDeflected + m.PromptUnhashed + m.Undecided
 }
 
 // AffinityRate is the share of decisions that took a prefix match. Zero when
@@ -112,7 +132,7 @@ func (m DecisionMix) SpillRate() float64 {
 // String renders only the reasons that actually fired, so a policy's mix reads
 // as its own decisions rather than as six zeros belonging to other policies.
 func (m DecisionMix) String() string {
-	parts := make([]string, 0, 9)
+	parts := make([]string, 0, 12)
 	for _, named := range []struct {
 		reason policy.Reason
 		count  int
@@ -126,6 +146,9 @@ func (m DecisionMix) String() string {
 		{policy.ReasonSpillKV, m.SpillKV},
 		{policy.ReasonSpillLoad, m.SpillLoad},
 		{policy.ReasonPromptUntokenized, m.PromptUntokenized},
+		{policy.ReasonPrefixHash, m.PrefixHash},
+		{policy.ReasonHashDeflected, m.HashDeflected},
+		{policy.ReasonPromptUnhashed, m.PromptUnhashed},
 	} {
 		if named.count > 0 {
 			parts = append(parts, fmt.Sprintf("%s=%d", named.reason, named.count))

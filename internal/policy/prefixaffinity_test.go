@@ -321,12 +321,15 @@ func TestByNameNeedsACalibratedIndexForPrefixAffinity(t *testing.T) {
 
 // The comparison table puts the policies in idea.md §5's numbering whichever
 // order the runs happened in: the baselines first, then prefix affinity, then
-// exact residency beside the policy it is the exact counterpart of.
+// exact residency beside the policy it is the exact counterpart of. The one
+// policy §5 does not number, the stateless prefix hash, is placed where it makes
+// the three cache-aware rows read as a ladder — see policy.Order.
 func TestThePoliciesAreComparedInTheOrderIdeaMdNumbersThem(t *testing.T) {
 	want := []string{
 		policy.RoundRobinName,
 		policy.LeastOutstandingName,
 		policy.SessionAffinityName,
+		policy.PrefixHashName,
 		policy.PrefixAffinityName,
 		policy.ExactResidencyName,
 	}

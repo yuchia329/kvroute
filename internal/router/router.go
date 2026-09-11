@@ -108,7 +108,15 @@ type Stats struct {
 	// is the only party that knows. A grid of cells labelled with thresholds the
 	// router was never running would be a tradeoff curve drawn from one point
 	// measured nine times, and no later analysis could detect it.
-	Spill          *policy.Spill  `json:"spill,omitempty"`
+	Spill *policy.Spill `json:"spill,omitempty"`
+	// Hash is the grid point the stateless prefix hash is running: how many
+	// leading blocks it hashes and what that hash is worth against load. Absent
+	// under every other policy, which hash nothing.
+	//
+	// Published for the reason Spill is, and it is the whole configuration of
+	// that policy: its cells are a table indexed by these two numbers, and they
+	// reach the router as flags on a separate process.
+	Hash           *policy.Hash   `json:"hash,omitempty"`
 	Replicas       []ReplicaStats `json:"replicas"`
 	Requests       int64          `json:"requests"`
 	RouterOverhead stats.Summary  `json:"router_overhead"`
@@ -273,6 +281,11 @@ func (rt *Router) Stats() Stats {
 		s := tuned.Tunables()
 		spill = &s
 	}
+	var hashPoint *policy.Hash
+	if tuned, ok := rt.policy.(policy.HashTuned); ok {
+		h := tuned.HashTunables()
+		hashPoint = &h
+	}
 	var index *prefix.Stats
 	if reporter, routes := rt.policy.(IndexReporter); routes {
 		held := reporter.IndexStats()
@@ -285,6 +298,7 @@ func (rt *Router) Stats() Stats {
 	return Stats{
 		Policy:         rt.policy.Name(),
 		Spill:          spill,
+		Hash:           hashPoint,
 		Replicas:       replicas,
 		Requests:       rt.requests.Load(),
 		RouterOverhead: rt.overhead.Summary(),

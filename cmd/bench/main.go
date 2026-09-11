@@ -60,6 +60,7 @@ func run() error {
 		dir          = flag.String("dir", "runs/concurrency", "where cells are written and resumed from")
 		policyName   = flag.String("policy", "round_robin", "the policy the router is running; recorded as the cell's label")
 		spillSpec    = flag.String("spill", "", "the spill grid point the router is running, written <kv-high-water>/<load-imbalance-factor>; recorded as the cell's label and checked against the router before the first cell. Empty means a router with no spill rule")
+		hashSpec     = flag.String("hash", "", "the hash grid point the router is running, written <leading-blocks>/<weight>; recorded as the cell's label and checked against the router before the first cell. Empty means a router that hashes nothing, which is every policy but "+policy.PrefixHashName+". Sweep each point into its own -dir")
 		driver       = flag.String("driver", string(bench.ClosedLoopDriver), "which axis to run: closed_loop holds virtual users at each -concurrency level, open_loop fires at each -arrival-rates level, both runs the two in one directory")
 		levels       = flag.String("concurrency", bench.FormatLevels(bench.ConcurrencySweep), "closed-loop axis: concurrency levels to sweep, holding that many virtual users")
 		rates        = flag.String("arrival-rates", bench.FormatRates(bench.ArrivalRateSweep), "open-loop axis: arrival rates in requests per second, fired on a fixed schedule whether or not earlier requests have finished")
@@ -112,6 +113,12 @@ func run() error {
 
 	// Parsed before anything runs, so an unreadable grid point fails here rather
 	// than after the sweep has written cells labelled with it.
+	var hashPoint policy.Hash
+	if *hashSpec != "" {
+		if hashPoint, err = bench.ParseHash(*hashSpec); err != nil {
+			return err
+		}
+	}
 	var spill policy.Spill
 	if *spillSpec != "" {
 		if spill, err = bench.ParseSpill(*spillSpec); err != nil {
@@ -257,6 +264,7 @@ func run() error {
 		Target:               *target,
 		Policy:               *policyName,
 		Spill:                spill,
+		Hash:                 hashPoint,
 		FleetKVEvents:        *fleetEvents,
 		Replicas:             bases,
 		Concurrencies:        concurrencies,

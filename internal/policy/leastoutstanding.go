@@ -69,13 +69,30 @@ func (p *LeastOutstanding) Choose(_ Request, state fleet.State) (Choice, error) 
 // and a cold request placed differently by the two policies would be a
 // difference between them that is not the mechanism.
 func leastLoadedOf(candidates []fleet.Candidate, next *atomic.Uint64) fleet.Candidate {
-	fewest := candidates[0].Inflight
+	return fewestBy(candidates, func(c fleet.Candidate) float64 { return float64(c.Inflight) }, next)
+}
+
+// fewestBy returns the candidate this cost ranks lowest, rotating between those
+// tied at the minimum.
+//
+// The cost is a function because the stateless prefix hash weighs a second term
+// into it — where the hash ranked each replica — and the tie rotation has to be
+// the same one. Two rotations would be two tie-breaks, and an idle fleet is
+// nothing but ties: the whole bottom of the concurrency ladder would then differ
+// between the policies for a reason that is not the mechanism.
+//
+// A float cost for an integer count of requests, because every integer inflight
+// this fleet can reach is exact in a float64 and the weighted term is not an
+// integer at all. Comparing the two in one unit is the decision the hash policy
+// makes.
+func fewestBy(candidates []fleet.Candidate, cost func(fleet.Candidate) float64, next *atomic.Uint64) fleet.Candidate {
+	fewest := cost(candidates[0])
 	for _, c := range candidates[1:] {
-		fewest = min(fewest, c.Inflight)
+		fewest = min(fewest, cost(c))
 	}
 	tied := make([]fleet.Candidate, 0, len(candidates))
 	for _, c := range candidates {
-		if c.Inflight == fewest {
+		if cost(c) == fewest {
 			tied = append(tied, c)
 		}
 	}

@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +49,12 @@ func run() error {
 		loadImbalanceFactor = flag.Float64("load-imbalance-factor", 0,
 			"multiple of the fleet's minimum inflight above which "+policy.PrefixAffinityName+" and "+policy.ExactResidencyName+" decline the best prefix match and route on load. "+
 				"0 disables the condition")
+		hashLeadingBlocks = flag.Int("hash-leading-blocks", 0,
+			"how many of a prompt's leading "+strconv.Itoa(prefix.BlockBytes)+"-byte prefix blocks "+policy.PrefixHashName+" hashes on. "+
+				"Required by that policy and not defaulted: OpenAI's documented router hashes \"the initial tokens\" and has never published a number, so every run states its own")
+		hashWeight = flag.Float64("hash-weight", 0,
+			"what one step down "+policy.PrefixHashName+"'s ranking of the replicas is worth, in inflight requests. "+
+				"0 routes on load alone and a weight above any imbalance the fleet can show routes on the hash alone; the axis between them is the policy")
 		kvEvents = flag.String("kv-events", "",
 			"comma-separated id=tcp://host:port specs naming each replica's KV cache event publisher, as `ops/fleet.sh kv-events` prints them. "+
 				"Required by "+policy.ExactResidencyName+", which routes on what the engines report holding")
@@ -88,6 +95,7 @@ func run() error {
 		return err
 	}
 	options.Spill = policy.Spill{KVHighWater: *kvHighWater, LoadImbalanceFactor: *loadImbalanceFactor}
+	options.Hash = policy.Hash{LeadingBlocks: *hashLeadingBlocks, HashWeight: *hashWeight}
 
 	// Exact residency's index is fed by every engine's event stream, and it is
 	// started — and connected — before the policy routes anything on it.
@@ -137,6 +145,12 @@ func run() error {
 	// knows whether it has a rule to tune.
 	if _, tuned := chosen.(policy.Tuned); options.Spill.Enabled() && !tuned {
 		return fmt.Errorf("-kv-high-water and -load-imbalance-factor configure the spill rule, which %s does not have: it would ignore them and its cells would be labelled with thresholds nothing applied", *policyName)
+	}
+	// And the same for the hash point, one policy over. A weight set on a policy
+	// that hashes nothing is a run whose cells would name a grid point no
+	// decision was made at.
+	if _, tuned := chosen.(policy.HashTuned); (options.Hash.Stated() || options.Hash.HashWeight != 0) && !tuned {
+		return fmt.Errorf("-hash-leading-blocks and -hash-weight configure %s, and %s hashes nothing: it would ignore them and its cells would be labelled with a grid point nothing applied", policy.PrefixHashName, *policyName)
 	}
 	records, err := record.Open[record.Request](*recordsPath)
 	if err != nil {
@@ -196,6 +210,7 @@ func run() error {
 		"addr", *listen,
 		"policy", chosen.Name(),
 		"spill", options.Spill,
+		"hash", options.Hash,
 		"replicas", len(replicas),
 		"records", *recordsPath,
 	)
