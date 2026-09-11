@@ -155,7 +155,11 @@ type PolicyLatency struct {
 	Load        Load
 	Repetitions int
 	P50Ns       int64
-	P99Ns       int64
+	// P90Ns is the percentile llm-d published its precise-versus-approximate
+	// comparison in, carried so that #24's replication has a like-for-like
+	// figure to set beside it.
+	P90Ns int64
+	P99Ns int64
 }
 
 // String is the pair as a table cell.
@@ -362,6 +366,7 @@ func checkComparable(cells []Cell) error {
 	// both axes would otherwise see its closed-loop cells' empty plan as a second
 	// one and refuse a comparison that is perfectly sound.
 	plans := map[string][]string{}
+	kvEvents := map[bool][]string{}
 	for _, cell := range cells {
 		if !cell.SLOApplied {
 			unjudged = append(unjudged, cell.ID)
@@ -370,6 +375,7 @@ func checkComparable(cells []Cell) error {
 		slo := SLO{TTFT: time.Duration(cell.SLOTTFTNs), ITL: time.Duration(cell.SLOITLNs)}
 		slos[slo] = append(slos[slo], cell.ID)
 		workloads[cell.Workload] = append(workloads[cell.Workload], cell.ID)
+		kvEvents[cell.KVEvents] = append(kvEvents[cell.KVEvents], cell.ID)
 		if cell.Driver == OpenLoopDriver {
 			plans[cell.ArrivalPlan] = append(plans[cell.ArrivalPlan], cell.ID)
 		}
@@ -399,6 +405,16 @@ func checkComparable(cells []Cell) error {
 		sort.Strings(described)
 		return fmt.Errorf("bench: these cells ran under %d different arrival plans, so the difference between the policies would include a difference in which conversation each arrival took: %s",
 			len(plans), strings.Join(described, "; "))
+	}
+	if len(kvEvents) > 1 {
+		// An engine setting, so the workload name cannot catch it: the bytes are
+		// the same either way. A fleet publishing its KV cache events does work on
+		// every step that one not publishing does not, and exact residency cannot
+		// run without it — so a table holding both would put a difference in
+		// engine configuration where the difference between policies goes
+		// (ADR-0010).
+		return fmt.Errorf("bench: these cells ran on two engine configurations — %d with the fleet publishing its KV cache events (e.g. %s) and %d without (e.g. %s) — so the difference between the policies would include a difference in what the engines were doing. Compare cells recorded under one setting",
+			len(kvEvents[true]), kvEvents[true][0], len(kvEvents[false]), kvEvents[false][0])
 	}
 	if len(workloads) > 1 {
 		var described []string
@@ -471,18 +487,22 @@ func poolLatency(name string, load Load, cells []Cell) (PolicyLatency, bool) {
 		return PolicyLatency{}, false
 	}
 	p50 := make([]float64, 0, len(cells))
+	p90 := make([]float64, 0, len(cells))
 	p99 := make([]float64, 0, len(cells))
 	for _, cell := range cells {
 		p50 = append(p50, float64(cell.TTFTP50Ns))
+		p90 = append(p90, float64(cell.TTFTP90Ns))
 		p99 = append(p99, float64(cell.TTFTP99Ns))
 	}
 	slices.Sort(p50)
+	slices.Sort(p90)
 	slices.Sort(p99)
 	return PolicyLatency{
 		Policy:      name,
 		Load:        load,
 		Repetitions: len(cells),
 		P50Ns:       int64(stats.Quantile(p50, 0.50)),
+		P90Ns:       int64(stats.Quantile(p90, 0.50)),
 		P99Ns:       int64(stats.Quantile(p99, 0.50)),
 	}, true
 }
@@ -721,14 +741,14 @@ func (c Comparison) reportMechanism(b *strings.Builder) {
 	fmt.Fprintf(b, "best. A prefix cache hit rate and a token count can disagree, and idea.md §1 predicts two\n")
 	fmt.Fprintf(b, "published results where they did.\n\n")
 
-	fmt.Fprintln(b, "| driver | load | policy | TTFT p50 | TTFT p99 | prefix cache hit rate | prompt tokens recomputed | redundant prefill |")
-	fmt.Fprintln(b, "|---|---:|---|---:|---:|---:|---:|---:|")
+	fmt.Fprintln(b, "| driver | load | policy | TTFT p50 | TTFT p90 | TTFT p99 | prefix cache hit rate | prompt tokens recomputed | redundant prefill |")
+	fmt.Fprintln(b, "|---|---:|---|---:|---:|---:|---:|---:|---:|")
 	for _, row := range c.Rows {
 		for _, name := range c.Policies {
 			latency, ok := row.Latency[name]
-			cell := "— | —"
+			cell := "— | — | —"
 			if ok {
-				cell = fmt.Sprintf("%s | %s", ms(latency.P50Ns), ms(latency.P99Ns))
+				cell = fmt.Sprintf("%s | %s | %s", ms(latency.P50Ns), ms(latency.P90Ns), ms(latency.P99Ns))
 			}
 			fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s |\n",
 				row.Load.Driver.Name(), row.Load, name, cell,

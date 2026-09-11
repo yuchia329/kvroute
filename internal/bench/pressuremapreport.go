@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/yuchia329/kvroute/internal/policy"
 )
 
 // Report renders the pressure map as markdown: the headline grid, the detail
@@ -36,6 +38,7 @@ func (m PressureMap) Report() string {
 	m.reportAxisCaveat(&b)
 	m.reportValidity(&b)
 	m.reportMap(&b)
+	m.reportGainShare(&b)
 	m.reportDetail(&b)
 	m.reportSeparability(&b)
 	m.reportGaps(&b)
@@ -168,6 +171,76 @@ func (m PressureMap) reportMap(b *strings.Builder) {
 		}
 		fmt.Fprintln(b)
 	}
+}
+
+// reportGainShare answers #24: how much of the gain exact knowledge of the
+// caches buys over session affinity the approximate index keeps without it.
+//
+// Rendered only when the map holds all three policies, because the share is a
+// ratio of two of their differences and means nothing with any of them missing.
+// The P90 columns are there for the one comparison #24 replicates, and llm-d's
+// published figures ride along as the last row so that they are set beside this
+// run's rather than left for the reader to find.
+func (m PressureMap) reportGainShare(b *strings.Builder) {
+	if !m.hasGainTriple() {
+		return
+	}
+	fmt.Fprintf(b, "## How much of the gain does the approximate index keep?\n\n")
+	fmt.Fprintf(b, "The share of the gain exact knowledge of the caches buys over session affinity that prefix\n")
+	fmt.Fprintf(b, "affinity keeps without it: (prefix affinity − session affinity) / (exact residency − session\n")
+	fmt.Fprintf(b, "affinity), in goodput medians. 100%% is all of it; above 100%% the approximation beat the\n")
+	fmt.Fprintf(b, "exact policy; below 0%% it did worse than the baseline both exist to beat. No share is claimed\n")
+	fmt.Fprintf(b, "where exact residency's own gain is inside the run-to-run spread: a share of noise is noise.\n\n")
+	fmt.Fprintf(b, "The TTFT columns are there for the comparison this replicates. llm-d published its\n")
+	fmt.Fprintf(b, "precise-versus-approximate result as P90 TTFT — 0.54 s precise against 31.1 s approximate —\n")
+	fmt.Fprintf(b, "at datacentre scale, and the last row carries it. It is set beside these figures, not ranked\n")
+	fmt.Fprintf(b, "against them: a different fleet, model and workload, where this is one host of consumer cards\n")
+	fmt.Fprintf(b, "whose caches are far smaller and evict far more often (ADR-0010).\n\n")
+
+	fmt.Fprintln(b, "| point | load | share of the gain kept | session affinity | prefix affinity | exact residency | TTFT p90, prefix affinity | TTFT p90, exact residency |")
+	fmt.Fprintln(b, "|---|---:|---:|---:|---:|---:|---:|---:|")
+	var unclaimed []string
+	for _, point := range m.Points {
+		for _, row := range point.Comparison.Rows {
+			kept := point.GainKept(row.Load)
+			if !kept.Defined {
+				unclaimed = append(unclaimed, fmt.Sprintf("%s at %s: %s", point.At, row.Load, kept.Why))
+			}
+			fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %s |\n",
+				point.At, row.Load, kept,
+				figure(row.Goodput, policy.SessionAffinityName),
+				figure(row.Goodput, policy.PrefixAffinityName),
+				figure(row.Goodput, policy.ExactResidencyName),
+				ttftP90(row, policy.PrefixAffinityName), ttftP90(row, policy.ExactResidencyName))
+		}
+	}
+	fmt.Fprintln(b, "| llm-d, published (datacentre scale) | — | — | — | — | — | 31.1 s | 0.54 s |")
+	fmt.Fprintln(b)
+	if len(unclaimed) > 0 {
+		fmt.Fprintf(b, "Where no share is claimed, and why:\n\n")
+		for _, why := range unclaimed {
+			fmt.Fprintf(b, "- %s\n", why)
+		}
+		fmt.Fprintln(b)
+	}
+}
+
+// ttftP90 is one policy's pooled P90 TTFT at a row, or an em dash where it has
+// no usable cell.
+func ttftP90(row ComparisonRow, name string) string {
+	latency, ok := row.Latency[name]
+	if !ok {
+		return "—"
+	}
+	return ms(latency.P90Ns)
+}
+
+// hasGainTriple reports whether the map holds all three policies the share of
+// the gain is a ratio between.
+func (m PressureMap) hasGainTriple() bool {
+	return slices.Contains(m.Policies, policy.SessionAffinityName) &&
+		slices.Contains(m.Policies, policy.PrefixAffinityName) &&
+		slices.Contains(m.Policies, policy.ExactResidencyName)
 }
 
 // reportDetail renders the goodput each policy actually scored, which is what

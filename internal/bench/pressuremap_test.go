@@ -122,6 +122,113 @@ func TestTheHeadlineDeltaIsSessionAffinityAgainstPrefixAffinity(t *testing.T) {
 	}
 }
 
+// #24 draws the same map for a different pair: exact residency against the
+// approximate index it is the exact counterpart of.
+func TestTheHeadlinePairCanBeExactResidencyAgainstPrefixAffinity(t *testing.T) {
+	var cs []bench.Cell
+	cs = append(cs, gridCells(highPressure, policy.PrefixAffinityName, 8, 8, 8)...)
+	cs = append(cs, gridCells(highPressure, policy.ExactResidencyName, 9, 9, 9)...)
+
+	m, err := bench.BuildPressureMapBetween(cs, policy.PrefixAffinityName, policy.ExactResidencyName)
+	if err != nil {
+		t.Fatalf("BuildPressureMapBetween: %v", err)
+	}
+	if m.Baseline != policy.PrefixAffinityName || m.Challenger != policy.ExactResidencyName {
+		t.Errorf("pair = %s against %s, want %s against %s", m.Challenger, m.Baseline, policy.ExactResidencyName, policy.PrefixAffinityName)
+	}
+	if got := m.Points[0].DeltaAt(gridLoad, m.Baseline, m.Challenger).PercentChange; got != 12.5 {
+		t.Errorf("delta = %v%%, want 9 over 8 = +12.5%%", got)
+	}
+}
+
+// Both policies with a spill rule run it, at the same thresholds, so the map reads
+// the configuration off both — whichever of them is the headline's challenger.
+// Reading only the challenger would let the other run at a different point
+// unnoticed.
+func TestTheSpillConfigurationIsReadOffEveryPolicyWithARule(t *testing.T) {
+	spilling := func(cs []bench.Cell, factor float64) []bench.Cell {
+		for i := range cs {
+			cs[i].LoadImbalanceFactor = factor
+		}
+		return cs
+	}
+	var agreeing []bench.Cell
+	agreeing = append(agreeing, gridCells(highPressure, policy.SessionAffinityName, 8, 8, 8)...)
+	agreeing = append(agreeing, spilling(gridCells(highPressure, policy.PrefixAffinityName, 9, 9, 9), 2)...)
+	agreeing = append(agreeing, spilling(gridCells(highPressure, policy.ExactResidencyName, 10, 10, 10), 2)...)
+	if m := buildMap(t, agreeing); m.SpillVaried || m.Spill.LoadImbalanceFactor != 2 {
+		t.Errorf("spill = %v (varied: %v), want 2x from both valved policies agreeing", m.Spill, m.SpillVaried)
+	}
+
+	var disagreeing []bench.Cell
+	disagreeing = append(disagreeing, gridCells(highPressure, policy.SessionAffinityName, 8, 8, 8)...)
+	disagreeing = append(disagreeing, spilling(gridCells(highPressure, policy.PrefixAffinityName, 9, 9, 9), 2)...)
+	disagreeing = append(disagreeing, spilling(gridCells(highPressure, policy.ExactResidencyName, 10, 10, 10), 3)...)
+	if m := buildMap(t, disagreeing); !m.SpillVaried {
+		t.Error("exact residency ran at a different spill point from prefix affinity, and the map did not say so")
+	}
+}
+
+// The ticket's own figure: what fraction of the gain exact knowledge of the caches
+// buys over session affinity the approximate index keeps without it. Here session
+// affinity scores 10, the approximation 14 and exact residency 18, so the
+// approximation keeps half of an 8-request gain.
+func TestTheShareOfTheGainTheApproximateIndexKeeps(t *testing.T) {
+	var cs []bench.Cell
+	cs = append(cs, gridCells(highPressure, policy.SessionAffinityName, 10, 10, 10)...)
+	cs = append(cs, gridCells(highPressure, policy.PrefixAffinityName, 14, 14, 14)...)
+	cs = append(cs, gridCells(highPressure, policy.ExactResidencyName, 18, 18, 18)...)
+
+	m := buildMap(t, cs)
+	kept := m.Points[0].GainKept(gridLoad)
+	if !kept.Defined || !closeTo(kept.Share, 0.5) {
+		t.Errorf("share kept = %v (defined: %v, %s), want 0.5", kept.Share, kept.Defined, kept.Why)
+	}
+	if !strings.Contains(section(m.Report(), gainTable), "50%") {
+		t.Errorf("the report does not state the share:\n%s", m.Report())
+	}
+}
+
+// A share of a gain that is inside the run-to-run spread is a share of noise, so
+// none is claimed there — and the reason says so rather than printing a ratio.
+func TestNoShareIsClaimedWhereExactResidencyGainedNothingBeyondTheSpread(t *testing.T) {
+	var cs []bench.Cell
+	cs = append(cs, gridCells(highPressure, policy.SessionAffinityName, 9.5, 10, 10.5)...)
+	cs = append(cs, gridCells(highPressure, policy.PrefixAffinityName, 12, 12, 12)...)
+	cs = append(cs, gridCells(highPressure, policy.ExactResidencyName, 10, 10.4, 10.8)...)
+
+	kept := buildMap(t, cs).Points[0].GainKept(gridLoad)
+	if kept.Defined {
+		t.Errorf("a share of %v was claimed of a gain inside the spread", kept.Share)
+	}
+	if kept.Why == "" {
+		t.Error("no share was claimed and nothing says why")
+	}
+}
+
+// llm-d published its precise-versus-approximate result as P90 TTFT, so the
+// section that answers #24 sets this run's P90s beside those figures rather than
+// leaving the reader to find them.
+func TestTheShareSectionSetsTheP90TTFTBesideLlmDsPublishedFigures(t *testing.T) {
+	var cs []bench.Cell
+	cs = append(cs, gridCells(highPressure, policy.SessionAffinityName, 10, 10, 10)...)
+	cs = append(cs, gridCells(highPressure, policy.PrefixAffinityName, 14, 14, 14)...)
+	cs = append(cs, gridCells(highPressure, policy.ExactResidencyName, 18, 18, 18)...)
+	for i := range cs {
+		cs[i].TTFTP90Ns = 700e6
+	}
+
+	got := section(buildMap(t, cs).Report(), gainTable)
+	for _, want := range []string{"0.54", "31.1", "700ms"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the share table does not carry %q:\n%s", want, got)
+		}
+	}
+}
+
+// gainTable is the header the share-of-the-gain table opens with.
+const gainTable = "| point | load | share of the gain kept |"
+
 // A difference smaller than the run-to-run spread is a difference between a
 // policy and itself, and this is the figure the whole project is read off. The
 // qualification travels with the number rather than being applied when it is

@@ -226,6 +226,60 @@ func TestOnlyThePoliciesThatConsultedAnIndexCalibrateTheCap(t *testing.T) {
 	}
 }
 
+// Exact residency predicts in the engine's own tokens, so its prediction is held
+// to the engine's cached tokens as it stands. Converting it through a
+// bytes-per-token ratio would put into it an error it does not have, and reading
+// only the byte column would report every one of its requests as predicting
+// nothing.
+func TestExactResidencyIsHeldToTheEngineInItsOwnTokens(t *testing.T) {
+	exact := bench.Cell{ID: "exact_residency-c32-r1", Policy: "exact_residency", WorkingSet: 1}
+	predicted := row("s1", 0, 10, 0, 1000, 32)
+	predicted.PrefixMatchTokens = 32
+	predicted.Labels = bench.Labels{CellID: exact.ID, Policy: "exact_residency"}
+
+	dir := sweepOnDisk(t, cellRows{exact, []bench.Result{predicted}})
+	report, err := bench.MeasureDivergence([]string{dir})
+	if err != nil {
+		t.Fatalf("measure divergence: %v", err)
+	}
+	if report.Overall.PredictedTokens != 32 || report.Overall.Exact != 1 {
+		t.Errorf("predicted %v tokens with %d exact, want 32 and 1: a prediction made in tokens was not read as one",
+			report.Overall.PredictedTokens, report.Overall.Exact)
+	}
+}
+
+// And exact residency's reading never resizes the prefix index's node cap. The
+// cap bounds a different index, one built from dispatch history, and scaling it
+// by the share of belief an engine-fed index had honoured would credit the
+// approximation with the exact policy's accuracy.
+func TestExactResidencyNeverCalibratesThePrefixIndexCap(t *testing.T) {
+	approx := bench.Cell{ID: "prefix_affinity-c8-r1", Policy: "prefix_affinity", WorkingSet: 1, PrefixIndexNodes: 100, PrefixIndexCap: 100}
+	exact := bench.Cell{ID: "exact_residency-c8-r1", Policy: "exact_residency", WorkingSet: 1}
+
+	approxRow := row("s1", 0, 10, 1600, 1000, 200) // claimed 400, held 200
+	approxRow.Labels.CellID = approx.ID
+	exactRow := row("s2", 20, 10, 0, 1000, 64) // claimed 64 tokens, held 64
+	exactRow.PrefixMatchTokens = 64
+	exactRow.Labels = bench.Labels{CellID: exact.ID, Policy: "exact_residency"}
+
+	dir := sweepOnDisk(t,
+		cellRows{approx, []bench.Result{approxRow}},
+		cellRows{exact, []bench.Result{exactRow}},
+	)
+	report, err := bench.MeasureDivergence([]string{dir})
+	if err != nil {
+		t.Fatalf("measure divergence: %v", err)
+	}
+
+	calibration := report.ForCalibration()
+	if calibration.Requests != 1 {
+		t.Fatalf("calibration requests = %d, want 1 — prefix affinity's alone", calibration.Requests)
+	}
+	if honoured, ok := calibration.Honoured(); !ok || honoured != 0.5 {
+		t.Errorf("honoured = %v (%v), want prefix affinity's 0.5, untouched by exact residency's 1.0", honoured, ok)
+	}
+}
+
 // A sweep must not resume into a directory whose cells sent different bytes.
 //
 // Asking the engine for usage changed every request body, so the workload names

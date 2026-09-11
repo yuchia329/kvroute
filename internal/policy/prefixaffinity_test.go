@@ -2,6 +2,7 @@ package policy_test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -318,14 +319,19 @@ func TestByNameNeedsACalibratedIndexForPrefixAffinity(t *testing.T) {
 	}
 }
 
-// Prefix affinity is policy 4 and it goes last: the comparison table puts the
-// baselines in the columns before it, whichever order the runs happened in.
-func TestPrefixAffinityIsComparedAfterTheBaselines(t *testing.T) {
-	if got := policy.Order[len(policy.Order)-1]; got != policy.PrefixAffinityName {
-		t.Errorf("the last policy compared is %q, want %q", got, policy.PrefixAffinityName)
+// The comparison table puts the policies in idea.md §5's numbering whichever
+// order the runs happened in: the baselines first, then prefix affinity, then
+// exact residency beside the policy it is the exact counterpart of.
+func TestThePoliciesAreComparedInTheOrderIdeaMdNumbersThem(t *testing.T) {
+	want := []string{
+		policy.RoundRobinName,
+		policy.LeastOutstandingName,
+		policy.SessionAffinityName,
+		policy.PrefixAffinityName,
+		policy.ExactResidencyName,
 	}
-	if len(policy.Order) != 4 {
-		t.Errorf("the comparison covers %d policies, want the four idea.md §5 numbers", len(policy.Order))
+	if !slices.Equal(policy.Order, want) {
+		t.Errorf("the comparison order is %v, want %v", policy.Order, want)
 	}
 }
 

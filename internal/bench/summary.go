@@ -118,7 +118,11 @@ type Summary struct {
 	ThroughputRPS float64 `json:"throughput_rps" parquet:"throughput_rps"`
 	GoodputRPS    float64 `json:"goodput_rps" parquet:"goodput_rps"`
 
-	TTFTP50Ns  int64 `json:"ttft_p50_ns" parquet:"ttft_p50_ns"`
+	TTFTP50Ns int64 `json:"ttft_p50_ns" parquet:"ttft_p50_ns"`
+	// TTFTP90Ns is here for one comparison: llm-d published its precise-versus-
+	// approximate result as P90 TTFT, and #24 replicates it, so the like-for-like
+	// figure has to come off the same rows as every other percentile.
+	TTFTP90Ns  int64 `json:"ttft_p90_ns" parquet:"ttft_p90_ns"`
 	TTFTP95Ns  int64 `json:"ttft_p95_ns" parquet:"ttft_p95_ns"`
 	TTFTP99Ns  int64 `json:"ttft_p99_ns" parquet:"ttft_p99_ns"`
 	TotalP50Ns int64 `json:"total_p50_ns" parquet:"total_p50_ns"`
@@ -287,6 +291,7 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 		s.ScheduleLagMaxNs = lag[len(lag)-1].Nanoseconds()
 	}
 	s.TTFTP50Ns = stats.Quantile(ttft, 0.50).Nanoseconds()
+	s.TTFTP90Ns = stats.Quantile(ttft, 0.90).Nanoseconds()
 	s.TTFTP95Ns = stats.Quantile(ttft, 0.95).Nanoseconds()
 	s.TTFTP99Ns = stats.Quantile(ttft, 0.99).Nanoseconds()
 	s.TotalP50Ns = stats.Quantile(total, 0.50).Nanoseconds()

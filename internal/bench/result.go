@@ -78,6 +78,13 @@ type Result struct {
 	// recomputed it would be reporting a second index rather than the one that
 	// routed the request.
 	PrefixMatchBytes int `json:"prefix_match_bytes" parquet:"prefix_match_bytes"`
+	// PrefixMatchTokens is the same prediction made in the engine's own tokens,
+	// by exact residency, read off its own header. Zero under every other
+	// policy. It is not folded into PrefixMatchBytes because it needs no
+	// bytes-per-token conversion to be held against the engine's cached tokens
+	// for this request, and converting it into bytes would put an error into it
+	// that it does not have.
+	PrefixMatchTokens int `json:"prefix_match_tokens" parquet:"prefix_match_tokens"`
 	// PromptBytes is how many bytes of prompt this request sent. It is the
 	// numerator of the measured prompt bytes-per-token ratio — the denominator
 	// being what the engines say they processed — and that ratio is what turns
@@ -154,8 +161,18 @@ func (r Result) ComputedPrefillTokens() (int, bool) {
 // individual prompt. CONTEXT.md's prompt bytes per token is the same quantity
 // measured over a whole run, and the two are expected to agree; the divergence
 // report is where they are compared rather than assumed.
+//
+// Exact residency's prediction needs none of that: it is already in the engine's
+// tokens, and it is taken as it stands, because converting it through bytes would
+// put into it an error it does not have.
 func (r Result) PredictedCachedTokens() (float64, bool) {
-	if !r.EngineUsageRead || r.EnginePromptTokens <= 0 || r.PromptBytes <= 0 {
+	if !r.EngineUsageRead {
+		return 0, false
+	}
+	if r.PrefixMatchTokens > 0 {
+		return float64(r.PrefixMatchTokens), true
+	}
+	if r.EnginePromptTokens <= 0 || r.PromptBytes <= 0 {
 		return 0, false
 	}
 	return float64(r.PrefixMatchBytes) * float64(r.EnginePromptTokens) / float64(r.PromptBytes), true

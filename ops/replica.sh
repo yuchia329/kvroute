@@ -155,6 +155,20 @@ pin_prefix() {
   echo "numactl --physcpubind=$threads --membind=$node"
 }
 
+# kv_events_config prints the engine's --kv-events-config for one replica: its
+# event publisher on KV_EVENTS_BASE_PORT + index, its replay socket on
+# KV_EVENTS_REPLAY_BASE_PORT + index, and the replay buffer's depth. The router
+# finds both through `ops/fleet.sh kv-events` and `kv-events-replay`.
+#
+# The endpoints say tcp://* on purpose. vLLM 0.28.0 binds an endpoint containing
+# a wildcard and connects out to any other, so tcp://127.0.0.1 would have each
+# engine dialling a router that is not listening, rather than listening for one.
+kv_events_config() {
+  local index="$1"
+  printf '{"enable_kv_cache_events":true,"publisher":"zmq","endpoint":"tcp://*:%d","replay_endpoint":"tcp://*:%d","buffer_steps":%d,"topic":""}' \
+    $(( KV_EVENTS_BASE_PORT + index )) $(( KV_EVENTS_REPLAY_BASE_PORT + index )) "$KV_EVENTS_BUFFER_STEPS"
+}
+
 # assert_forced_backend checks the engine actually took the quantization backend
 # it was told to take. Auto-selection flipping between runs would change what
 # the policy comparison measures without changing anything visible.
@@ -213,6 +227,10 @@ up() {
   # variable rather than simply not passing the flag.
   if [[ "${ENABLE_PROMPT_TOKENS_DETAILS:-0}" == "1" ]]; then
     args+=(--enable-prompt-tokens-details)
+  fi
+  # KV cache events (#24), defaulted for the reason the flag above is.
+  if [[ "${KV_EVENTS:-0}" == "1" ]]; then
+    args+=(--kv-events-config "$(kv_events_config "$index")")
   fi
 
   local pin

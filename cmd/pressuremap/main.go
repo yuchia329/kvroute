@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 
 	"github.com/yuchia329/kvroute/internal/bench"
+	"github.com/yuchia329/kvroute/internal/policy"
 )
 
 func main() {
@@ -38,6 +39,9 @@ func main() {
 
 func run() error {
 	out := flag.String("out", "", "where to write the map; empty prints it and writes nothing")
+	baseline := flag.String("baseline", policy.SessionAffinityName, "the policy the headline delta is measured from")
+	challenger := flag.String("challenger", policy.PrefixAffinityName,
+		"the policy measured against the baseline. #24's map is "+policy.ExactResidencyName+" against "+policy.PrefixAffinityName)
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "usage: pressuremap [-out path] <sweep dir>...\n\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "Each directory is one grid point's -dir, holding the cells it produced.\n")
@@ -61,7 +65,7 @@ func run() error {
 		cells = append(cells, found...)
 	}
 
-	m, err := bench.BuildPressureMap(cells)
+	m, err := bench.BuildPressureMapBetween(cells, *baseline, *challenger)
 	if err != nil {
 		return err
 	}

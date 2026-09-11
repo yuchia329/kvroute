@@ -7,6 +7,8 @@
 #   ops/fleet.sh status
 #   ops/fleet.sh pids      # the replica supervisor pids, for contamination checks
 #   ops/fleet.sh replicas  # the -replicas spec for the router and the harness
+#   ops/fleet.sh kv-events # the -kv-events spec: each replica's KV event publisher
+#   ops/fleet.sh kv-events-replay  # the -kv-events-replay spec: each one's replay socket
 #   ops/fleet.sh env MODEL # read one pinned value out of versions.env
 #
 # Two things this script is careful about:
@@ -123,6 +125,20 @@ replicas() {
   echo "${specs[*]}"
 }
 
+# endpoints prints a spec naming one ZeroMQ socket per replica, on base + GPU
+# index, keyed by the same replica ids as `replicas`: the router pairs each
+# replica's events with its HTTP endpoint by id, so the two specs must agree on
+# what replica-4 is.
+endpoints() {
+  fleet_gpus
+  local base="$1" index specs=()
+  for index in "${_fleet_gpus[@]}"; do
+    specs+=("replica-$index=tcp://127.0.0.1:$(( base + index ))")
+  done
+  local IFS=,
+  echo "${specs[*]}"
+}
+
 # env prints one value from versions.env, so nothing downstream needs a second
 # copy of a setting that is pinned there.
 env_value() {
@@ -140,7 +156,9 @@ case "${1:-}" in
   status)    "$here/replica.sh" status ;;
   pids)      pids ;;
   replicas)  replicas ;;
+  kv-events)        endpoints "$KV_EVENTS_BASE_PORT" ;;
+  kv-events-replay) endpoints "$KV_EVENTS_REPLAY_BASE_PORT" ;;
   env)       shift; env_value "${1:-}" ;;
   preflight) preflight ;;
-  *)         die "usage: $0 up|down|status|pids|replicas|preflight|env <NAME>" ;;
+  *)         die "usage: $0 up|down|status|pids|replicas|kv-events|kv-events-replay|preflight|env <NAME>" ;;
 esac

@@ -7,12 +7,15 @@
 package policy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/yuchia329/kvroute/internal/fleet"
 	"github.com/yuchia329/kvroute/internal/prefix"
+	"github.com/yuchia329/kvroute/internal/residency"
 	"github.com/yuchia329/kvroute/internal/session"
 	"github.com/yuchia329/kvroute/internal/vllmmetrics"
 )
@@ -63,6 +66,15 @@ const (
 	// say whether it spilled because the fleet was out of cache or because the
 	// traffic was skewed, which is the one thing that grid exists to answer.
 	ReasonSpillLoad Reason = "SPILL_LOAD"
+	// ReasonPromptUntokenized is a request whose prompt the engine could not
+	// tokenize in time, placed on load because there was nothing to match it
+	// with.
+	//
+	// Its own reason rather than folded into COLD, for the reason
+	// SESSION_UNIDENTIFIED is its own: cold says no engine held the prompt, and
+	// this says nobody could look. A run whose tokenizer was failing would
+	// otherwise read as an exact index that found nothing.
+	ReasonPromptUntokenized Reason = "PROMPT_UNTOKENIZED"
 )
 
 // Spilled reports whether this reason is a declined affinity, so that callers
@@ -71,7 +83,8 @@ const (
 func (r Reason) Spilled() bool { return r == ReasonSpillKV || r == ReasonSpillLoad }
 
 // Order is the order the policies are compared in: the naive baseline first, then
-// each policy that claims to improve on it, as idea.md §5 numbers them.
+// each policy that claims to improve on it, as idea.md §5 numbers them. Exact
+// residency comes last, beside the policy it is the exact counterpart of.
 //
 // It is here rather than in the harness because the comparison table has to put
 // the baseline in the same column whichever order the runs happened in, and the
@@ -81,6 +94,7 @@ var Order = []string{
 	LeastOutstandingName,
 	SessionAffinityName,
 	PrefixAffinityName,
+	ExactResidencyName,
 }
 
 // Request is everything a policy may know about an incoming request. The body
@@ -99,6 +113,10 @@ type Request struct {
 	// zero when the request identified no conversation, which a policy that
 	// routes on it has to handle rather than treat as a session named "".
 	Session session.Session
+	// Context is the request's own, so that work a policy does on its behalf —
+	// asking an engine to tokenize it — ends when the client goes away. Nil is
+	// context.Background().
+	Context context.Context
 }
 
 // Choice is a policy's decision.
@@ -164,6 +182,19 @@ type Choice struct {
 	// because every row reported the target rather than the replica turned down.
 	DeclinedKV       vllmmetrics.KVUtilization
 	DeclinedInflight int
+	// PrefixMatchTokens and DeclinedMatchTokens are PrefixMatchBytes and
+	// DeclinedMatchBytes for the policy that knows what a replica holds in the
+	// engine's own tokens rather than in bytes of prompt: exact residency, whose
+	// index the engines' events feed. Zero under every other policy, and the byte
+	// figures are zero under that one. A decision carries its prediction in the
+	// unit it was made in, never converted into the other's.
+	PrefixMatchTokens   int
+	DeclinedMatchTokens int
+	// Tokenize is how long the engine took to tokenize the prompt before the
+	// decision could be made, under the one policy that has to ask. It is inside
+	// the router overhead the row reports, and carried separately so that the
+	// cost of knowing exactly can be told apart from the cost of deciding.
+	Tokenize time.Duration
 }
 
 // Tuned is implemented by a policy carrying tunables the record has to name.
@@ -200,8 +231,15 @@ type Options struct {
 	// Spill is the pressure at which prefix affinity is declined. Its zero value
 	// is no spill rule, which is the policy measured before one existed, so this
 	// is optional where PrefixIndex is required: an unset threshold is a
-	// meaningful configuration and an unset index is not.
+	// meaningful configuration and an unset index is not. Exact residency runs
+	// the same rule at the same thresholds.
 	Spill Spill
+	// ResidencyIndex and Tokenizer are what exact residency routes on: the
+	// engines' own account of their caches, and a way to put a prompt in the
+	// tokens that account is kept in. Both are required by that policy and
+	// ignored by the others.
+	ResidencyIndex *residency.Index
+	Tokenizer      Tokenizer
 }
 
 // ByName resolves the policy named in configuration, so that a benchmark can
@@ -222,6 +260,17 @@ func ByName(name string, opts Options) (Policy, error) {
 			return nil, err
 		}
 		return NewPrefixAffinity(opts.PrefixIndex, opts.Spill), nil
+	case ExactResidencyName:
+		if opts.ResidencyIndex == nil {
+			return nil, fmt.Errorf("policy: %s needs a residency index fed by the engines' KV cache events", ExactResidencyName)
+		}
+		if opts.Tokenizer == nil {
+			return nil, fmt.Errorf("policy: %s needs a tokenizer: the engines name their blocks by tokens and the router has none of its own", ExactResidencyName)
+		}
+		if err := opts.Spill.Validate(); err != nil {
+			return nil, err
+		}
+		return NewExactResidency(opts.ResidencyIndex, opts.Tokenizer, opts.Spill), nil
 	default:
 		return nil, fmt.Errorf("policy: unknown policy %q", name)
 	}

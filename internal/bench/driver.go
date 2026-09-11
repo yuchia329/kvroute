@@ -321,6 +321,9 @@ func sendTurn(ctx context.Context, cfg DriverConfig, user, turn int, warmUntil, 
 	// replica is being driven directly. Both are honestly zero: no prefix match
 	// was predicted because nothing predicted one.
 	row.PrefixMatchBytes, _ = strconv.Atoi(resp.Header.Get(router.PrefixMatchHeader))
+	// The same prediction in the engine's tokens, which only exact residency
+	// makes. Absent, and so zero, under every other policy.
+	row.PrefixMatchTokens, _ = strconv.Atoi(resp.Header.Get(router.PrefixMatchTokensHeader))
 	// Absent when a replica is driven directly, which is honestly zero: with no
 	// router in the path, nothing could have moved the request.
 	row.Reroutes, _ = strconv.Atoi(resp.Header.Get(router.ReroutesHeader))

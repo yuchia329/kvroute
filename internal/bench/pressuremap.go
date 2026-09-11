@@ -33,11 +33,12 @@ type PressureMap struct {
 	// SLO is the threshold every cell in every point was judged against.
 	// Goodput is defined by it, so a map across two of them is not a map.
 	SLO SLO
-	// Baseline and Challenger are the pair the headline delta is between:
-	// session affinity, the policy this project has to beat, and prefix
-	// affinity, the policy that claims to. Named rather than assumed from
-	// position, because a map missing either still renders its other tables and
-	// has to say which one it could not draw.
+	// Baseline and Challenger are the pair the headline delta is between: by
+	// default session affinity, the policy this project has to beat, and prefix
+	// affinity, the policy that claims to; #24 draws the same map for prefix
+	// affinity against exact residency. Named rather than assumed from position,
+	// because a map missing either still renders its other tables and has to say
+	// which one it could not draw.
 	Baseline   string
 	Challenger string
 	// Policies is every policy any point measured, in the comparison's order.
@@ -94,19 +95,30 @@ type RefusedPoint struct {
 	Why string
 }
 
-// BuildPressureMap reduces cells from anywhere in a grid run to the map.
+// BuildPressureMap reduces cells from anywhere in a grid run to the map, with
+// its headline delta between session affinity and prefix affinity, which is
+// what #18 asks it to plot.
 //
 // The cells may come from one directory or twelve. Each point is swept into its
 // own directory because each sends its own workload, so the ordinary way to
 // call this is with every directory of a grid run named at once.
 func BuildPressureMap(cells []Cell) (PressureMap, error) {
+	return BuildPressureMapBetween(cells, policy.SessionAffinityName, policy.PrefixAffinityName)
+}
+
+// BuildPressureMapBetween is BuildPressureMap with the headline pair named: the
+// baseline the delta is measured from, and the challenger measured against it.
+func BuildPressureMapBetween(cells []Cell, baseline, challenger string) (PressureMap, error) {
 	if len(cells) == 0 {
 		return PressureMap{}, fmt.Errorf("bench: no cells to map")
 	}
+	if baseline == "" || challenger == "" || baseline == challenger {
+		return PressureMap{}, fmt.Errorf("bench: a map's headline is a delta between two different policies, got %q against %q", challenger, baseline)
+	}
 
 	m := PressureMap{
-		Baseline:   policy.SessionAffinityName,
-		Challenger: policy.PrefixAffinityName,
+		Baseline:   baseline,
+		Challenger: challenger,
 	}
 
 	grouped := map[GridPoint][]Cell{}
@@ -142,8 +154,11 @@ func BuildPressureMap(cells []Cell) (PressureMap, error) {
 		for _, cell := range group {
 			// Only the policies that have a spill rule say anything about how it
 			// was configured. A round-robin cell records zeros because it has no
-			// valve, not because the valve was off.
-			if cell.Policy == m.Challenger {
+			// valve, not because the valve was off. Every valved policy is read,
+			// not only the challenger: prefix affinity and exact residency run
+			// the same rule at the same point, and one of them running at another
+			// would otherwise pass unnoticed.
+			if policy.HasSpillRule(cell.Policy) {
 				spills[policy.Spill{KVHighWater: cell.KVHighWater, LoadImbalanceFactor: cell.LoadImbalanceFactor}] = true
 			}
 		}
@@ -217,6 +232,7 @@ func addDecisions(a, b DecisionMix) DecisionMix {
 		Cold:                a.Cold + b.Cold,
 		SpillKV:             a.SpillKV + b.SpillKV,
 		SpillLoad:           a.SpillLoad + b.SpillLoad,
+		PromptUntokenized:   a.PromptUntokenized + b.PromptUntokenized,
 		Undecided:           a.Undecided + b.Undecided,
 	}
 }
@@ -325,6 +341,68 @@ func (d GoodputDelta) String() string {
 	default:
 		return fmt.Sprintf("%+.1f%%", d.PercentChange)
 	}
+}
+
+// GainShare is how much of the gain exact knowledge of the caches buys that the
+// approximate index keeps without it, at one grid point and load. It is #24's
+// figure.
+//
+// The gain is measured over session affinity, the baseline that matters
+// (idea.md §5): (prefix affinity − session affinity) / (exact residency −
+// session affinity), in goodput medians. One means the approximation kept all
+// of it and zero that it kept none; above one it beat the exact policy, and
+// below zero it did worse than the baseline both exist to beat.
+type GainShare struct {
+	Baseline, Approximate, Exact PolicyGoodput
+	// Share is the fraction kept. Meaningless unless Defined.
+	Share float64
+	// Defined is whether there was a gain to share: all three policies measured
+	// here, and exact residency's gain over the baseline replicated and bigger
+	// than the run-to-run spread. A share of a gain inside the spread is a share
+	// of noise, and its denominator can be as small as the noise is.
+	Defined bool
+	// Why is what stopped a share being claimed, when one was not.
+	Why string
+}
+
+// String is the share as a table cell: the percentage, or an em dash where no
+// share can be claimed.
+func (s GainShare) String() string {
+	if !s.Defined {
+		return "—"
+	}
+	return fmt.Sprintf("%.0f%%", s.Share*100)
+}
+
+// GainKept is the share of the gain at this point, for one load.
+func (g GridComparison) GainKept(load Load) GainShare {
+	for _, row := range g.Comparison.Rows {
+		if row.Load != load {
+			continue
+		}
+		base, hasBase := row.Goodput[policy.SessionAffinityName]
+		approx, hasApprox := row.Goodput[policy.PrefixAffinityName]
+		exact, hasExact := row.Goodput[policy.ExactResidencyName]
+		s := GainShare{Baseline: base, Approximate: approx, Exact: exact}
+		if !hasBase || !hasApprox || !hasExact {
+			s.Why = "not all of session affinity, prefix affinity and exact residency have a usable cell here"
+			return s
+		}
+		gain := deltaBetween(base, exact, true)
+		switch {
+		case !gain.Replicated:
+			s.Why = "unreplicated: one repetition cannot say whether exact residency gained anything"
+		case !gain.Separated:
+			s.Why = "exact residency's gain over session affinity is inside the spread, so there is no gain to share"
+		case exact.MedianRPS <= base.MedianRPS:
+			s.Why = "exact residency did not beat session affinity here, so there is no gain to share"
+		default:
+			s.Defined = true
+			s.Share = (approx.MedianRPS - base.MedianRPS) / (exact.MedianRPS - base.MedianRPS)
+		}
+		return s
+	}
+	return GainShare{Why: "this point did not run at that load"}
 }
 
 // Spread is a policy's repetition range as a share of its median, and whether

@@ -53,6 +53,18 @@ type Spill struct {
 // decided.
 const MinimumInflightFloor = 1
 
+// HasSpillRule reports whether the named policy declines matches under the spill
+// rule. Prefix affinity and exact residency do — the same rule at the same
+// thresholds, since #24 compares the two to find what exact knowledge of the
+// caches is worth and nothing else — and the other three have no valve.
+//
+// By name, for the callers that only have one: a cell records the policy it was
+// labelled with, not the policy. A caller holding the policy itself asks it
+// instead, through Tuned.
+func HasSpillRule(name string) bool {
+	return name == PrefixAffinityName || name == ExactResidencyName
+}
+
 // Enabled reports whether either condition can fire.
 //
 // The zero value is no spill rule at all, and that is deliberate: it is the

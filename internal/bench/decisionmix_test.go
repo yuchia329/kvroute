@@ -32,10 +32,21 @@ func TestTheDecisionMixIsCountedPerReason(t *testing.T) {
 		decided(start, policy.ReasonSpillKV),
 		decided(start, policy.ReasonSpillLoad),
 		decided(start, policy.ReasonSpillLoad),
+		decided(start, policy.ReasonPromptUntokenized),
 	}, bench.SummaryOptions{SLO: slo}).Decisions
 
 	if got.PrefixAffinity != 3 {
 		t.Errorf("affinity = %d, want 3", got.PrefixAffinity)
+	}
+	// Exact residency's own reason: a request it could not look up. Counted in
+	// its own column rather than as undecided, which would read as version skew
+	// between the router and the harness, or as cold, which would read as an
+	// index that found nothing.
+	if got.PromptUntokenized != 1 {
+		t.Errorf("untokenized = %d, want 1", got.PromptUntokenized)
+	}
+	if got.Undecided != 0 {
+		t.Errorf("undecided = %d, want 0: every reason here is one the router emits", got.Undecided)
 	}
 	if got.Cold != 1 {
 		t.Errorf("cold = %d, want 1", got.Cold)
@@ -46,8 +57,8 @@ func TestTheDecisionMixIsCountedPerReason(t *testing.T) {
 	if got.Spilled() != 3 {
 		t.Errorf("Spilled() = %d, want 3", got.Spilled())
 	}
-	if got.Total() != 7 {
-		t.Errorf("Total() = %d, want 7", got.Total())
+	if got.Total() != 8 {
+		t.Errorf("Total() = %d, want 8", got.Total())
 	}
 }
 

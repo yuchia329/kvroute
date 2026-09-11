@@ -27,6 +27,7 @@ import (
 	"github.com/yuchia329/kvroute/internal/policy"
 	"github.com/yuchia329/kvroute/internal/prefix"
 	"github.com/yuchia329/kvroute/internal/record"
+	"github.com/yuchia329/kvroute/internal/residency"
 	"github.com/yuchia329/kvroute/internal/session"
 	"github.com/yuchia329/kvroute/internal/stats"
 )
@@ -43,6 +44,11 @@ const (
 	// reimplementing the index, which is the same reason the replica and the
 	// decision are headers: what the router believed is the router's to report.
 	PrefixMatchHeader = "X-Kvroute-Prefix-Match"
+	// PrefixMatchTokensHeader carries the match exact residency made its
+	// decision on, in the engine's tokens: the same prediction PrefixMatchHeader
+	// carries, from the one policy that knows what a replica holds in the
+	// engine's own units.
+	PrefixMatchTokensHeader = "X-Kvroute-Prefix-Match-Tokens"
 	// ReroutesHeader carries how many times the request was moved to another
 	// replica before one answered it. A reroute is invisible in the body by
 	// design, so this is the only way the harness can count one on its own row.
@@ -63,6 +69,10 @@ type Config struct {
 	// pass through byte for byte.
 	Client *http.Client
 	Logger *slog.Logger
+	// Residency is what feeds exact residency: every replica's KV cache event
+	// stream and the index it keeps. Set only under that policy, and the router
+	// does nothing with it but report it.
+	Residency *residency.Feed
 }
 
 // Router fronts the fleet.
@@ -75,6 +85,9 @@ type Router struct {
 	overhead *stats.Recorder
 	metrics  *metrics
 	requests atomic.Int64
+	// residency is exact residency's feed, reported on /router/stats. Nil under
+	// every other policy.
+	residency *residency.Feed
 	// maxAttempts bounds how many decisions one request may take to place. A
 	// replica that fails a request is excluded from that request's next
 	// decision, so a request runs out of candidates within one attempt per
@@ -110,6 +123,16 @@ type Stats struct {
 	// over-predict because of the cap, and #17 calibrates the cap on exactly that
 	// distinction.
 	PrefixIndex *prefix.Stats `json:"prefix_index,omitempty"`
+	// Residency is what exact residency knows of each replica's cache and how
+	// complete that knowledge is: the blocks each engine reported holding, the
+	// runs the index could not place, and the state of the stream it is fed
+	// from. Absent under every other policy.
+	//
+	// It is the evidence for the cold start ADR-0010 describes. A router that
+	// subscribed after its engines had been publishing, or lost history
+	// mid-run, says so here, and a cell run against it is a cell whose exact
+	// index knew less than it claimed.
+	Residency []residency.FeedStats `json:"residency,omitempty"`
 }
 
 // IndexReporter is implemented by a policy that routes on a prefix index.
@@ -216,6 +239,7 @@ func New(cfg Config) (*Router, error) {
 		overhead: stats.NewRecorder(stats.DefaultCapacity),
 		metrics:  newMetrics(cfg.Policy.Name()),
 
+		residency:   cfg.Residency,
 		maxAttempts: 2 * len(cfg.Fleet.Replicas()),
 	}, nil
 }
@@ -254,6 +278,10 @@ func (rt *Router) Stats() Stats {
 		held := reporter.IndexStats()
 		index = &held
 	}
+	var feedStats []residency.FeedStats
+	if rt.residency != nil {
+		feedStats = rt.residency.Stats()
+	}
 	return Stats{
 		Policy:         rt.policy.Name(),
 		Spill:          spill,
@@ -261,6 +289,7 @@ func (rt *Router) Stats() Stats {
 		Requests:       rt.requests.Load(),
 		RouterOverhead: rt.overhead.Summary(),
 		PrefixIndex:    index,
+		Residency:      feedStats,
 	}
 }
 
@@ -366,7 +395,7 @@ func (rt *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request
 	conversation := session.Identify(req.Header, body)
 	row.Session, row.SessionDerived = conversation.ID, conversation.Derived
 
-	placed, ok := rt.place(w, req, &row, policy.Request{Header: req.Header, Body: body, Session: conversation}, body)
+	placed, ok := rt.place(w, req, &row, policy.Request{Header: req.Header, Body: body, Session: conversation, Context: req.Context()}, body)
 	if !ok {
 		return
 	}
@@ -532,6 +561,8 @@ func recordChoice(row *record.Request, choice policy.Choice) {
 	row.DeclinedMatchBytes = choice.DeclinedMatchBytes
 	row.DeclinedKVUtilization, row.DeclinedKVRead = choice.DeclinedKV.Fraction, choice.DeclinedKV.Read
 	row.DeclinedInflight = choice.DeclinedInflight
+	row.PrefixMatchTokens, row.DeclinedMatchTokens = choice.PrefixMatchTokens, choice.DeclinedMatchTokens
+	row.TokenizeNs = choice.Tokenize.Nanoseconds()
 }
 
 // excluding is a snapshot without the replicas that have already failed this
@@ -574,6 +605,9 @@ func (rt *Router) relay(w http.ResponseWriter, req *http.Request, row *record.Re
 		"kv", choice.KV,
 		"prefix_match_b", choice.PrefixMatchBytes,
 		"declined_match_b", choice.DeclinedMatchBytes,
+		"prefix_match_tok", choice.PrefixMatchTokens,
+		"declined_match_tok", choice.DeclinedMatchTokens,
+		"tokenize_us", float64(choice.Tokenize.Nanoseconds())/1000,
 		"declined_kv", choice.DeclinedKV,
 		"declined_inflight", choice.DeclinedInflight,
 		"reroutes", row.Reroutes,
@@ -586,6 +620,7 @@ func (rt *Router) relay(w http.ResponseWriter, req *http.Request, row *record.Re
 	w.Header().Set(DecisionHeader, string(choice.Reason))
 	w.Header().Set(RequestHeader, row.RequestID)
 	w.Header().Set(PrefixMatchHeader, strconv.Itoa(choice.PrefixMatchBytes))
+	w.Header().Set(PrefixMatchTokensHeader, strconv.Itoa(choice.PrefixMatchTokens))
 	w.Header().Set(ReroutesHeader, strconv.Itoa(row.Reroutes))
 	w.WriteHeader(resp.StatusCode)
 

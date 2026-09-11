@@ -248,6 +248,15 @@ type Cell struct {
 	// resume one another: the second cell would send nothing and the recency
 	// curve would be one configuration measured twice.
 	ThinkTimeNs int64 `json:"think_time_ns" parquet:"think_time_ns"`
+	// KVEvents says the fleet was publishing its KV cache events while this cell
+	// ran. It is an engine setting rather than part of the workload — the bytes
+	// are the same either way — so, like the think time, it is on the cell and not
+	// in the workload's name. Exact residency cannot run without it, and
+	// publishing is work the engine does on every scheduler step, so a sweep
+	// refuses to resume cells recorded under the other setting and compare refuses
+	// to put the two in one table (ADR-0010). False on every cell recorded before
+	// #24, which is the truth about them: no fleet published before it.
+	KVEvents bool `json:"kv_events" parquet:"kv_events"`
 
 	StartedAtNs int64 `json:"started_at_ns" parquet:"started_at_ns"`
 	EndedAtNs   int64 `json:"ended_at_ns" parquet:"ended_at_ns"`
@@ -327,6 +336,32 @@ type Cell struct {
 	// least its tail and is flagged, and the sweep stops rather than run the next
 	// cell on a fleet it does not describe.
 	OutOfRotation []string `json:"out_of_rotation,omitempty" parquet:"out_of_rotation"`
+
+	// ResidencyLost, ResidencyResets and ResidencyReconnects are what exact
+	// residency's event streams went through over this cell, summed across
+	// replicas and read off the router's stats either side of the cell: batches
+	// of history no replay could recover, the resets they forced, and the
+	// reconnects that each started a replica from nothing. ResidencyOrphaned is
+	// the stored runs the index could not place over the same window. All zero
+	// under every other policy, which follows no stream.
+	//
+	// A cell any of the first three moved in ran on an index that knew less than
+	// it claimed for part of its window, and is flagged (ADR-0010). Orphans are
+	// recorded and not flagged: a duplicate block evicted while its twin lives on
+	// orphans the next run too, which is the index forgetting what it cannot
+	// vouch for rather than history lost.
+	ResidencyLost       uint64 `json:"residency_lost" parquet:"residency_lost"`
+	ResidencyResets     uint64 `json:"residency_resets" parquet:"residency_resets"`
+	ResidencyReconnects uint64 `json:"residency_reconnects" parquet:"residency_reconnects"`
+	ResidencyOrphaned   uint64 `json:"residency_orphaned" parquet:"residency_orphaned"`
+	// ResidencyRead says the router reported residency on both sides of the
+	// cell, so zeros above are streams that lost nothing rather than nobody
+	// having looked.
+	ResidencyRead bool `json:"residency_read" parquet:"residency_read"`
+	// ResidencyDisconnected names the replicas whose event stream was not
+	// connected when the cell ended, leaving the index following nothing for
+	// them.
+	ResidencyDisconnected []string `json:"residency_disconnected,omitempty" parquet:"residency_disconnected"`
 
 	Summary       `json:"summary"`
 	Contamination `json:"contamination"`
@@ -513,6 +548,12 @@ type SweepConfig struct {
 	// this cannot be left to be inferred.
 	Spill         policy.Spill
 	Contamination ContaminationConfig
+	// FleetKVEvents is whether the fleet is publishing its KV cache events, and
+	// what every cell is labelled with. Told rather than probed, like the model
+	// and the fleet's cards — ops/versions.env is where it is set — and checked in
+	// the one direction the router can confirm: a router following the engines'
+	// events proves the fleet publishes them.
+	FleetKVEvents bool
 
 	Log *slog.Logger
 
@@ -835,8 +876,27 @@ func checkCachedWorkload(cfg SweepConfig) error {
 				"Sweep into a new -dir. The gap between a session's turns decides how stale the router's belief is when it acts on it, so two think times are two measurements and not two repetitions of one",
 				cfg.Dir, cached.ID, time.Duration(cached.ThinkTimeNs), thinkTimeFor(cached.Load(), cfg.ThinkTime))
 		}
+		// And the engine's configuration, which no byte of the workload shows. A
+		// fleet publishing its KV cache events does work on every scheduler step
+		// that one not publishing does not (ADR-0010), so a sweep of one must not
+		// resume cells recorded on the other: it would report them cached and pool
+		// an events-off measurement into an events-on comparison — which is what
+		// re-running policy 4 for #24 into #18's directory would do.
+		if cached.KVEvents != cfg.FleetKVEvents {
+			return fmt.Errorf("bench: %s already holds cells recorded %s the fleet publishing its KV cache events, and this sweep's fleet runs %s them, so resuming here would pool two engine configurations as one (cell %s).\n"+
+				"Sweep into a new -dir — make pressure-grid picks one of its own when ops/versions.env turns the events on. Publishing is work the engine does on every step, so cells recorded with and without it are two measurements, not repetitions of one (ADR-0010)",
+				cfg.Dir, withOrWithout(cached.KVEvents), withOrWithout(cfg.FleetKVEvents), cached.ID)
+		}
 	}
 	return nil
+}
+
+// withOrWithout names a KV cache events setting for a sentence.
+func withOrWithout(on bool) string {
+	if on {
+		return "with"
+	}
+	return "without"
 }
 
 // checkRouter refuses to start a sweep against a router that is not there, or that
@@ -886,6 +946,13 @@ func checkRouter(ctx context.Context, cfg SweepConfig) error {
 	}
 	if err := checkGridPoint(cfg, stats); err != nil {
 		return err
+	}
+	// The one direction the router can confirm: a router following the engines'
+	// KV cache events is proof the fleet publishes them, and cells labelled as run
+	// without them would record an engine configuration that was not running.
+	if len(stats.Residency) > 0 && !cfg.FleetKVEvents {
+		return fmt.Errorf("bench: the router at %s is following the engines' KV cache events, so the fleet publishes them, but this sweep would record its cells as run without them. "+
+			"Pass -fleet-kv-events=true — or, through make, set KV_EVENTS=\"1\" in ops/versions.env, the file the fleet was started from (ADR-0010)", cfg.Target)
 	}
 	if len(cfg.Replicas) > 0 && len(stats.Replicas) != len(cfg.Replicas) {
 		return fmt.Errorf("bench: the router at %s fronts %d replicas but this sweep was given %d, so the harness and the router are pointed at different fleets",
@@ -1096,6 +1163,7 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 	if ejectionsRead {
 		ejections = totalEjections(after) - totalEjections(before)
 	}
+	exact := residencyOver(before, after, beforeRead && afterRead)
 	ended := time.Now()
 
 	if closeErr := rows.Close(); closeErr != nil && runErr == nil {
@@ -1132,6 +1200,7 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 
 		ArrivalPlan: arrivalPlanFor(load),
 		ThinkTimeNs: thinkTimeFor(load, cfg.ThinkTime).Nanoseconds(),
+		KVEvents:    cfg.FleetKVEvents,
 		StartedAtNs: started.UnixNano(),
 		EndedAtNs:   ended.UnixNano(),
 
@@ -1150,11 +1219,19 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		EjectionsRead: ejectionsRead,
 		OutOfRotation: outOfRotation(after),
 
+		ResidencyLost:         exact.lost,
+		ResidencyResets:       exact.resets,
+		ResidencyReconnects:   exact.reconnects,
+		ResidencyOrphaned:     exact.orphaned,
+		ResidencyRead:         exact.read,
+		ResidencyDisconnected: exact.disconnected,
+
 		Summary:       Summarize(results, cfg.summaryOptions()),
 		Contamination: contamination,
 	}
 	flagContamination(&cell)
 	flagFleetChanges(&cell)
+	flagResidency(&cell)
 
 	if err := writeCell(cellDir, cell); err != nil {
 		return Cell{}, err
@@ -1189,6 +1266,84 @@ func flagFleetChanges(cell *Cell) {
 		cell.Flag(fmt.Sprintf("the router was not routing to %s when this cell ended, so it measured a smaller fleet for at least its tail. Re-run it once the fleet is whole",
 			strings.Join(cell.OutOfRotation, ", ")))
 	}
+}
+
+// flagResidency adds the reasons a cell run while exact residency's view of the
+// caches was incomplete must not be averaged in. Like the fleet changes these
+// come from the cell's record rather than its rows, so they are reapplied
+// whenever the cell is resummarised.
+func flagResidency(cell *Cell) {
+	if cell.ResidencyLost > 0 || cell.ResidencyResets > 0 {
+		cell.Flag(fmt.Sprintf("exact residency lost %d batches of the engines' KV cache events during this cell and reset %d time(s), so its index knew less than it claimed for part of the window (ADR-0010). Re-run it",
+			cell.ResidencyLost, cell.ResidencyResets))
+	}
+	if cell.ResidencyReconnects > 0 {
+		cell.Flag(fmt.Sprintf("exact residency's event stream reconnected %d time(s) during this cell, and each reconnect starts a replica's residency from nothing (ADR-0010). Re-run it",
+			cell.ResidencyReconnects))
+	}
+	if len(cell.ResidencyDisconnected) > 0 {
+		cell.Flag(fmt.Sprintf("exact residency's event stream from %s was not connected when this cell ended, so its index was following nothing for that replica. Re-run it once the stream is back",
+			strings.Join(cell.ResidencyDisconnected, ", ")))
+	}
+}
+
+// residencyWindow is what exact residency's streams went through between two
+// readings of the router's stats.
+type residencyWindow struct {
+	lost, resets, reconnects, orphaned uint64
+	read                               bool
+	disconnected                       []string
+}
+
+// residencyOver is the residency window between the two readings either side of
+// a cell. Nothing is read unless both readings answered and both carried
+// residency, which only exact residency's router reports.
+func residencyOver(before, after router.Stats, read bool) residencyWindow {
+	if !read || len(before.Residency) == 0 || len(after.Residency) == 0 {
+		return residencyWindow{}
+	}
+	b, a := residencyTotals(before), residencyTotals(after)
+	w := residencyWindow{
+		read:       true,
+		lost:       grownBy(a.lost, b.lost),
+		resets:     grownBy(a.resets, b.resets),
+		reconnects: grownBy(a.connections, b.connections),
+		orphaned:   grownBy(a.orphaned, b.orphaned),
+	}
+	for _, r := range after.Residency {
+		if !r.Stream.Connected {
+			w.disconnected = append(w.disconnected, r.Replica)
+		}
+	}
+	return w
+}
+
+// residencyCounts is the router's cumulative residency counters, summed across
+// its replicas: what one reading says, where a residencyWindow is what two say.
+type residencyCounts struct {
+	lost, resets, connections, orphaned uint64
+}
+
+// residencyTotals sums the router's residency counters across its replicas.
+func residencyTotals(stats router.Stats) residencyCounts {
+	var t residencyCounts
+	for _, r := range stats.Residency {
+		t.lost += r.Stream.Lost
+		t.resets += r.Stream.Resets
+		t.connections += r.Stream.Connections
+		t.orphaned += r.Orphaned
+	}
+	return t
+}
+
+// grownBy is how far a cumulative counter moved between two readings. A counter
+// that went backwards belongs to a router that restarted between them, which
+// counts from zero again, so everything it now reports happened in the window.
+func grownBy(after, before uint64) uint64 {
+	if after >= before {
+		return after - before
+	}
+	return after
 }
 
 // outOfRotation names the replicas a router's stats say it is not routing to.
@@ -1234,6 +1389,7 @@ func resummarize(cellDir string, cached Cell, cfg SweepConfig) (Cell, error) {
 	cached.Summary = Summarize(rows, cfg.summaryOptions())
 	flagContamination(&cached)
 	flagFleetChanges(&cached)
+	flagResidency(&cached)
 	if err := writeCell(cellDir, cached); err != nil {
 		return Cell{}, err
 	}

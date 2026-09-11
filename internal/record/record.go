@@ -135,6 +135,21 @@ type Request struct {
 	DeclinedKVUtilization float64 `json:"declined_kv_utilization" parquet:"declined_kv_utilization"`
 	DeclinedKVRead        bool    `json:"declined_kv_read" parquet:"declined_kv_read"`
 	DeclinedInflight      int     `json:"declined_inflight" parquet:"declined_inflight"`
+	// PrefixMatchTokens and DeclinedMatchTokens are the two match columns above
+	// for exact residency, which knows what a replica holds in the engine's own
+	// tokens rather than in bytes of prompt. Zero under every other policy, and
+	// the byte columns are zero under that one: each prediction is recorded in
+	// the unit it was made in. The engine's usage block reports the cached
+	// tokens of the same request, so this one can be held to it without any
+	// conversion at all.
+	PrefixMatchTokens   int `json:"prefix_match_tokens" parquet:"prefix_match_tokens"`
+	DeclinedMatchTokens int `json:"declined_match_tokens" parquet:"declined_match_tokens"`
+	// TokenizeNs is how long the engine took to tokenize this prompt before
+	// exact residency could decide where it went. It is inside RouterOverheadNs,
+	// and carried separately so that the cost of knowing exactly can be told
+	// apart from the cost of deciding. Zero under every other policy, which
+	// never asks.
+	TokenizeNs int64 `json:"tokenize_ns" parquet:"tokenize_ns"`
 
 	Model  string `json:"model" parquet:"model"`
 	Stream bool   `json:"stream" parquet:"stream"`

@@ -403,18 +403,25 @@ func recencyOrder(label string) float64 {
 	return float64(len(recencyLabels))
 }
 
-// ForCalibration is the reading the index's node cap is resized against: the
-// divergence over the policies that actually consulted an index.
+// ForCalibration is the reading the prefix index's node cap is resized against:
+// the divergence of the one policy that routes on that index.
 //
-// Restricted on purpose. A policy that consults no index predicts nothing on
-// every request, so folding its rows in would dilute the honoured share with
-// requests that never made a claim — and the cap would be shrunk on evidence
-// from a run that never exercised it. prefix.Calibration refuses such a reading
-// too, but refusing it there and assembling it here would leave the report
-// publishing a figure the calibration then discards.
+// Restricted on purpose, twice over. A policy that consults no index predicts
+// nothing on every request, so folding its rows in would dilute the honoured
+// share with requests that never made a claim — and the cap would be shrunk on
+// evidence from a run that never exercised it. prefix.Calibration refuses such a
+// reading too, but refusing it there and assembling it here would leave the
+// report publishing a figure the calibration then discards. And exact residency
+// predicts plenty, from a different index fed by the engines rather than by
+// dispatch history: scaling the prefix index's cap by how much of that belief the
+// engines honoured would credit the approximation with the exact policy's
+// accuracy.
 func (r DivergenceReport) ForCalibration() prefix.Divergence {
 	var d prefix.Divergence
 	for pair, measured := range r.byPolicySpill {
+		if pair.policy != policy.PrefixAffinityName {
+			continue
+		}
 		// Spill-off only. A declined match sends the request to a replica the
 		// index claimed little or nothing about, and the row records that
 		// target's match — so a blended reading measures the index on the
@@ -443,7 +450,8 @@ func (r DivergenceReport) Report() string {
 	fmt.Fprintf(&b, "The gap between what the router believed the chosen replica held of a prompt\n")
 	fmt.Fprintf(&b, "and what the engine says it actually served out of cache, per request.\n\n")
 	fmt.Fprintf(&b, "- Prediction: the router's prefix match, in bytes, converted at each request's own\n")
-	fmt.Fprintf(&b, "  prompt bytes per token — both sides of that ratio are on the row.\n")
+	fmt.Fprintf(&b, "  prompt bytes per token — both sides of that ratio are on the row. Exact residency\n")
+	fmt.Fprintf(&b, "  predicts in the engine's own tokens and is read as it stands.\n")
 	fmt.Fprintf(&b, "- Truth: `usage.prompt_tokens_details.cached_tokens`, the engine's own per-request\n")
 	fmt.Fprintf(&b, "  account. `vllm:request_prefill_kv_computed_tokens` is the same quantity as a\n")
 	fmt.Fprintf(&b, "  histogram and carries no request id, so it cannot be joined to the prediction\n")

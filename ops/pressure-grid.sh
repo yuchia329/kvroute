@@ -46,7 +46,9 @@ cd "$root"
 policy="${1:-}"
 if [[ -z "$policy" ]]; then
   echo "usage: $0 <policy> [make variables...]" >&2
-  echo "  one of round_robin, least_outstanding, session_affinity, prefix_affinity" >&2
+  echo "  one of round_robin, least_outstanding, session_affinity, prefix_affinity," >&2
+  echo "  or exact_residency, which needs the fleet up with KV_EVENTS=1 -- and so does" >&2
+  echo "  every policy it is compared against (ADR-0010)" >&2
   echo "" >&2
   echo "  Anything after the policy is passed to make, which is how the headline" >&2
   echo "  pair gets its extra repetitions and how the spill thresholds are set:" >&2

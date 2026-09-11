@@ -78,6 +78,7 @@ func run() error {
 		lagAt     = flag.Duration("schedule-lag-threshold", bench.DefaultScheduleLagThreshold, "how late an open-loop cell's requests may be sent against the schedule that asked for them, at p99, before the cell is flagged as not having offered the rate it reports; negative disables the check")
 
 		model        = flag.String("model", "", "the model the replicas serve; no default, it is pinned in ops/versions.env")
+		fleetEvents  = flag.Bool("fleet-kv-events", false, "whether the fleet is publishing its KV cache events: KV_EVENTS in ops/versions.env. Recorded on every cell, because it is an engine setting — a sweep refuses to resume, and compare to mix, cells recorded under the other value")
 		outputTokens = flag.Int("output-tokens", 64, "max_tokens per request, and the size of the reply written back into a multi-turn history")
 		seed         = flag.Uint64("seed", 1, "workload seed; the same seed sends the same bytes")
 
@@ -256,6 +257,7 @@ func run() error {
 		Target:               *target,
 		Policy:               *policyName,
 		Spill:                spill,
+		FleetKVEvents:        *fleetEvents,
 		Replicas:             bases,
 		Concurrencies:        concurrencies,
 		ArrivalRates:         arrivalRates,

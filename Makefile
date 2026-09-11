@@ -308,7 +308,7 @@ TUNABLES_LOAD_WORKLOAD = $(TUNABLES_GEOMETRY) -working-set 1 -skew 1.4
 tunables-kv: build ## Run one point of the KV high-water sweep (WS 3, skew 0)
 	@test -n "$(KV_HIGH_WATER)" || { echo "tunables-kv: set KV_HIGH_WATER to a level from bench.KVHighWaterGrid, or to 0 for the spill-off reference cell" >&2; exit 1; }
 	@test -z "$(LOAD_IMBALANCE)" || { echo "tunables-kv: LOAD_IMBALANCE must stay unset; this point measures the high-water mark alone" >&2; exit 1; }
-	$(BIN)/bench -router $(ROUTER) -dir $(TUNABLES_DIR)/kv -policy prefix_affinity $(SPILL_LABEL) \
+	$(BIN)/bench -router $(ROUTER) -dir $(TUNABLES_DIR)/kv -policy prefix_affinity $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		-concurrency $(TUNABLES_CONCURRENCY) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
@@ -322,7 +322,7 @@ tunables-kv: build ## Run one point of the KV high-water sweep (WS 3, skew 0)
 tunables-load: build ## Run one point of the load imbalance sweep (WS 1, skew 1.4)
 	@test -n "$(LOAD_IMBALANCE)" || { echo "tunables-load: set LOAD_IMBALANCE to a level from bench.LoadImbalanceGrid, or to 0 for the spill-off reference cell" >&2; exit 1; }
 	@test -z "$(KV_HIGH_WATER)" || { echo "tunables-load: KV_HIGH_WATER must stay unset; this point measures the imbalance factor alone" >&2; exit 1; }
-	$(BIN)/bench -router $(ROUTER) -dir $(TUNABLES_DIR)/load -policy prefix_affinity $(SPILL_LABEL) \
+	$(BIN)/bench -router $(ROUTER) -dir $(TUNABLES_DIR)/load -policy prefix_affinity $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		-concurrency $(TUNABLES_CONCURRENCY) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
@@ -356,7 +356,19 @@ tunables-load: build ## Run one point of the load imbalance sweep (WS 1, skew 1.
 # cells record no working set, and the map has no axis to draw — see
 # GridPoint.Stated. It is carried by the geometry below, which is why that is
 # shared with the tunable sweep rather than retyped.
-PRESSURE_DIR ?= runs/pressure
+# Whether the fleet publishes its KV cache events, read once from versions.env —
+# the file ops/replica.sh reads it from when it starts the engines — and recorded
+# on every cell. It is an engine setting (ADR-0010): a sweep refuses to resume
+# cells recorded under the other value, and compare refuses to put the two in one
+# table.
+FLEET_KV_EVENTS := $(shell ops/fleet.sh env KV_EVENTS 2>/dev/null)
+FLEET_KV_EVENTS_LABEL = -fleet-kv-events=$(if $(filter 1,$(FLEET_KV_EVENTS)),true,false)
+
+# An events-on fleet's grid is swept into a directory of its own. #18's grid in
+# runs/pressure ran without the events and stays that way — the events-off
+# reference — so #24's re-measurement of the other policies never resumes into it
+# (which the sweep would refuse anyway) and is never merged with it.
+PRESSURE_DIR ?= runs/pressure$(if $(filter 1,$(FLEET_KV_EVENTS)),-kv-events,)
 PRESSURE_WS ?=
 PRESSURE_SKEW ?=
 
@@ -409,11 +421,12 @@ PRESSURE_CELL = -cell-duration 150s -warmup 50s -settle 10s
 # answer #18's separability criterion; that waits on #28, and the map says so
 # rather than reporting a column of zeros as a result.
 #
-# Only prefix affinity has a spill rule, so only prefix affinity is labelled with
-# one. The other three policies have no valve and must not be labelled as if they
-# did.
+# Only prefix affinity and exact residency have a spill rule — the same rule, at
+# the same thresholds, since #24 compares the two to find what exact knowledge of
+# the caches is worth and nothing else — so only they are labelled with one. The
+# other three policies have no valve and must not be labelled as if they did.
 PRESSURE_SPILL ?= 0/2
-PRESSURE_SPILL_LABEL = $(if $(filter prefix_affinity,$(POLICY)),-spill $(PRESSURE_SPILL),)
+PRESSURE_SPILL_LABEL = $(if $(filter prefix_affinity exact_residency,$(POLICY)),-spill $(PRESSURE_SPILL),)
 
 .PHONY: pressure-grid
 pressure-grid: build ## Run one point of the pressure grid: PRESSURE_WS x PRESSURE_SKEW at one concurrency
@@ -421,7 +434,7 @@ pressure-grid: build ## Run one point of the pressure grid: PRESSURE_WS x PRESSU
 	@test -n "$(PRESSURE_SKEW)" || { echo "pressure-grid: set PRESSURE_SKEW to a point of bench.PressureSkews (0, 1 or 1.4)" >&2; exit 1; }
 	@test -n "$(KV_CAPACITY)" || { echo "pressure-grid: KV_CAPACITY is required, or the cells state no working set and the map has no axis" >&2; exit 1; }
 	$(BIN)/bench -router $(ROUTER) -dir $(PRESSURE_DIR)/ws$(PRESSURE_WS)-skew$(PRESSURE_SKEW) \
-		-policy $(POLICY) $(PRESSURE_SPILL_LABEL) \
+		-policy $(POLICY) $(PRESSURE_SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		-concurrency $(PRESSURE_CONCURRENCY) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
@@ -440,11 +453,20 @@ pressure-grid: build ## Run one point of the pressure grid: PRESSURE_WS x PRESSU
 # applied no pressure, and §6 says to correct it before touching any policy.
 PRESSURE_MAP_DIRS ?= $(wildcard $(PRESSURE_DIR)/*)
 PRESSURE_MAP_OUT ?= runs/pressuremap.md
+# The headline pair. Unset draws session affinity against prefix affinity, which
+# is #18's map; #24's is the exact policy against the approximate one, drawn over
+# the events-on grid:
+#
+#     make pressure-map PRESSURE_MAP_ARGS="-baseline prefix_affinity -challenger exact_residency"
+#
+# Either way, a grid holding session affinity, prefix affinity and exact
+# residency also reports how much of the gain the approximate index keeps.
+PRESSURE_MAP_ARGS ?=
 
 .PHONY: pressure-map
 pressure-map: build ## Draw the pressure map across every point of the grid that has been run
 	@test -n "$(PRESSURE_MAP_DIRS)" || { echo "pressure-map: no grid points under $(PRESSURE_DIR); run pressure-grid first" >&2; exit 1; }
-	$(BIN)/pressuremap -out $(PRESSURE_MAP_OUT) $(PRESSURE_MAP_DIRS)
+	$(BIN)/pressuremap -out $(PRESSURE_MAP_OUT) $(PRESSURE_MAP_ARGS) $(PRESSURE_MAP_DIRS)
 
 # The chaos test (#19, idea.md §7): one replica taken away under steady
 # open-loop load and brought back, once per policy, and the recovery curves
@@ -496,7 +518,7 @@ recovery: build ## Compare the recovery curves of every policy that ran CHAOS_FA
 
 .PHONY: bench
 bench: build ## Sweep concurrency against the running fleet, resuming from RUN_DIR
-	$(BIN)/bench -router $(ROUTER) -dir $(RUN_DIR) -policy $(POLICY) $(SPILL_LABEL) \
+	$(BIN)/bench -router $(ROUTER) -dir $(RUN_DIR) -policy $(POLICY) $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
@@ -507,7 +529,7 @@ bench: build ## Sweep concurrency against the running fleet, resuming from RUN_D
 
 .PHONY: goodput
 goodput: build ## Offer a ladder of arrival rates open-loop and record goodput at each, resuming from GOODPUT_DIR
-	$(BIN)/bench -router $(ROUTER) -dir $(GOODPUT_DIR) -policy $(POLICY) -driver open_loop $(SPILL_LABEL) \
+	$(BIN)/bench -router $(ROUTER) -dir $(GOODPUT_DIR) -policy $(POLICY) -driver open_loop $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		$(if $(GOODPUT_RATES),-arrival-rates $(GOODPUT_RATES),) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
@@ -595,7 +617,17 @@ run-router: build ## Run the router against REPLICAS, keeping its own rows in RE
 	@mkdir -p $(dir $(RECORDS))
 	$(BIN)/router -listen $(LISTEN) -replicas $(REPLICAS) -policy $(POLICY) -records $(RECORDS) \
 		$(if $(wildcard $(PREFIX_CALIBRATION)),-prefix-calibration $(PREFIX_CALIBRATION),) \
+		$(if $(filter exact_residency,$(POLICY)),$(KV_EVENTS_ARGS),) \
 		$(SPILL_ARGS)
+
+# exact_residency follows every engine's KV cache events, so it needs a fleet
+# brought up with KV_EVENTS=1 (ops/versions.env) and the endpoints that fleet
+# publishes on. Read off versions.env through fleet.sh rather than retyped, like
+# every other engine setting: the block size especially, since a router chunking
+# at a size the engines do not use would refuse every event they send.
+KV_EVENTS_ARGS = -kv-events "$$(ops/fleet.sh kv-events)" \
+	-kv-events-replay "$$(ops/fleet.sh kv-events-replay)" \
+	-kv-block-size "$$(ops/fleet.sh env BLOCK_SIZE)"
 
 .PHONY: run-fake
 run-fake: build ## Run one fake replica on :8000, for driving the router without a GPU

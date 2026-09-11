@@ -57,8 +57,9 @@ _Avoid_: message, exchange, round
 
 **Prefix block**:
 A fixed-size chunk of the rendered prompt, hashed to form the unit of cache-locality tracking.
-The router chunks by bytes, not tokens, so blocks are self-consistent within the router but do
-not align with vLLM's internal blocks.
+The prefix index chunks by bytes, not tokens, so its blocks are self-consistent within the router
+but do not align with vLLM's internal blocks. Exact residency matches in vLLM's own blocks of
+tokens instead, because that is how the engine's events name them.
 _Avoid_: chunk, segment, page
 
 **Prefix index**:
@@ -68,7 +69,8 @@ _Avoid_: prefix cache, radix tree, cache map
 
 **Prefix match**:
 The length of the longest chain of leading prefix blocks a candidate replica is believed to
-hold. Measured in bytes, and reported as such.
+hold. Measured in bytes under the prefix index and in the engine's tokens under exact residency,
+and each reported in its own unit rather than converted into the other's.
 _Avoid_: prefix hit, cache hit (those mean the vLLM-side quantity, below)
 
 **Prompt bytes per token**:
@@ -117,6 +119,24 @@ A notification published by a replica when it stores or removes a block. Consumi
 gives exact residency rather than a belief, at the cost of depending on engine cooperation.
 _Avoid_: cache notification, invalidation
 
+**Exact residency**:
+What a replica's prefix cache holds, as its own engine reported it through KV cache events: a
+block is held from the event that stored it to the event that removed it, with no TTL or cap,
+because nothing is being guessed. Kept in the engine's tokens and block size, so a prefix match
+against it is a count of tokens the engine's usage block can be held to directly. Exact about
+what the engine has computed and reported, and blind to a prefill still in flight. It forgets
+rather than guesses: a replica whose stream lost history is reset, never kept. Policy 5 routes on
+it (ADR-0010).
+_Avoid_: ground truth (that is the engine's own per-request account), precise index, KV index
+
+**Lost history**:
+KV cache event batches a router's stream never received and could not recover from the engine's
+replay buffer: everything older than the buffer when a router subscribes late, and any later gap
+the buffer no longer covers. It is counted per replica rather than hidden, and never guessed
+across: what the router held for that replica is forgotten and rebuilt from the events that
+follow, because a missing batch may have removed any of it.
+_Avoid_: dropped events (a dropped request is something else), missed events, desync
+
 ### Load
 
 **Inflight**:
@@ -133,7 +153,7 @@ _Avoid_: memory pressure, cache usage
 ### Routing
 
 **Policy**:
-A pluggable rule mapping a request plus fleet state to a chosen replica. Four exist; only the
+A pluggable rule mapping a request plus fleet state to a chosen replica. Five exist; only the
 policy varies between benchmark runs.
 _Avoid_: strategy, algorithm, scheduler
 
@@ -159,6 +179,13 @@ locality to preserve. It is its own decision rather than a least-outstanding dec
 declined affinity: a policy producing nothing but cold decisions has an index that is not
 working, and no goodput figure beside it would reveal that.
 _Avoid_: miss, no match, fallback
+
+**Untokenized**:
+A request exact residency could not look up, because the engine did not tokenize its prompt in
+time, and which was routed on load instead. Its own decision rather than cold: cold says no
+engine held the prompt, and this says nobody could look. A cell full of them had an index nobody
+could ask, which no goodput figure beside it would reveal.
+_Avoid_: cold, failed (nothing failed that the client saw)
 
 **Session affinity**:
 Routing every turn of a session to one replica by hashing its session identity onto a ring of the

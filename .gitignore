@@ -3,6 +3,9 @@ run/
 *.jsonl
 runs/
 
+# Python's bytecode, left beside the test helpers that uv runs.
+__pycache__/
+
 # Sweep output is ignored above because a full pass is hundreds of megabytes
 # across ~220 cells. Reference measurements cited by the README are different in
 # kind and are kept, so every published figure stays recomputable from the rows

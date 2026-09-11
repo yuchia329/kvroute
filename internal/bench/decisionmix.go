@@ -38,6 +38,11 @@ type DecisionMix struct {
 	// separately.
 	SpillKV   int `json:"spill_kv" parquet:"spill_kv"`
 	SpillLoad int `json:"spill_load" parquet:"spill_load"`
+	// PromptUntokenized is a request exact residency could not look up, because
+	// the engine did not tokenize its prompt in time. Its own column rather than
+	// cold, which says the index found nothing: a cell full of these had an index
+	// nobody could ask.
+	PromptUntokenized int `json:"prompt_untokenized" parquet:"prompt_untokenized"`
 	// Undecided is a request that carries no decision, which is one the router
 	// never placed. Counted rather than dropped, so the mix reconciles against
 	// the cell's request count instead of quietly disagreeing with it.
@@ -63,6 +68,8 @@ func (m *DecisionMix) count(reason string) {
 		m.SpillKV++
 	case policy.ReasonSpillLoad:
 		m.SpillLoad++
+	case policy.ReasonPromptUntokenized:
+		m.PromptUntokenized++
 	default:
 		// An unrecognised reason lands here with the requests that carried none.
 		// A router emitting a reason this harness does not know is a version
@@ -82,7 +89,7 @@ func (m DecisionMix) Spilled() int { return m.SpillKV + m.SpillLoad }
 // cell.
 func (m DecisionMix) Total() int {
 	return m.RoundRobin + m.LeastOutstanding + m.SessionAffinity + m.SessionUnidentified +
-		m.PrefixAffinity + m.Cold + m.SpillKV + m.SpillLoad + m.Undecided
+		m.PrefixAffinity + m.Cold + m.SpillKV + m.SpillLoad + m.PromptUntokenized + m.Undecided
 }
 
 // AffinityRate is the share of decisions that took a prefix match. Zero when
@@ -118,6 +125,7 @@ func (m DecisionMix) String() string {
 		{policy.ReasonCold, m.Cold},
 		{policy.ReasonSpillKV, m.SpillKV},
 		{policy.ReasonSpillLoad, m.SpillLoad},
+		{policy.ReasonPromptUntokenized, m.PromptUntokenized},
 	} {
 		if named.count > 0 {
 			parts = append(parts, fmt.Sprintf("%s=%d", named.reason, named.count))

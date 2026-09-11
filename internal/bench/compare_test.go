@@ -56,6 +56,29 @@ func compare(t *testing.T, cs []bench.Cell) bench.Comparison {
 	return got
 }
 
+// The P90 is pooled the way the P50 and P99 beside it are — the median of the
+// repetitions' own P90s — and it gets a column of its own, because it is the
+// figure llm-d published its precise-versus-approximate result in.
+func TestTheComparisonReportsTheNinetiethPercentileTTFT(t *testing.T) {
+	load := bench.ClosedLoopAt(32)
+	var cs []bench.Cell
+	for i, p90 := range []time.Duration{400 * time.Millisecond, 600 * time.Millisecond, 500 * time.Millisecond} {
+		c := cell(policy.PrefixAffinityName, load, i+1, 10)
+		c.TTFTP90Ns = p90.Nanoseconds()
+		cs = append(cs, c)
+	}
+	cs = append(cs, cells(policy.SessionAffinityName, load, 9, 9, 9)...)
+
+	got := compare(t, cs)
+
+	if p90 := time.Duration(got.Rows[0].Latency[policy.PrefixAffinityName].P90Ns); p90 != 500*time.Millisecond {
+		t.Errorf("pooled TTFT p90 is %v, want 500ms: the median of its repetitions' p90s", p90)
+	}
+	if !strings.Contains(got.Report(), "TTFT p90") {
+		t.Error("the report has no TTFT p90 column")
+	}
+}
+
 // TestTheComparisonReportsGoodputForEveryPolicyAtEveryLoadPoint is the
 // deliverable's shape: the two policies' goodput against the derived SLO, side by
 // side, at each point of the load axis.

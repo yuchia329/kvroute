@@ -18,9 +18,11 @@ import (
 
 	"github.com/yuchia329/kvroute/internal/fleet"
 	"github.com/yuchia329/kvroute/internal/httpserve"
+	"github.com/yuchia329/kvroute/internal/kvevents"
 	"github.com/yuchia329/kvroute/internal/policy"
 	"github.com/yuchia329/kvroute/internal/prefix"
 	"github.com/yuchia329/kvroute/internal/record"
+	"github.com/yuchia329/kvroute/internal/residency"
 	"github.com/yuchia329/kvroute/internal/router"
 )
 
@@ -41,11 +43,22 @@ func run() error {
 			"path to the prefix index's calibration, as written by cmd/calibrate. Required by "+policy.PrefixAffinityName+
 				", which will not run on an index whose bounds were guessed")
 		kvHighWater = flag.Float64("kv-high-water", 0,
-			"KV utilization above which "+policy.PrefixAffinityName+" declines the best prefix match and routes on load, as a fraction. "+
+			"KV utilization above which "+policy.PrefixAffinityName+" and "+policy.ExactResidencyName+" decline the best prefix match and route on load, as a fraction. "+
 				"0 disables the condition, which is the policy as it was measured before the spill rule existed")
 		loadImbalanceFactor = flag.Float64("load-imbalance-factor", 0,
-			"multiple of the fleet's minimum inflight above which "+policy.PrefixAffinityName+" declines the best prefix match and routes on load. "+
+			"multiple of the fleet's minimum inflight above which "+policy.PrefixAffinityName+" and "+policy.ExactResidencyName+" decline the best prefix match and route on load. "+
 				"0 disables the condition")
+		kvEvents = flag.String("kv-events", "",
+			"comma-separated id=tcp://host:port specs naming each replica's KV cache event publisher, as `ops/fleet.sh kv-events` prints them. "+
+				"Required by "+policy.ExactResidencyName+", which routes on what the engines report holding")
+		kvEventsReplay = flag.String("kv-events-replay", "",
+			"comma-separated id=tcp://host:port specs naming each replica's event replay socket, as `ops/fleet.sh kv-events-replay` prints them. "+
+				"Without one, a gap in a replica's stream cannot be filled and that replica's residency is forgotten instead")
+		kvBlockSize = flag.Int("kv-block-size", 0,
+			"the engines' KV cache block size in tokens, which "+policy.ExactResidencyName+" chunks prompts at: ops/versions.env's BLOCK_SIZE. "+
+				"Required by that policy and not defaulted, because a size that disagreed with the engines' would refuse every event they sent")
+		kvEventsWait = flag.Duration("kv-events-wait", 30*time.Second,
+			"how long to wait at startup for every replica's event stream to connect before refusing to start")
 		kvScrapeInterval = flag.Duration("kv-scrape-interval", fleet.DefaultKVScrapeInterval,
 			"how often each replica's KV utilization is re-read. Only -kv-high-water reads it")
 		healthInterval = flag.Duration("health-interval", fleet.DefaultHealthInterval,
@@ -75,18 +88,55 @@ func run() error {
 		return err
 	}
 	options.Spill = policy.Spill{KVHighWater: *kvHighWater, LoadImbalanceFactor: *loadImbalanceFactor}
+
+	// Exact residency's index is fed by every engine's event stream, and it is
+	// started — and connected — before the policy routes anything on it.
+	var feed *residency.Feed
+	if *policyName == policy.ExactResidencyName {
+		var index *residency.Index
+		index, feed, err = residencyFeed(log, replicas, *kvEvents, *kvEventsReplay, *kvBlockSize)
+		if err != nil {
+			return err
+		}
+		options.ResidencyIndex = index
+		// The router's own client, for the reason it dispatches with it: it
+		// closes idle connections before vLLM does, so a tokenization is never
+		// written onto a keep-alive connection the engine is closing.
+		options.Tokenizer = &residency.EngineTokenizer{Client: router.DefaultClient()}
+
+		feedCtx, stopFeed := context.WithCancel(context.Background())
+		defer stopFeed()
+		go feed.Run(feedCtx)
+		readyCtx, cancel := context.WithTimeout(feedCtx, *kvEventsWait)
+		err = feed.Ready(readyCtx)
+		cancel()
+		if err != nil {
+			return err
+		}
+		// The tokenize timeout is logged beside the stream settings because it
+		// is chosen rather than measured, and it decides how many requests are
+		// routed untokenized: a run's own output has to say what it was.
+		log.Info("following KV cache events", "replicas", len(replicas),
+			"replay", *kvEventsReplay != "", "block_size", *kvBlockSize,
+			"tokenize_timeout", residency.DefaultTokenizeTimeout)
+	} else if *kvEvents != "" || *kvEventsReplay != "" || *kvBlockSize != 0 {
+		// Refused for the reason a spill threshold is: a flag nothing reads is a
+		// run labelled with a configuration it did not have.
+		return fmt.Errorf("-kv-events, -kv-events-replay and -kv-block-size feed %s, and %s routes on none of them", policy.ExactResidencyName, *policyName)
+	}
+
+	chosen, err := policy.ByName(*policyName, options)
+	if err != nil {
+		return err
+	}
 	// A threshold handed to a policy that has no spill rule is refused rather
 	// than ignored. The flags are how a grid point is set, and a run that
 	// silently dropped them would produce cells labelled with thresholds nothing
 	// applied — the same failure the harness's policy check exists to prevent,
-	// one layer earlier.
-	if options.Spill.Enabled() && *policyName != policy.PrefixAffinityName {
-		return fmt.Errorf("-kv-high-water and -load-imbalance-factor configure the spill rule, which only %s has: %s would ignore them and its cells would be labelled with thresholds nothing applied",
-			policy.PrefixAffinityName, *policyName)
-	}
-	chosen, err := policy.ByName(*policyName, options)
-	if err != nil {
-		return err
+	// one layer earlier. Asked of the policy itself, which is the one party that
+	// knows whether it has a rule to tune.
+	if _, tuned := chosen.(policy.Tuned); options.Spill.Enabled() && !tuned {
+		return fmt.Errorf("-kv-high-water and -load-imbalance-factor configure the spill rule, which %s does not have: it would ignore them and its cells would be labelled with thresholds nothing applied", *policyName)
 	}
 	records, err := record.Open[record.Request](*recordsPath)
 	if err != nil {
@@ -127,10 +177,11 @@ func run() error {
 	}
 
 	rt, err := router.New(router.Config{
-		Fleet:   f,
-		Policy:  chosen,
-		Records: records,
-		Logger:  log,
+		Fleet:     f,
+		Policy:    chosen,
+		Records:   records,
+		Logger:    log,
+		Residency: feed,
 	})
 	if err != nil {
 		return err
@@ -159,7 +210,87 @@ func run() error {
 		"p99_us", s.RouterOverhead.P99Us,
 		"max_us", s.RouterOverhead.MaxUs,
 	)
+	// And how complete exact residency's view of each cache was, for the same
+	// reason: a run whose streams lost history ran on an index that knew less
+	// than it claimed, and its own log should say so.
+	for _, r := range s.Residency {
+		log.Info("residency",
+			"replica", r.Replica,
+			"blocks", r.Blocks,
+			"orphaned", r.Orphaned,
+			"refused", r.Refused,
+			"applied", r.Stream.Applied,
+			"replayed", r.Stream.Replayed,
+			"lost", r.Stream.Lost,
+			"resets", r.Stream.Resets,
+			"connections", r.Stream.Connections,
+		)
+	}
 	return serveErr
+}
+
+// residencyFeed builds the index exact residency routes on, and the feed that
+// keeps it current from every replica's KV cache event stream.
+//
+// Every replica needs a publisher, and every publisher a replica: the feed
+// refuses either mismatch, because a replica with no stream would never hold
+// anything and would never be routed to on a match, silently. The replay specs
+// are optional per replica.
+func residencyFeed(log *slog.Logger, replicas []fleet.Replica, eventSpecs, replaySpecs string, blockSize int) (*residency.Index, *residency.Feed, error) {
+	if eventSpecs == "" {
+		return nil, nil, fmt.Errorf("-kv-events is required to run %s: it routes on what the engines report holding, and that report arrives on their event publishers (ops/fleet.sh kv-events)", policy.ExactResidencyName)
+	}
+	if blockSize <= 0 {
+		return nil, nil, fmt.Errorf("-kv-block-size is required to run %s: it is the engines' block size, ops/versions.env's BLOCK_SIZE", policy.ExactResidencyName)
+	}
+	publishers, err := endpoints(eventSpecs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("-kv-events: %w", err)
+	}
+	replays := map[string]string{}
+	if replaySpecs != "" {
+		if replays, err = endpoints(replaySpecs); err != nil {
+			return nil, nil, fmt.Errorf("-kv-events-replay: %w", err)
+		}
+	}
+	ids := make([]string, 0, len(replicas))
+	for _, r := range replicas {
+		ids = append(ids, r.ID)
+	}
+	index, err := residency.New(blockSize, ids)
+	if err != nil {
+		return nil, nil, err
+	}
+	transports := make(map[string]kvevents.Transport, len(publishers))
+	for id, endpoint := range publishers {
+		transports[id] = &kvevents.ZMQ{Endpoint: endpoint, ReplayEndpoint: replays[id]}
+	}
+	for id := range replays {
+		if _, published := publishers[id]; !published {
+			return nil, nil, fmt.Errorf("-kv-events-replay names %s, which -kv-events does not", id)
+		}
+	}
+	feed, err := residency.NewFeed(index, transports, log)
+	if err != nil {
+		return nil, nil, err
+	}
+	return index, feed, nil
+}
+
+// endpoints parses id=endpoint specs, the form -replicas takes.
+func endpoints(specs string) (map[string]string, error) {
+	parsed, err := fleet.ParseSpecs(strings.Split(specs, ","))
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(parsed))
+	for _, p := range parsed {
+		if _, dup := out[p.ID]; dup {
+			return nil, fmt.Errorf("%s named twice", p.ID)
+		}
+		out[p.ID] = p.BaseURL
+	}
+	return out, nil
 }
 
 // prefixOptions builds the prefix index the chosen policy needs, from a

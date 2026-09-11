@@ -433,8 +433,10 @@ table, and where the affinity-vs-balance tradeoff becomes a curve rather than an
 vLLM 0.28.0 ships `vllm/distributed/kv_events.py` with `BlockStored`, `BlockRemoved`,
 `AllBlocksCleared` and `EventPublisher` — the exact mechanism Dynamo and llm-d use. Policy 5
 consumes that stream for exact residency instead of an approximate trie. Running 4 and 5
-head-to-head answers a question **none of the prior-art systems publish**: what does the
-approximation actually cost? Build it only after policy 4 is measured; it must not delay the
+head-to-head is a **replication** of llm-d's precise-versus-approximate comparison (P90 TTFT
+0.54 s vs 31.1 s, §1) at a scale it does not cover: what does the approximation cost on one host
+of consumer cards, where aggregate KV is far smaller and eviction far more frequent? Claiming the
+question is unpublished would be caught (#24, ADR-0010). Build it only after policy 4 is measured; it must not delay the
 clean-window sweeps.
 
 ---

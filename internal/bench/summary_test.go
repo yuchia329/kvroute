@@ -95,6 +95,24 @@ func TestAnInterTokenLatencyMissViolatesTheSLOOnItsOwn(t *testing.T) {
 	}
 }
 
+// llm-d publishes its precise-versus-approximate comparison as P90 TTFT — 0.54 s
+// against 31.1 s — and #24 is a replication of it, so a like-for-like figure has
+// to exist. It comes off the rows the way every other percentile here does.
+func TestTheNinetiethPercentileTTFTIsReported(t *testing.T) {
+	start := time.Unix(1757000000, 0)
+	var results []bench.Result
+	for i := 1; i <= 10; i++ {
+		results = append(results, success(start, time.Duration(i)*100*time.Millisecond))
+	}
+
+	got := bench.Summarize(results, bench.SummaryOptions{SLO: slo})
+
+	// Nearest rank, as every percentile here is taken: the ninth of ten.
+	if want := (900 * time.Millisecond).Nanoseconds(); got.TTFTP90Ns != want {
+		t.Errorf("TTFT p90 is %v, want %v", time.Duration(got.TTFTP90Ns), time.Duration(want))
+	}
+}
+
 func TestPercentilesAreComputedOverSuccessfulResponsesOnly(t *testing.T) {
 	start := time.Unix(1757000000, 0)
 	results := []bench.Result{
