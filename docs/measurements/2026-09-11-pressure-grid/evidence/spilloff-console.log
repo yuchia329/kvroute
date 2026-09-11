@@ -1,0 +1,28 @@
+[17:46:22] === prefix affinity, spill off: starting ===
+[17:51:33] fleet is up on GPUs 0 1 2 4 5
+[17:51:34] usage probe passed: the engines report cached prompt tokens
+[17:51:37] prefix_affinity: router up
+[17:51:37] prefix_affinity spill off: WS 0.25 skew 0 (3 reps)
+[18:07:04] prefix_affinity spill off: WS 0.25 skew 1 (3 reps)
+[18:22:31] prefix_affinity spill off: WS 0.25 skew 1.4 (3 reps)
+[18:37:58] prefix_affinity spill off: WS 1 skew 0 (3 reps)
+[18:53:27] prefix_affinity spill off: WS 1 skew 1 (3 reps)
+[19:08:54] prefix_affinity spill off: WS 1 skew 1.4 (3 reps)
+[19:24:21] prefix_affinity spill off: WS 3 skew 0 (3 reps)
+[19:39:51] prefix_affinity spill off: WS 3 skew 1 (3 reps)
+[19:55:20] prefix_affinity spill off: WS 3 skew 1.4 (3 reps)
+[20:10:46] prefix_affinity spill off: WS 8 skew 0 (3 reps)
+[20:26:16] prefix_affinity spill off: WS 8 skew 1 (3 reps)
+[20:41:43] prefix_affinity spill off: WS 8 skew 1.4 (3 reps)
+[20:57:11] router drained
+[20:57:11] prefix_affinity spill off: all 12 points done
+[20:57:11] 1 flagged cell(s): setting aside and re-running once
+[20:57:11]   ws1-skew1.4  prefix_affinity-c32-r2  -- still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[20:57:11] restarting the fleet before the next policy (ADR-0004)
+[21:02:43] fleet is back up
+[21:02:47] prefix_affinity: router up
+[21:02:47] prefix_affinity spill off: WS 1 skew 1.4 (3 reps)
+[21:08:01] router drained
+[21:08:01] still flagged after re-running -- reported, not retried: 0
+[21:08:07] fleet down: GPUs released
+[21:08:07] === prefix affinity, spill off: complete ===

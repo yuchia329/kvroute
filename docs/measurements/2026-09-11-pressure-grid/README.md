@@ -10,11 +10,13 @@ idea.md §0 predicted the two would be indistinguishable. As skew rises, session
 collapses and swings between two states while prefix affinity holds steady, and the gap
 reaches +162% to +373% at skew 1.4 all the way up the working-set axis.
 
-**What this does not yet say is why**, beyond what was measured: see
-[What produced it](#what-produced-it). A prefix-affinity arm with the spill rule off, across
-the same grid, is running to settle that, and its results will be added here.
+**Why it wins is the spill rule, together with where new conversations are placed.** A second
+arm ran prefix affinity with the spill rule off across the same grid. Without the rule, prefix
+affinity serves each hot conversation from a single replica, much as session affinity does, and
+loses between 5% and 51% of its goodput at 11 of the 12 points. See
+[What produced it](#what-produced-it).
 
-Every figure below is recomputable from the cell records in `grid/`.
+Every figure below is recomputable from the cell records in `grid/` and `spilloff/`.
 
 ## What was held constant
 
@@ -31,10 +33,12 @@ Every figure below is recomputable from the cell records in `grid/`.
 | prefix index | calibrated off the fleet's own eviction tail: TTL 56.97 s derived from 5,076 evictions, not the 20 s fallback; node cap 16,311, fleet-sized |
 | spill | `bench.Chosen` — KV high-water **off**, load-imbalance factor 2 — on prefix affinity only |
 | binaries | `bench` md5 `78b3f8c6f71e…`, `router` `2e0d0b1078cf…`, built at 88381a2 |
-| drivers | [`ops/box/`](../../../ops/box/): `run-pressure-grid.sh`, then `run-pressure-rerun.sh` via `pressure-rerun-watch.sh` |
+| drivers | [`ops/box/`](../../../ops/box/): `run-pressure-grid.sh`, then `run-pressure-rerun.sh` via `pressure-rerun-watch.sh`; the spill-off arm, `run-pressure-spilloff.sh` |
 
 The grid ran 2026-09-10 20:26 → 2026-09-11 09:17 UTC, 3h11m a policy; the re-run pass
-finished at 10:05.
+finished at 10:05. The spill-off arm — prefix affinity with the spill rule off, everything else
+identical, the same binaries and the same bytes cell for cell — ran 2026-09-11 17:46 → 21:08 UTC
+into its own directory, `spilloff/`.
 
 GPU 2 flagged software thermal slowdown on 70% of samples during the run. With load held
 equal it runs 0.63 ms slower per token than the fleet-wide fit of inter-token latency against
@@ -156,13 +160,66 @@ while declining a match on under 1.5% of decisions there. At skew 0 the spread n
 working set grows — 3.1 replicas at WS 0.25 down to 1.8 at WS 8 — while its cold decisions rise
 from 0% to 12.1%. That is the same column in which its lead shrinks from +66% to +21%.
 
-**Which part of prefix affinity does the balancing is not settled here.** One reading: a hot
-conversation ends up cached on several replicas, its best match ties across them, and the tie
-goes to the least-loaded replica (commit 0a80981), so the balancing is tie-breaking. The other:
-those replicas were first seeded by the rare spills, which would make the spill rule necessary
-however seldom it fires — and #16's spill-off reference at WS 1, skew 1.4 swung between 10.76,
-17.05 and 22.01, which points that way. This grid has no spill-off arm, so it cannot tell the
-two apart. The arm that can is running.
+### What the spill rule contributes
+
+The grid alone could not say which part of prefix affinity does the balancing. A hot conversation
+cached on several replicas has its best match tie across them, and the tie goes to the
+least-loaded (commit 0a80981) — but those several replicas might exist only because the rare
+spills put them there. The spill-off arm answers it. Goodput, median of three repetitions:
+
+| WS / skew | session affinity | prefix, spill **off** | prefix, spill **on** | spill on vs off |
+|---|---:|---:|---:|---:|
+| 0.25 / 0 | 34.37 | **35.16** | 32.04 | −8.9% |
+| 0.25 / 1 | 8.83¹ | 31.70 | **34.43** | +8.6% |
+| 0.25 / 1.4 | 7.36 | 16.89 | **34.79** | +105.9% |
+| 1 / 0 | 8.99 | 8.13 | **14.94** | +83.9% |
+| 1 / 1 | 16.96 | 20.80 | **23.51** | +13.0% |
+| 1 / 1.4 | 11.23 | 19.25 | **30.45** | +58.1% |
+| 3 / 0 | 9.32 | 5.97 | **11.61** | +94.3% |
+| 3 / 1 | 13.42 | 16.21 | **18.97** | +17.0% |
+| 3 / 1.4 | 6.44 | 21.81 | **28.79** | +32.0% |
+| 8 / 0 | 8.83 | 6.51 | **10.68** | +64.1% |
+| 8 / 1 | 13.49 | 15.98 | **16.91** | +5.8% |
+| 8 / 1.4 | 10.69 | 23.66 | **28.04** | +18.5% |
+
+At every point the two prefix arms' repetition ranges do not overlap.
+
+| | session affinity | prefix, spill off | prefix, spill on |
+|---|---:|---:|---:|
+| replicas serving each repetition's 3 hottest conversations | 1.00 | 1.00–1.67 | 1.78–4.78 |
+| busiest replica's share of requests | 22–55% | 23–41% | 21–22% |
+
+**The spill rule is what spreads hot conversations, and it is necessary.** With it off, prefix
+affinity serves each hot conversation from one replica at every point — pinned, as session
+affinity pins it — and tie-breaking has nothing to choose between. With it on, the busiest
+replica sits at fair share (21–22%) at all twelve points, and prefix affinity gains 6–106% at 11
+of them. A spill sends a turn of an overloaded conversation to another replica, which then caches
+it too; from then on the conversation's prefix match ties across the replicas that hold it, and
+the tie goes to the least loaded. The spill makes the choice and tie-breaking takes it — which is
+how a rule firing on 0.2–2.5% of decisions accounts for up to a doubling of goodput. It does so
+without costing cache hits: with and without it, hit rates match within 1.0 pp everywhere but
+WS 0.25 / skew 0.
+
+**That one point is where the rule costs.** At WS 0.25, skew 0 there is no imbalance to fix and
+the whole working set fits in cache, so each spill only sends a turn to a replica that does not
+hold it: spill on is 8.9% below spill off there, with a hit rate 2.3 pp lower.
+
+**Where a conversation starts matters too, in both directions.** Session affinity places a
+conversation by hashing its id; prefix affinity, finding no match for a new conversation, sends it
+to the least-loaded replica. With spill off, that placement is the only difference from session
+affinity — and it helps under skew (WS 3, skew 1.4: 6.44 → 21.81) but hurts at skew 0 past
+WS 0.25 (WS 3, skew 0: 9.32 → 5.97), where the hash was already spreading a uniform draw evenly
+and spill-off prefix affinity's busiest replica runs at 28–31% against the hash's 22–26%. Why the
+placement unbalances there is not isolated here. The spill rule rescues those cells: spill on is
+64–94% above spill off at WS 1, 3 and 8 at skew 0.
+
+Spill-off prefix affinity is also not always steady. At WS 1 / skew 1 and WS 3 / skew 1.4 one of
+its three repetitions fell to half the others — 10.55 and 10.78, against about 21. Spill on showed
+no such repetition anywhere.
+
+The two arms ran at different times — the spill-on grid overnight, the spill-off arm the next
+afternoon — on the same binaries and the same bytes, each from a cold fleet. The effects above are
+far larger than either arm's run-to-run spread.
 
 ## Reading the validity table
 
@@ -192,6 +249,9 @@ aside into their point's `discarded/`:
 Session affinity's re-run at WS 1, skew 1.4 moved that point's delta from +179.5% on two
 repetitions to +171.2% on three — the lower-median effect removed.
 
+The spill-off arm flagged one cell — prefix affinity at WS 1, skew 1.4, repetition 2, 26% warm-up
+drift — and it settled on its single re-run.
+
 ## What this grid does not answer
 
 #18 asks that memory pressure and load imbalance be separable, since they drive different
@@ -208,9 +268,10 @@ rather than cache residency, and on this fleet tracks inflight at r = 0.973. Tha
 | `pressuremap-headline.md` | The same map for session and prefix affinity only, drawn at 02:54 UTC before the context policies ran |
 | `grid/ws*-skew*/` | One sweep directory per grid point: `cells/*.json` (144 cell records), `cells.parquet`, `requests.parquet` (every request's row), `results.md`, and `discarded/` (the six set-aside cells' records) |
 | `grid/evidence/` | Router startup logs, one per policy, and the re-run pass's |
-| `evidence/` | The run's console and bench logs, and the box's `versions.env` |
+| `evidence/` | The console and bench logs of the grid and of the spill-off arm, and the box's `versions.env` |
+| `spilloff/ws*-skew*/` | The spill-off arm, laid out like `grid/`: prefix affinity's 36 cell records, parquet, results, and the one set-aside cell's record; router startup logs in `spilloff/evidence/` |
 
-Kept on the box under `~/kvroute/runs/pressure/` and not committed: each cell's raw row file
+Kept on the box under `~/kvroute/runs/pressure/` and `runs/pressure-spilloff/`, and not committed: each cell's raw row file
 (485 MB; the same rows are in `requests.parquet`), the set-aside cells' rows, and the router's
 own per-request records (470 MB, 43 MB gzipped), which would double this directory while
 largely duplicating what the harness rows already carry.

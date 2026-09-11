@@ -1,0 +1,5 @@
+time=2026-09-11T10:51:34.245-07:00 level=INFO msg="prefix index calibrated" from=runs/prefix-calibration-derived.json node_cap=16311 ttl=56.970757907s ttl_source="measured from vllm:kv_block_idle_before_evict_seconds" fleet_tokens=629760 prompt_bytes_per_token=1.6576004077495163
+time=2026-09-11T10:51:34.245-07:00 level=INFO msg="router listening" addr=127.0.0.1:8080 policy=prefix_affinity spill=off replicas=5 records=runs/pressure-spilloff/router-prefix_affinity-spilloff.jsonl
+time=2026-09-11T12:09:25.821-07:00 level=ERROR msg="dropped request" request_id=VC3L5ZKD5YFIVCOYUWHDS73TCK status=502 err="dispatch to replica-2: Post \"http://127.0.0.1:8002/v1/chat/completions\": read tcp 127.0.0.1:49940->127.0.0.1:8002: read: connection reset by peer"
+time=2026-09-11T13:57:10.952-07:00 level=INFO msg=draining grace=30s
+time=2026-09-11T13:57:11.009-07:00 level=INFO msg="router overhead" requests=222440 p50_us=336.905 p99_us=736.249 max_us=8238.376
