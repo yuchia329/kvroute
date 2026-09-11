@@ -29,7 +29,10 @@ LOG=exact-grid.log
 RUN=runs/pressure-kv-events
 SMOKE=runs/exact-smoke
 EVID=$RUN/evidence
-mkdir -p "$EVID"
+# $SMOKE is named too, not just $RUN's evidence directory: the router writes its
+# records before anything else creates the directory it writes them into, and it
+# exits rather than creating one, so the smoke would die at the router.
+mkdir -p "$EVID" "$SMOKE"
 
 # --- The grid: #18's, to the value --------------------------------------------
 WORKING_SETS=(0.25 1 3 8)
