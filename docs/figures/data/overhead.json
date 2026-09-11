@@ -1,0 +1,42 @@
+{
+  "sources": [
+    "docs/measurements/2026-09-08-three-policy-multiturn/router-closedloop-least_outstanding.jsonl.gz",
+    "docs/measurements/2026-09-08-three-policy-multiturn/router-closedloop-round_robin.jsonl.gz",
+    "docs/measurements/2026-09-08-three-policy-multiturn/router-closedloop-session_affinity.jsonl.gz",
+    "docs/measurements/2026-09-08-three-policy-multiturn/router-openloop-least_outstanding.jsonl.gz",
+    "docs/measurements/2026-09-08-three-policy-multiturn/router-openloop-round_robin.jsonl.gz",
+    "docs/measurements/2026-09-08-three-policy-multiturn/router-openloop-session_affinity.jsonl.gz"
+  ],
+  "policies": [
+    {
+      "policy": "round_robin",
+      "dispatched": 62178,
+      "p50_us": 220.856,
+      "p99_us": 507.174,
+      "max_us": 15249.682,
+      "tokenized": 0,
+      "tokenize_p50_us": null,
+      "tokenize_p99_us": null
+    },
+    {
+      "policy": "least_outstanding",
+      "dispatched": 66172,
+      "p50_us": 217.235,
+      "p99_us": 430.82,
+      "max_us": 17074.965,
+      "tokenized": 0,
+      "tokenize_p50_us": null,
+      "tokenize_p99_us": null
+    },
+    {
+      "policy": "session_affinity",
+      "dispatched": 70455,
+      "p50_us": 223.111,
+      "p99_us": 787.129,
+      "max_us": 21976.365,
+      "tokenized": 0,
+      "tokenize_p50_us": null,
+      "tokenize_p99_us": null
+    }
+  ]
+}

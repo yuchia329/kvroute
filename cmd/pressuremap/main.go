@@ -39,11 +39,12 @@ func main() {
 
 func run() error {
 	out := flag.String("out", "", "where to write the map; empty prints it and writes nothing")
+	data := flag.String("data", "", "where to write the figure data as JSON, for `make figures` to draw; empty writes none")
 	baseline := flag.String("baseline", policy.SessionAffinityName, "the policy the headline delta is measured from")
 	challenger := flag.String("challenger", policy.PrefixAffinityName,
 		"the policy measured against the baseline. #24's map is "+policy.ExactResidencyName+" against "+policy.PrefixAffinityName)
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: pressuremap [-out path] <sweep dir>...\n\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: pressuremap [-out path] [-data path] <sweep dir>...\n\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "Each directory is one grid point's -dir, holding the cells it produced.\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "Name every point of the grid to draw the whole map.\n\n")
 		flag.PrintDefaults()
@@ -77,6 +78,11 @@ func run() error {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "pressuremap: wrote %s\n", *out)
+	}
+	if *data != "" {
+		if err := bench.WriteFigure(*data, m.Figure()); err != nil {
+			return err
+		}
 	}
 
 	// The exit status carries the one verdict a script should be able to act on

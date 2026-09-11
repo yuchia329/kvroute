@@ -59,6 +59,10 @@ type PressureMap struct {
 	// from the points' own comparisons. §6 discards flagged and unclean cells
 	// and re-runs them rather than averaging them in.
 	Excluded []string
+	// Surfaced is every cell kept in the figures although it dropped or failed more of its
+	// requests than the threshold allows, pooled from the points' comparisons. The
+	// figures resting on one are marked.
+	Surfaced []string
 
 	// Spill is the spill configuration the cells ran under, read off them rather
 	// than assumed.
@@ -166,6 +170,7 @@ func BuildPressureMapBetween(cells []Cell, baseline, challenger string) (Pressur
 			policies[name] = true
 		}
 		m.Excluded = append(m.Excluded, comparison.Excluded...)
+		m.Surfaced = append(m.Surfaced, comparison.Surfaced...)
 		m.Points = append(m.Points, GridComparison{
 			At:         at,
 			Comparison: comparison,
@@ -291,6 +296,10 @@ type GoodputDelta struct {
 	// the difference between them is bigger than the difference between either
 	// and itself. This is the field a claim rests on.
 	Separated bool
+	// OverFailureThreshold is whether either side rests on a repetition that
+	// dropped or failed more of its requests than the threshold allows, which the
+	// delta is marked with wherever it is shown.
+	OverFailureThreshold bool
 }
 
 // DeltaAt is the headline difference at one grid point, for one load.
@@ -317,6 +326,7 @@ func deltaBetween(baseline, challenger PolicyGoodput, measured bool) GoodputDelt
 	}
 	d.Replicated = baseline.Repetitions > 1 && challenger.Repetitions > 1
 	d.Separated = d.Replicated && !baseline.overlaps(challenger)
+	d.OverFailureThreshold = baseline.OverFailureThreshold > 0 || challenger.OverFailureThreshold > 0
 	if baseline.MedianRPS == 0 {
 		d.BaselineZero = true
 		return d
@@ -327,20 +337,26 @@ func deltaBetween(baseline, challenger PolicyGoodput, measured bool) GoodputDelt
 
 // String is the delta as a cell of the map, qualified the same way the
 // comparison table qualifies its own deltas — one rendering of one rule, so the
-// two figures cannot disagree about what "within spread" means.
+// two figures cannot disagree about what "within spread" means. A delta resting
+// on a repetition past the failure threshold carries the ⚠ its goodput does.
 func (d GoodputDelta) String() string {
+	var s string
 	switch {
 	case !d.Measured:
 		return "—"
 	case d.BaselineZero:
-		return fmt.Sprintf("+%.2f/s over zero", d.Challenger.MedianRPS)
+		s = fmt.Sprintf("+%.2f/s over zero", d.Challenger.MedianRPS)
 	case !d.Replicated:
-		return fmt.Sprintf("%+.1f%% (unreplicated)", d.PercentChange)
+		s = fmt.Sprintf("%+.1f%% (unreplicated)", d.PercentChange)
 	case !d.Separated:
-		return fmt.Sprintf("%+.1f%% (within spread)", d.PercentChange)
+		s = fmt.Sprintf("%+.1f%% (within spread)", d.PercentChange)
 	default:
-		return fmt.Sprintf("%+.1f%%", d.PercentChange)
+		s = fmt.Sprintf("%+.1f%%", d.PercentChange)
 	}
+	if d.OverFailureThreshold {
+		s += " ⚠"
+	}
+	return s
 }
 
 // GainShare is how much of the gain exact knowledge of the caches buys that the

@@ -612,6 +612,44 @@ calibrate: build ## Measure the prefix index's node cap and TTL off the fleet an
 divergence: build ## Measure how far the router's index was from what the engines held
 	$(BIN)/divergence -out $(DIVERGENCE_OUT) -calibration-out $(DIVERGENCE_JSON) $(DIVERGENCE_DIRS)
 
+# Every published figure, regenerated from the committed measurements with one
+# command — no fleet and no GPU, only a checkout, Go and uv. The Go commands
+# compute every number and write it as figure data; analysis/figures.py draws from
+# that and does no arithmetic of its own, so a figure cannot disagree with the
+# table printed beside it. uv installs the script's pinned matplotlib on first
+# use, which needs the network once; the pin is exact because the same data must
+# draw the same bytes on every machine.
+#
+# The inputs are reference runs under docs/measurements. FIGURES_RECOVERY stays
+# empty until a chaos run of each affinity policy is committed there: name both
+# runs' directories and the recovery graph is drawn too. FIGURES_ROUTER_ROWS is the
+# router's own rows from the same run the comparison figures come from, which
+# covers round robin, least outstanding and session affinity; prefix affinity's
+# and exact residency's stayed on the box with the pressure grid, and are what the
+# overhead figure still needs.
+FIGURES_DIR ?= docs/figures
+FIGURES_PRESSURE ?= $(wildcard docs/measurements/2026-09-11-pressure-grid/grid/ws*-skew*)
+FIGURES_COMPARE ?= docs/measurements/2026-09-08-three-policy-multiturn/concurrency docs/measurements/2026-09-08-three-policy-multiturn/goodput
+FIGURES_ROUTER_ROWS ?= $(wildcard docs/measurements/2026-09-08-three-policy-multiturn/router-*.jsonl.gz)
+FIGURES_RECOVERY ?=
+FIGURES_PYTHON ?= 3.12
+
+.PHONY: figures
+figures: ## Regenerate every published figure from the committed measurements, into FIGURES_DIR
+	@command -v uv >/dev/null || { echo "figures: needs uv, which runs analysis/figures.py with its own pinned matplotlib" >&2; exit 1; }
+	$(GO) build -o $(BIN)/ ./cmd/pressuremap ./cmd/compare ./cmd/overhead ./cmd/recovery
+	rm -f $(FIGURES_DIR)/data/*.json $(FIGURES_DIR)/*.svg
+	$(BIN)/pressuremap -data $(FIGURES_DIR)/data/pressuremap.json $(FIGURES_PRESSURE) >/dev/null
+	$(BIN)/compare -data $(FIGURES_DIR)/data/comparison.json $(FIGURES_COMPARE) >/dev/null
+	$(BIN)/overhead -data $(FIGURES_DIR)/data/overhead.json $(FIGURES_ROUTER_ROWS) >/dev/null
+	$(if $(FIGURES_RECOVERY),$(BIN)/recovery -data $(FIGURES_DIR)/data/recovery.json $(FIGURES_RECOVERY) >/dev/null,@echo "figures: FIGURES_RECOVERY is empty, so no recovery graph" >&2)
+	uv run --python $(FIGURES_PYTHON) analysis/figures.py $(FIGURES_DIR)/data $(FIGURES_DIR)
+
+# The script's tests. The matplotlib pin is the one in the script's own header.
+.PHONY: figures-test
+figures-test: ## Test the plotting script
+	uv run --no-project --python $(FIGURES_PYTHON) --with matplotlib==3.11.2 --with pytest pytest analysis -q -p no:cacheprovider
+
 .PHONY: run-router
 run-router: build ## Run the router against REPLICAS, keeping its own rows in RECORDS
 	@mkdir -p $(dir $(RECORDS))

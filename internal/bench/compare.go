@@ -43,6 +43,11 @@ type Comparison struct {
 	// unclean cells are never averaged in, and a comparison that dropped them
 	// silently would be the same table with the evidence removed.
 	Excluded []string
+	// Surfaced is every cell kept in the figures although it dropped or failed more of its
+	// requests than the threshold allows, with the reason. Such a cell measured a
+	// fleet that was falling over, which is a result about the policy rather than
+	// a defect in the measurement, so it is pooled and marked rather than dropped.
+	Surfaced []string
 
 	// PromptBytes and Prefill are the two sides of the measured prompt
 	// bytes-per-token ratio, pooled across every usable cell in the comparison.
@@ -181,18 +186,27 @@ type PolicyGoodput struct {
 	MedianRPS   float64
 	MinRPS      float64
 	MaxRPS      float64
+	// OverFailureThreshold is how many of those repetitions dropped or failed more of their requests
+	// than the threshold allows. They are in the figure, and the figure says so.
+	OverFailureThreshold int
 }
 
 // String is the figure as a table cell: the median, and the range it came from
 // when there is more than one repetition to have a range.
 //
 // A single repetition prints no range rather than a range of zero. A spread of
-// zero is a claim about reproducibility that one run cannot make.
+// zero is a claim about reproducibility that one run cannot make. A figure that
+// rests on a repetition past the failure threshold carries a ⚠, so it cannot be
+// read as a healthy fleet's.
 func (g PolicyGoodput) String() string {
+	s := fmt.Sprintf("%.2f (%.2f–%.2f, n=%d)", g.MedianRPS, g.MinRPS, g.MaxRPS, g.Repetitions)
 	if g.Repetitions <= 1 {
-		return fmt.Sprintf("%.2f (n=1)", g.MedianRPS)
+		s = fmt.Sprintf("%.2f (n=1)", g.MedianRPS)
 	}
-	return fmt.Sprintf("%.2f (%.2f–%.2f, n=%d)", g.MedianRPS, g.MinRPS, g.MaxRPS, g.Repetitions)
+	if g.OverFailureThreshold > 0 {
+		s += " ⚠"
+	}
+	return s
 }
 
 // overlaps reports whether two policies' repetition ranges overlap, which is when
@@ -239,6 +253,9 @@ func Compare(cells []Cell) (Comparison, error) {
 				c.Excluded = append(c.Excluded, fmt.Sprintf("`%s`: %s", cell.ID, reason))
 			}
 			continue
+		}
+		if overFailureThreshold(cell) {
+			c.Surfaced = append(c.Surfaced, fmt.Sprintf("`%s`: %s", cell.ID, cell.FlagReasons[0]))
 		}
 		if usable[cell.Policy] == nil {
 			usable[cell.Policy] = map[Load][]Cell{}
@@ -442,8 +459,11 @@ func checkComparable(cells []Cell) error {
 // cannot be collapsed into one another, and a cell that arrives here unclean with
 // no flag must not be pooled into a published median on the strength of an
 // inference about how it was written.
+//
+// A cell whose only flag is its failure rate is the exception, and is not
+// excluded: see overFailureThreshold.
 func whyExcluded(cell Cell) []string {
-	if cell.Flagged {
+	if cell.Flagged && !overFailureThreshold(cell) {
 		if len(cell.FlagReasons) == 0 {
 			return []string{"flagged, with no reason recorded"}
 		}
@@ -455,14 +475,37 @@ func whyExcluded(cell Cell) []string {
 	return nil
 }
 
+// overFailureThreshold reports whether a cell's one defect is that it dropped or failed more of
+// its requests than the threshold allows, which surfaces it rather than
+// excluding it.
+//
+// The distinction is between a broken measurement and a measurement of a broken
+// fleet. A foreign process, a warm-up that was too short or a replica ejected
+// mid-cell each make the figures wrong, and §6 discards the cell. A fleet that
+// failed requests under this policy at this load is what the policy did, and a
+// table that dropped it would show a policy collapsing at high load as a gap —
+// which reads as "did not run". So it stays in, marked, and named.
+//
+// Read from the failure rate the summary recorded against its own threshold,
+// with that flag the only one on a clean cell: any second reason is a defect of
+// the other kind, and it wins.
+func overFailureThreshold(cell Cell) bool {
+	return cell.Clean && cell.Flagged && len(cell.FlagReasons) == 1 &&
+		cell.FailureThreshold > 0 && cell.FailureRate > cell.FailureThreshold
+}
+
 // pool reduces a policy's repetitions at one load point to one figure.
 func pool(name string, load Load, cells []Cell) (PolicyGoodput, bool) {
 	if len(cells) == 0 {
 		return PolicyGoodput{}, false
 	}
 	rates := make([]float64, 0, len(cells))
+	failing := 0
 	for _, cell := range cells {
 		rates = append(rates, cell.GoodputRPS)
+		if overFailureThreshold(cell) {
+			failing++
+		}
 	}
 	slices.Sort(rates)
 	return PolicyGoodput{
@@ -472,9 +515,10 @@ func pool(name string, load Load, cells []Cell) (PolicyGoodput, bool) {
 		// stats.Quantile rather than arithmetic of its own: it is the project's one
 		// definition of a percentile, and a median over goodput computed differently
 		// from every other p50 would disagree with them by a rank.
-		MedianRPS: stats.Quantile(rates, 0.50),
-		MinRPS:    rates[0],
-		MaxRPS:    rates[len(rates)-1],
+		MedianRPS:            stats.Quantile(rates, 0.50),
+		MinRPS:               rates[0],
+		MaxRPS:               rates[len(rates)-1],
+		OverFailureThreshold: failing,
 	}, true
 }
 
@@ -683,6 +727,8 @@ func (c Comparison) Report() string {
 
 	c.reportMechanism(&b)
 
+	reportSurfaced(&b, c.Surfaced)
+
 	if len(c.Excluded) > 0 {
 		fmt.Fprintf(&b, "\nExcluded from every figure above — §6 discards these rather than averaging them in:\n\n")
 		for _, reason := range c.Excluded {
@@ -690,6 +736,21 @@ func (c Comparison) Report() string {
 		}
 	}
 	return b.String()
+}
+
+// reportSurfaced names the cells a figure rests on that are past the failure
+// threshold. One rendering, used by the comparison and by the map, so the two
+// cannot come to describe the same cells differently.
+func reportSurfaced(b *strings.Builder, surfaced []string) {
+	if len(surfaced) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "\n⚠ In the figures above, marked — these dropped or failed more of their requests than the\n")
+	fmt.Fprintf(b, "threshold allows. That is what the policy did to the fleet at that load, not a broken\n")
+	fmt.Fprintf(b, "measurement, so it is shown rather than dropped:\n\n")
+	for _, reason := range surfaced {
+		fmt.Fprintf(b, "- %s\n", reason)
+	}
 }
 
 // reportRatio publishes the measured prompt bytes-per-token ratio.
@@ -821,13 +882,21 @@ func figure(goodput map[string]PolicyGoodput, policy string) string {
 //
 // A difference inside the two ranges' overlap is reported as such rather than as a
 // win: run-to-run spread on a shared box is the thing most likely to be mistaken
-// for a result.
+// for a result. One resting on a repetition past the failure threshold carries
+// the ⚠ its goodput does.
 func (r ComparisonRow) delta(baseline, challenger string) string {
 	base, hasBase := r.Goodput[baseline]
 	other, hasOther := r.Goodput[challenger]
 	if !hasBase || !hasOther {
 		return "—"
 	}
+	if base.OverFailureThreshold > 0 || other.OverFailureThreshold > 0 {
+		return r.unmarkedDelta(base, other) + " ⚠"
+	}
+	return r.unmarkedDelta(base, other)
+}
+
+func (r ComparisonRow) unmarkedDelta(base, other PolicyGoodput) string {
 	if base.MedianRPS == 0 {
 		// A baseline of zero has no percentage. It is a real reading — the fleet
 		// met the SLO for nothing at this load — so it is described rather than

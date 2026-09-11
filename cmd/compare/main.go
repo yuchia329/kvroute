@@ -30,8 +30,9 @@ func main() {
 
 func run() error {
 	out := flag.String("out", "", "where to write the comparison; empty prints it and writes nothing")
+	data := flag.String("data", "", "where to write the figure data as JSON, for `make figures` to draw; empty writes none")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: compare [-out path] <sweep dir> <sweep dir>...\n\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: compare [-out path] [-data path] <sweep dir> <sweep dir>...\n\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "Each directory is a sweep's -dir, holding the cells one policy produced.\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "One directory holding several policies' cells works too.\n\n")
 		flag.PrintDefaults()
@@ -79,7 +80,10 @@ func run() error {
 	fmt.Print("\n" + report)
 
 	if *out == "" {
-		return nil
+		if *data == "" {
+			return nil
+		}
+		return bench.WriteFigure(*data, comparison.Figure())
 	}
 	// The report is already on stdout, so a failure here loses nothing — but after
 	// a comparison that took a night of GPU time to earn, it should not fail over a
@@ -93,5 +97,8 @@ func run() error {
 		return fmt.Errorf("compare: write %s: %w", *out, err)
 	}
 	fmt.Fprintf(os.Stderr, "compare: wrote %s\n", *out)
+	if *data != "" {
+		return bench.WriteFigure(*data, comparison.Figure())
+	}
 	return nil
 }

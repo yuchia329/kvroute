@@ -72,6 +72,37 @@ var (
 	highSkew     = bench.GridPoint{WorkingSet: 1, Skew: 1.4}
 )
 
+// A cell that failed too many requests is in the map's figures, as it is in each
+// point's comparison, and the map names it beside them rather than among the
+// cells it does not rest on.
+func TestTheMapShowsCellsThatFailedTooOftenMarked(t *testing.T) {
+	failingCell := pastFailureThreshold(gridCell(highSkew, policy.SessionAffinityName, 3, 2.0))
+	cs := bothPolicies(highSkew, []float64{6, 7}, []float64{20, 21, 22})
+	cs = append(cs, failingCell)
+
+	m := buildMap(t, cs)
+
+	if len(m.Surfaced) != 1 || len(m.Excluded) != 0 {
+		t.Fatalf("surfaced %v and excluded %v, want the failing cell surfaced only", m.Surfaced, m.Excluded)
+	}
+	report := m.Report()
+	if !strings.Contains(report, "6.00 (2.00–7.00, n=3) ⚠") {
+		t.Errorf("the goodput behind the map does not mark the figure resting on the failing cell:\n%s", report)
+	}
+	if !strings.Contains(report, m.Surfaced[0]) {
+		t.Errorf("the map does not name the failing cell:\n%s", report)
+	}
+	// The headline square rests on that repetition too, so it is marked there:
+	// 6 against 21 is +250%, separated, and not a healthy fleet's +250%.
+	if !strings.Contains(report, "| +250.0% ⚠ |") {
+		t.Errorf("the map's headline delta does not mark that it rests on the failing cell:\n%s", report)
+	}
+	delta := m.Figure().Deltas[0]
+	if delta.Label != "+250.0% ⚠" || !delta.OverFailureThreshold {
+		t.Errorf("the headline figure's square = %+v, want it labelled and flagged as resting on the failing cell", delta)
+	}
+}
+
 // The map's shape: one comparison per grid point, in grid order, each resting
 // only on its own point's cells.
 //

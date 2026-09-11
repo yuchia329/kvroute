@@ -282,6 +282,11 @@ func (m PressureMap) reportDetail(b *strings.Builder) {
 		}
 	}
 	fmt.Fprintln(b)
+
+	reportSurfaced(b, m.Surfaced)
+	if len(m.Surfaced) > 0 {
+		fmt.Fprintln(b)
+	}
 }
 
 // reportSeparability is the check that the two axes drive different things.

@@ -27,6 +27,7 @@ func main() {
 
 func run() error {
 	out := flag.String("out", "", "where to write the comparison as markdown; empty prints it only")
+	data := flag.String("data", "", "where to write the figure data as JSON, for `make figures` to draw; empty writes none")
 	flag.Parse()
 
 	dirs := flag.Args()
@@ -48,8 +49,13 @@ func run() error {
 
 	report := comparison.Report()
 	fmt.Print(report)
-	if *out == "" {
-		return nil
+	if *out != "" {
+		if err := os.WriteFile(*out, []byte(report), 0o644); err != nil {
+			return err
+		}
 	}
-	return os.WriteFile(*out, []byte(report), 0o644)
+	if *data != "" {
+		return bench.WriteFigure(*data, comparison.Figure())
+	}
+	return nil
 }

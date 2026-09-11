@@ -1,0 +1,6 @@
+{"request_id":"w1","warmup":true,"started_at_ns":500000000,"ttft_ns":5000000000,"total_ns":6000000000,"itl_p50_ns":10000000,"outcome":"success","status":200}
+{"request_id":"r1","warmup":false,"started_at_ns":1000000000,"ttft_ns":300000000,"total_ns":1000000000,"itl_p50_ns":10000000,"outcome":"success","status":200}
+{"request_id":"r2","warmup":false,"started_at_ns":2000000000,"ttft_ns":500000000,"total_ns":1000000000,"itl_p50_ns":30000000,"outcome":"success","status":200}
+{"request_id":"r3","warmup":false,"started_at_ns":3000000000,"ttft_ns":1200000000,"total_ns":2000000000,"itl_p50_ns":10000000,"outcome":"success","status":200}
+{"request_id":"r4","warmup":false,"started_at_ns":4000000000,"ttft_ns":0,"total_ns":50000000,"itl_p50_ns":0,"outcome":"failed","status":500,"error":"engine error"}
+{"request_id":"r5","warmup":false,"started_at_ns":5000000000,"ttft_ns":400000000,"total_ns":1000000000,"itl_p50_ns":10000000,"outcome":"success","status":200}

@@ -233,7 +233,7 @@ func TestFlaggedCellsAreLeftOutOfTheFiguresAndSaidSo(t *testing.T) {
 	at8 := bench.ClosedLoopAt(8)
 	dirty := cell(policy.LeastOutstandingName, at8, 2, 99.0)
 	dirty.Flagged = true
-	dirty.FlagReasons = []string{"failure rate 12.00% exceeds the 1.00% threshold"}
+	dirty.FlagReasons = []string{"still warming up: the first half of the measured window was 40% slower than the second"}
 
 	var cs []bench.Cell
 	cs = append(cs, cells(policy.RoundRobinName, at8, 8.0, 8.0, 8.0)...)
@@ -246,7 +246,7 @@ func TestFlaggedCellsAreLeftOutOfTheFiguresAndSaidSo(t *testing.T) {
 		t.Errorf("the flagged cell was averaged in: pooled %d repetitions, max %v", pooled.Repetitions, pooled.MaxRPS)
 	}
 	report := got.Report()
-	if !strings.Contains(report, "failure rate 12.00%") {
+	if !strings.Contains(report, "still warming up") {
 		t.Errorf("the excluded cell's reason is not reported:\n%s", report)
 	}
 	if !strings.Contains(report, "(n=1)") {
@@ -275,6 +275,82 @@ func TestAnUncleanCellWithNoFlagIsStillExcluded(t *testing.T) {
 	}
 	if !strings.Contains(got.Report(), "not clean and carries no flag") {
 		t.Errorf("the report does not say the cell was excluded for being unclean:\n%s", got.Report())
+	}
+}
+
+// pastFailureThreshold marks a cell as having dropped or failed more of its
+// requests than the threshold allows, as Summarize marks one, and flags it for
+// that and nothing else.
+func pastFailureThreshold(c bench.Cell) bench.Cell {
+	c.Failed = 12
+	c.FailureRate, c.FailureThreshold = 0.12, 0.01
+	c.Flag("failure rate 12.00% exceeds the 1.00% threshold (0 dropped, 12 failed of 100)")
+	return c
+}
+
+// failing builds a clean cell whose only flag is that one.
+func failing(policyName string, load bench.Load, repetition int, goodput float64) bench.Cell {
+	return pastFailureThreshold(cell(policyName, load, repetition, goodput))
+}
+
+// TestACellThatFailedTooOftenStaysInTheFiguresMarked. A cell past the failure
+// threshold is a measurement of a fleet that was falling over, not a broken
+// measurement: leaving it out would turn a policy that collapses at high load into
+// a gap in the table, which reads as "did not run" rather than "failed". So it is
+// pooled, marked, and named — surfaced rather than dropped.
+func TestACellThatFailedTooOftenStaysInTheFiguresMarked(t *testing.T) {
+	at128 := bench.ClosedLoopAt(128)
+	var cs []bench.Cell
+	cs = append(cs, cells(policy.RoundRobinName, at128, 8.0, 8.0, 8.0)...)
+	cs = append(cs,
+		cell(policy.LeastOutstandingName, at128, 1, 9.0),
+		failing(policy.LeastOutstandingName, at128, 2, 3.0),
+		cell(policy.LeastOutstandingName, at128, 3, 10.0))
+
+	got := compare(t, cs)
+
+	pooled := got.Rows[0].Goodput[policy.LeastOutstandingName]
+	if pooled.Repetitions != 3 || pooled.MinRPS != 3.0 {
+		t.Errorf("the failing cell was dropped: pooled %d repetitions, min %v, want 3 and 3.0", pooled.Repetitions, pooled.MinRPS)
+	}
+	if pooled.OverFailureThreshold != 1 {
+		t.Errorf("%d pooled repetitions are marked as failing past the threshold, want 1", pooled.OverFailureThreshold)
+	}
+	if len(got.Excluded) != 0 {
+		t.Errorf("the failing cell is listed as excluded: %v", got.Excluded)
+	}
+	report := got.Report()
+	if !strings.Contains(report, "9.00 (3.00–10.00, n=3) ⚠") {
+		t.Errorf("the figure resting on a failing cell is not marked:\n%s", report)
+	}
+	if !strings.Contains(report, "`least_outstanding-c128-r2`: failure rate 12.00%") {
+		t.Errorf("the failing cell is not named with its reason:\n%s", report)
+	}
+}
+
+// TestACellThatFailedAndIsFlaggedForSomethingElseIsExcluded. Surfacing is for a
+// cell whose only defect is that the fleet failed requests. One that also warmed
+// up too little, or saw a foreign process, is a broken measurement whatever else
+// it shows, and §6 discards it.
+func TestACellThatFailedAndIsFlaggedForSomethingElseIsExcluded(t *testing.T) {
+	at128 := bench.ClosedLoopAt(128)
+	drifting := failing(policy.LeastOutstandingName, at128, 2, 3.0)
+	drifting.Flag("still warming up: the first half of the measured window was 40% slower than the second")
+	unclean := failing(policy.LeastOutstandingName, at128, 3, 4.0)
+	unclean.Clean = false
+
+	var cs []bench.Cell
+	cs = append(cs, cells(policy.RoundRobinName, at128, 8.0)...)
+	cs = append(cs, cell(policy.LeastOutstandingName, at128, 1, 9.0), drifting, unclean)
+
+	got := compare(t, cs)
+
+	pooled := got.Rows[0].Goodput[policy.LeastOutstandingName]
+	if pooled.Repetitions != 1 || pooled.OverFailureThreshold != 0 {
+		t.Errorf("pooled %d repetitions (%d marked failing), want only the one sound cell", pooled.Repetitions, pooled.OverFailureThreshold)
+	}
+	if len(got.Excluded) < 2 {
+		t.Errorf("want both defective cells excluded and named, got %v", got.Excluded)
 	}
 }
 

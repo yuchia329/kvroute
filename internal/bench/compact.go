@@ -142,16 +142,21 @@ func decodeFile[T any](path string) ([]T, error) {
 		return nil, fmt.Errorf("bench: open %s: %w", path, err)
 	}
 	defer f.Close()
+	return decodeRows[T](f, path)
+}
 
+// decodeRows decodes every JSON value in r, which holds one value per line or a
+// single indented value. name is what r is read from, for the error.
+func decodeRows[T any](r io.Reader, name string) ([]T, error) {
 	var rows []T
-	decoder := json.NewDecoder(bufio.NewReader(f))
+	decoder := json.NewDecoder(bufio.NewReader(r))
 	for {
 		var row T
 		if err := decoder.Decode(&row); err != nil {
 			if errors.Is(err, io.EOF) {
 				return rows, nil
 			}
-			return nil, fmt.Errorf("bench: decode %s: %w", path, err)
+			return nil, fmt.Errorf("bench: decode %s: %w", name, err)
 		}
 		rows = append(rows, row)
 	}
