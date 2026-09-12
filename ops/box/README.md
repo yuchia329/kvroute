@@ -24,6 +24,37 @@ of building (`BOX=1` forces it, `BOX=0` forces the other way), so `make bench`,
 usable there. That is what these scripts existed to work around; what is left in them is
 the fleet and router lifecycle around a sweep, which the targets deliberately do not touch.
 
+## Checking box mode without a fleet
+
+`make bench`, `make pressure-grid` and `make chaos` were confirmed on the box on 2026-09-12,
+against a fake replica rather than the cards — half of them were another user's that day,
+and none of the three needs a GPU to prove that it runs. `test/box` pins the same thing from
+`make -n`, but only the box can show that `build` really steps aside and that the
+cross-compiled binary really executes. To repeat it, from `~/kvroute` on the box:
+
+    make run-fake &                                              # bin/fakereplica-linux-amd64 on :8000
+    make run-router POLICY=prefix_affinity LOAD_IMBALANCE=2 \
+        REPLICAS=replica-0=http://127.0.0.1:8000 RUN_DIR=runs/box-check &
+    sleep 3                                                      # both are up before anything drives them
+    SMOKE='-replicas replica-0=http://127.0.0.1:8000 -concurrency 1 -cell-duration 30s -warmup 5s -sample-gpus=false'
+    make bench POLICY=prefix_affinity RUN_DIR=runs/box-check REPS=1 \
+        LOAD_IMBALANCE=2 BENCH_ARGS="$SMOKE"
+    make pressure-grid POLICY=prefix_affinity PRESSURE_DIR=runs/box-check/pressure \
+        PRESSURE_WS=1 PRESSURE_SKEW=0 KV_CAPACITY=629760 REPS=1 \
+        BENCH_ARGS="$SMOKE -settle 2s"
+    make chaos POLICY=prefix_affinity CHAOS_DIR=runs/box-check/chaos CHAOS_GPU=0 \
+        SLO_FROM=runs/characterization CHAOS_RATE=4 \
+        CHAOS_ARGS='-stop-cmd true -start-cmd true -duration 90s -warmup 10s -fault-at 20s -recover-at 45s -bucket 5s -sample-gpus=false'
+
+The numbers those cells record are worthless — one fake replica answering on a fixed timer
+is not a fleet, and every cell is flagged as having no cleanliness evidence. What they show
+is that the targets run: `build` says it is running the cross-compiled binaries, the
+suffixed binary starts, and cells and a recovery curve land on disk. Delete `runs/box-check`
+afterwards. `LOAD_IMBALANCE=2` is on two of the lines because a sweep refuses to label a cell
+with a spill point the router is not running: `make pressure-grid` always labels its cells
+with the grid's own point, so the router has to be started at it, and then `make bench` has
+to be told it too or it would label that same router's cells with no spill rule at all.
+
 ## The drivers
 
 These scripts are committed as the exact files that produced a measurement, so a result can be traced
@@ -37,6 +68,8 @@ committed.
 | `run-pressure-rerun.sh` | Sets every flagged grid cell aside and re-runs it once on a cycled fleet, fills any incomplete point, then draws the map. Safe to run again. |
 | `pressure-rerun-watch.sh` | Waits for the grid to finish, then starts the re-run pass — unless the grid died, in which case the grid itself should be resumed. |
 | `run-pressure-spilloff.sh` | Prefix affinity with the spill rule off, across the same grid and the same bytes, into its own directory. |
+| `run-exact-grid.sh` | #24's grid: exact residency against the approximate index, on a fleet publishing KV cache events, with session affinity as the baseline. |
+| `run-hash-grid.sh` | #26's two arms: the stateless hash's weight axis, then the grid at the weight that axis settled on. |
 
 Launch a long run detached, with the `cd` separated by a semicolon so only the job is
 backgrounded — `cd ~/kvroute && job &` backgrounds the whole chain, and its subshell holds

@@ -159,3 +159,63 @@ func TestLinuxCrossCompilesEveryCommand(t *testing.T) {
 		}
 	}
 }
+
+// boxSyncRsync is the one rsync command `make -n box-sync` would run. Everything
+// else make echoes for that target is noise these assertions must not read: the
+// recipe's own comments name the option that broke it, the `linux` prerequisite
+// names every cross-compiled binary, and the closing echoes name ops/ scripts.
+func boxSyncRsync(t *testing.T) string {
+	t.Helper()
+	var found string
+	for _, line := range strings.Split(makeDryRun(t, "box-sync"), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "rsync ") {
+			continue
+		}
+		if found != "" {
+			t.Fatalf("make -n box-sync runs more than one rsync:\n%s\n%s", found, line)
+		}
+		found = line
+	}
+	if found == "" {
+		t.Fatal("make -n box-sync runs no rsync at all")
+	}
+	return found
+}
+
+// TestBoxSyncSpeaksToBothRsyncs: box-sync is the only way the box gets a
+// Makefile, and it is typed on a workstation. macOS ships openrsync, which
+// answers `--version` as "2.6.9 compatible" and refuses anything newer, so the
+// recipe has to hold to options all of rsync 2.6.9, openrsync and GNU rsync 3
+// understand. Its first use failed on --info=stats1, which is rsync 3.1+.
+func TestBoxSyncSpeaksToBothRsyncs(t *testing.T) {
+	recipe := boxSyncRsync(t)
+	for _, opt := range []string{"--info=", "--outbuf", "--mkpath", "--atimes", "--open-noatime"} {
+		if strings.Contains(recipe, opt) {
+			t.Errorf("box-sync passes %s, which openrsync on a Mac refuses:\n%s", opt, recipe)
+		}
+	}
+}
+
+// TestBoxSyncNeverDeletes: the box's runs/ and its logs sit in the directory
+// box-sync writes into, and they are the only copy of hours of measurement.
+func TestBoxSyncNeverDeletes(t *testing.T) {
+	recipe := boxSyncRsync(t)
+	if strings.Contains(recipe, "--delete") {
+		t.Errorf("box-sync deletes on the box, where the only copy of every measurement lives:\n%s", recipe)
+	}
+}
+
+// TestBoxSyncCarriesWhatTheBoxNeeds: the Makefile, because without it no run
+// target exists there — which is what #32 was — and ops/ and the cross-compiled
+// binaries the targets name.
+func TestBoxSyncCarriesWhatTheBoxNeeds(t *testing.T) {
+	recipe := boxSyncRsync(t)
+	// The binaries are a glob rather than a list, so the assertion is on the
+	// suffix `make linux` gives them, not on any one command's name.
+	for _, want := range []string{"Makefile", "ops", "-linux-amd64"} {
+		if !strings.Contains(recipe, want) {
+			t.Errorf("box-sync does not copy %s to the box:\n%s", want, recipe)
+		}
+	}
+}

@@ -229,7 +229,11 @@ BOX_DIR  ?= kvroute
 
 .PHONY: box-sync
 box-sync: linux ## Cross-compile, then copy the Makefile, ops/ and the box's binaries to BOX_HOST
-	rsync -az --info=stats1 --relative Makefile ops $(BIN)/*$(LINUX_EXE) $(BOX_HOST):$(BOX_DIR)/
+	# --stats rather than --info=stats1: the latter is rsync 3.1+, and macOS
+	# ships openrsync, which reports itself as 2.6.9-compatible and refuses it.
+	# This target had never been run before 2026-09-12 and failed on its first
+	# use for exactly that reason. --stats is understood by all three.
+	rsync -az --stats --relative Makefile ops $(BIN)/*$(LINUX_EXE) $(BOX_HOST):$(BOX_DIR)/
 	@echo ""
 	@echo "== on $(BOX_HOST), from ~/$(BOX_DIR), the run targets now work as they do here:"
 	@echo "     make bench SLO_FROM=... POLICY=..."
