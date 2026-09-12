@@ -88,7 +88,10 @@ cleanup() {
   ./ops/fleet.sh down >> "$LOG" 2>&1
   say "fleet down; GPUs released"
 }
-trap cleanup EXIT
+# ARMED BELOW, AFTER THE GATES, AND NOT HERE. The box is shared and one of those
+# gates refuses to start when somebody else's bench or router is already up --
+# so a trap armed at this point would answer that refusal by taking their fleet
+# down on the way out. The trap may only own a fleet this script brought up.
 
 started=$(date -u +%s)
 elapsed() { echo "$(( ($(date -u +%s) - started) / 60 ))m"; }
@@ -106,9 +109,36 @@ say "=== #29: recency re-run and the WS 3 rung ==="
 [[ "$(./ops/fleet.sh env ENABLE_PROMPT_TOKENS_DETAILS)" == "1" ]] \
   || fatal "ENABLE_PROMPT_TOKENS_DETAILS is not 1 in ops/versions.env, so every divergence column would be null. Set it there -- not in the shell -- and re-run"
 
+# Is anybody else driving the cards?
+#
+# Checking for a live bench or router is NOT enough, and the way it fails is the
+# dangerous one. A sweep spends minutes between its cells cycling the fleet, and
+# in that window it has neither: a check that looked only for those two would
+# find the box idle, and fleet_up's first act is `fleet.sh down` -- so this
+# script would take somebody else's fleet out from under them at the one moment
+# they could not be seen. #31's load-denominator run was in exactly that state
+# on 2026-09-12 when this gate was written.
+#
+# So the driver script is what is looked for, being the thing that lives for the
+# whole run. `pgrep -af` rather than `-f` so the message can name what it found,
+# and this script's own name is filtered out instead of its pid: launched under
+# `setsid nohup` there is more than one pid in its own tree, and all of them
+# carry the name.
+others="$(pgrep -af "[r]un-[a-z0-9-]*\.sh" 2>/dev/null | grep -v "$(basename "$0")" || true)"
+if [[ -n "$others" ]]; then
+  say "another box driver is running:"
+  say "$others"
+  fatal "not starting: a sweep between its cells has no bench and no router, and fleet_up would take its fleet down"
+fi
 if pgrep -x bench-linux-amd64 > /dev/null 2>&1 || pgrep -x router-linux-amd64 > /dev/null 2>&1; then
   fatal "a bench or router is still up against this fleet; not starting"
 fi
+
+# Held for the whole run, so the drivers that do take it queue rather than race.
+# Not every driver on the box does -- run-load-denominator.sh does not -- which
+# is why the check above is the real gate and this is the belt to its braces.
+exec 9> /tmp/kvroute-sweep.lock
+flock -n 9 || fatal "another run holds /tmp/kvroute-sweep.lock; not starting"
 
 # The index's TTL is derived from the engines' own idle-before-evict tail, and
 # the recency curve is read against it. An empty histogram falls back to a
@@ -126,6 +156,8 @@ esac
 # configuration A's cells and the curve is one think time plotted twice.
 ./bin/bench-linux-amd64 -h 2>&1 | grep -q "think-time" || fatal "this bench has no -think-time flag"
 
+# Every gate has passed, so from here the fleet is this script's to take down.
+trap cleanup EXIT
 fleet_up
 
 say "=== verifying the engine reports per-request cached tokens ==="

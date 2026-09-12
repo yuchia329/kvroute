@@ -79,6 +79,19 @@ the workload's visit period and re-asserts that the longer cells still spread th
 run exists to plot. Committing it first is what lets that design be reviewed before the
 fleet time is spent rather than after.
 
+**It also carries a gate the other drivers here do not, and the reason is worth copying.**
+Checking for a live `bench` or `router` before starting is not enough to tell whether
+somebody else is on the cards: a sweep spends minutes between its cells cycling the fleet,
+and in that window it has neither. A driver that looked only for those two would find the
+box idle, and `fleet_up`'s first act is `fleet.sh down` — so it would take the other run's
+fleet down at the one moment that run could not be seen. `run-recency-rerun.sh` therefore
+looks for another *driver script*, which lives for the whole run, and it refuses on that.
+Two more traps in the same family: arm the `trap cleanup EXIT` **after** the gates, or the
+refusal itself tears the other fleet down on the way out; and `/tmp/kvroute-sweep.lock` is
+not a convention you can rely on, because only `run-load-knee.sh` and `run-recency.sh` take
+it. All three were found on 2026-09-12 by running the driver against a live `#31` sweep,
+which it correctly declined.
+
 Its flag set was rehearsed end to end against `cmd/fakereplica` with
 `-cached-prompt-fraction` — replica, router, both drivers and `cmd/divergence` — so what is
 unproven when it first meets the cards is the fleet, not the wiring. That rehearsal also
