@@ -17,11 +17,20 @@ rest.
 wins nothing. That is the mechanism, measured rather than argued — see
 [Why the index wins where it does](#why-the-index-wins-where-it-does).
 
-**Exact residency does not sit above the index.** Its index was verifiably complete — zero lost
-batches, zero stream resets, 0.26% orphaned runs across 885,071 applied events, every prompt
-tokenized in time — so this is a cost result and not a knowledge one. It carries the highest p90
-TTFT of the three cache-aware policies at 10 of 12 points, and **52–339 ms above the index at every
-one of the twelve**, which is what a tokenize round-trip to an engine on every request costs.
+**Exact residency does not sit above the index**, and it sits below the stateless hash at low
+pressure. Its index was verifiably complete — zero lost batches, zero stream resets, 0.26%
+orphaned runs across 885,071 applied events, every prompt tokenized in time — and it still carries
+the highest p90 TTFT of the three cache-aware policies at 10 of 12 points, 52–339 ms above the
+index at every one of the twelve.
+
+The round-trip is not the whole of it, and this grid was not built to say so. #24 separated the
+two terms and found the larger one to be placement rather than cost: exact residency reaches a
+*lower* prefix cache hit rate than the believed index and makes the engines compute 12.7% more new
+tokens per request, because the index records what the router *sent* and herds concurrent requests
+sharing a new prefix onto one replica, while exact residency knows only what has been *reported*
+and scatters them until the first prefill lands. A belief is predictive and a fact is not. See
+[the exact residency measurement](../2026-09-12-exact-residency/) for that account. This document's
+contribution is the rung beneath it, not the explanation of the rung above.
 
 **The stateless hash is the steadiest policy on the grid.** Median spread across three
 repetitions: 3.2% for the hash, 3.4% for the index, 4.9% for exact residency, **27.1%** for session
@@ -219,11 +228,12 @@ tokens of KV each. The +5.4% to +25.2% band is what the index buys *on this hard
 fleet with far more aggregate KV would sit nearer the WS 0.25 corner, where the index buys nothing,
 and a fleet with far less would sit past WS 8, where nothing survives for either policy to find.
 
-**Exact residency's result is about cost, not about events.** Its streams were complete, so
-nothing here argues against KV-event-driven residency as a mechanism. What it says is that at this
-scale a per-request tokenize round-trip costs more than exact knowledge returns. A router that
-tokenized locally, or an engine that published token ids with its events, would be a different
-measurement.
+**Exact residency's result is not mine to explain.** Its streams were complete, so nothing here
+argues against KV-event-driven residency as a mechanism, and the grid arm this document reports was
+not designed to separate its tokenize cost from its placement behaviour. #24 did that separation
+and found placement to be the larger term. What this document supports is narrower: that on this
+grid exact residency lands below the believed index everywhere, and below a stateless hash wherever
+memory pressure is low.
 
 **This is not a reproduction of OpenAI's router.** The mechanism is inferred from their public
 documentation — a hash of *"the initial tokens"* plus machine load, with `prompt_cache_key` folded
