@@ -91,7 +91,7 @@ most of why it beats round-robin here.
 
 `comparison.md` compares redundant prefill **per request** from
 [#30](https://github.com/yuchia329/kvroute/issues/30) on. The old column was absolute recomputed
-tokens, and under this closed loop that measures throughput as much as waste: session affinity
+tokens, and under this closed loop that measures throughput as much as redundancy: session affinity
 served 2,457 requests at 64 users against round-robin's 821, so its total rose with its own speed.
 
 | closed loop | old absolute floor | per-request floor | session / req | the policy the old column called best |
