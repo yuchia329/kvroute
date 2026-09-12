@@ -244,6 +244,13 @@ func RunChaos(ctx context.Context, cfg ChaosConfig) (ChaosRun, error) {
 	id := fmt.Sprintf("chaos-%s-%s-a%s", cfg.Fault, cfg.Replica, strconv.FormatFloat(cfg.ArrivalRate, 'g', -1, 64))
 	cfg.Log.Info("chaos run starting", "id", id, "policy", stats.Policy, "replica", cfg.Replica, "fault", cfg.Fault,
 		"rate", cfg.ArrivalRate, "fault_at", cfg.FaultAt, "recover_at", cfg.RecoverAt, "duration", cfg.Duration)
+	// A chaos run is open-loop by construction, and at the rates these run at the
+	// load condition is comparing against an idle replica on most decisions. It
+	// is said here because this is the runner that found it: #19's recovery
+	// curve measured the rule rather than the fault and had to be run again.
+	if stats.Spill != nil && OffItsSettledRung(*stats.Spill) {
+		cfg.Log.Warn(SettledRungWarning, "spill", *stats.Spill, "rate", cfg.ArrivalRate)
+	}
 
 	cfg.Contamination.Log = cfg.Log
 	start := time.Now()
@@ -317,7 +324,8 @@ func RunChaos(ctx context.Context, cfg ChaosConfig) (ChaosRun, error) {
 		Throttle:      throttle,
 	}
 	if stats.Spill != nil {
-		s.HonouredLowWater, s.LoadImbalanceFactor = stats.Spill.HonouredLowWater, stats.Spill.LoadImbalanceFactor
+		s.HitRateLowWater, s.LoadImbalanceFactor = stats.Spill.HitRateLowWater, stats.Spill.LoadImbalanceFactor
+		s.MeanInflightDenominator = stats.Spill.MeanInflightDenominator
 	}
 	s.Assess(run.results, events.relativeTo(start.Add(cfg.FaultAt)))
 

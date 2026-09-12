@@ -191,15 +191,15 @@ func TestTheSpillRuleIsPolicyFoursOwn(t *testing.T) {
 			t.Errorf("predicted %d cached tokens on a replica that holds none", got.PrefixMatchTokens)
 		}
 	})
-	t.Run("kv", func(t *testing.T) {
+	t.Run("unhonoured", func(t *testing.T) {
 		state, ix := exactFleet(t, 2)
 		holds(ix, "replica-0", tokenBlock(1))
-		state.Replicas[0].KV, state.Replicas[1].KV = read(0.95), read(0.10)
-		p := policy.NewExactResidency(ix, tokenizer(), policy.Spill{KVHighWater: 0.80})
+		state.Replicas[0].HitRate, state.Replicas[1].HitRate = hitting(0.05), hitting(0.90)
+		p := policy.NewExactResidency(ix, tokenizer(), policy.Spill{HitRateLowWater: 0.20})
 
 		got, _ := p.Choose(policy.Request{Body: prompt.body}, state)
-		if got.Replica.ID != "replica-1" || got.Reason != policy.ReasonSpillKV {
-			t.Errorf("went to %s as %q, want replica-1 as %q", got.Replica.ID, got.Reason, policy.ReasonSpillKV)
+		if got.Replica.ID != "replica-1" || got.Reason != policy.ReasonSpillHitRate {
+			t.Errorf("went to %s as %q, want replica-1 as %q", got.Replica.ID, got.Reason, policy.ReasonSpillHitRate)
 		}
 	})
 }

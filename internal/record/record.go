@@ -100,18 +100,78 @@ type Request struct {
 	// weighed, recorded so that how balanced a policy left the fleet is a figure
 	// the rows can show rather than a claim about the policy's code.
 	Inflight int `json:"inflight" parquet:"inflight"`
-	// KVUtilization is the chosen replica's scraped KV cache utilization when
-	// the decision was made, and KVUtilizationRead says whether any scrape had
+	// FleetMinInflight and FleetMeanInflight are what the rest of the fleet was
+	// carrying when this decision was made: the quietest replica's inflight, and
+	// the inflight of the snapshot's replicas averaged over them. FleetLoadRead
+	// says the row carries them.
+	//
+	// Inflight above is one replica's; these are the fleet's, and the spill
+	// rule's load condition is a comparison between the two. Which of these two
+	// figures it compares against is the difference between a ratio and an
+	// absolute inflight threshold at low load, so a row carrying only the
+	// chosen replica's count cannot say which rule a run was running (#31).
+	//
+	// Written under every policy, including the three with no spill rule, for the
+	// reason the honoured rate is: the pass that cuts a grid runs with the
+	// condition disabled, and a column that appeared only where something read it
+	// could not be used to project what a threshold would have declined.
+	//
+	// Read is a third column rather than an inferred one because a fleet that was
+	// genuinely idle and a run whose rows predate these columns both write zeros,
+	// and they are opposite findings.
+	FleetMinInflight  int     `json:"fleet_min_inflight" parquet:"fleet_min_inflight"`
+	FleetMeanInflight float64 `json:"fleet_mean_inflight" parquet:"fleet_mean_inflight"`
+	FleetLoadRead     bool    `json:"fleet_load_read" parquet:"fleet_load_read"`
+	// PromptBytes is how long this request's rendered prompt was.
+	//
+	// It is the denominator every byte-denominated figure on this row has to be
+	// read through. The prefix index counts in its own bytes and the engine
+	// answers in tokens, and this column is what converts between them for this
+	// one request rather than through a run-wide average that fits no individual
+	// prompt — which is the conversion the honoured rate is computed across.
+	PromptBytes int `json:"prompt_bytes" parquet:"prompt_bytes"`
+	// BatchKVOccupancy is the chosen replica's scraped batch KV occupancy when
+	// the decision was made, and BatchKVRead says whether any scrape had
 	// answered for it.
 	//
 	// Two fields rather than one, for the reason the outcome taxonomy is four
-	// columns rather than three: an unscraped replica and an empty cache are
-	// different states, and only the flag can tell them apart. A run whose
-	// scrapes were failing routed with the KV spill condition silently
-	// disabled, and a column of bare zeros would read as a fleet with plenty of
-	// cache room rather than as a fleet nobody could measure.
-	KVUtilization     float64 `json:"kv_utilization" parquet:"kv_utilization"`
-	KVUtilizationRead bool    `json:"kv_utilization_read" parquet:"kv_utilization_read"`
+	// columns rather than three: an unscraped replica and an idle one are
+	// different states, and only the flag can tell them apart.
+	//
+	// Nothing routes on this since ADR-0011 — it counts the blocks held by the
+	// running batch, which Inflight above already counts locally and exactly. It
+	// is still written on every row, beside the inflight it was taken at the same
+	// moment as, precisely so that the correlation ADR-0011 rests on can be
+	// re-derived from any run rather than only from the one that measured it.
+	BatchKVOccupancy float64 `json:"batch_kv_occupancy" parquet:"batch_kv_occupancy"`
+	BatchKVRead      bool    `json:"batch_kv_read" parquet:"batch_kv_read"`
+	// HonouredRate is the chosen replica's honoured rate when the decision was
+	// made, HonouredRead says whether it had answered enough scoring requests to
+	// have one, and HonouredClaims how many that reading rested on.
+	//
+	// This is the residency signal the spill rule's first branch reads, and the
+	// three columns are what the grid is cut against: a mark can only be chosen
+	// from the range the signal was observed over, and a rate without its
+	// evidence count cannot be told apart from a rate off two unlucky requests.
+	//
+	// Written under every policy, including the three that consult no index and
+	// so never feed it. A column that appeared only where it was read could not
+	// be used to show what it would have done elsewhere.
+	HonouredRate   float64 `json:"honoured_rate" parquet:"honoured_rate"`
+	HonouredRead   bool    `json:"honoured_read" parquet:"honoured_read"`
+	HonouredClaims int     `json:"honoured_claims" parquet:"honoured_claims"`
+	// HitRate is the chosen replica's prefix cache hit rate over its window when
+	// the decision was made, HitRateRead whether the window held traffic enough
+	// to say, and HitRateQueries how many block queries it rested on.
+	//
+	// This is the residency signal the spill rule reads, and the three columns
+	// are what its grid is cut against. HonouredRate above is the candidate it
+	// replaced, kept beside it: #28 spent a fleet run establishing that the
+	// honoured rate saturates at 1.0, and a column showing that in every later
+	// run is cheaper than rediscovering it.
+	HitRate        float64 `json:"hit_rate" parquet:"hit_rate"`
+	HitRateRead    bool    `json:"hit_rate_read" parquet:"hit_rate_read"`
+	HitRateQueries float64 `json:"hit_rate_queries" parquet:"hit_rate_queries"`
 	// DeclinedMatchBytes is the prefix match the spill rule gave up on this
 	// request, in bytes. Zero on every decision that was not a spill.
 	//
@@ -122,9 +182,10 @@ type Request struct {
 	// that spills rarely but gives up whole conversations is not, and the
 	// spill count alone cannot tell those apart.
 	DeclinedMatchBytes int `json:"declined_match_bytes" parquet:"declined_match_bytes"`
-	// DeclinedKVUtilization, DeclinedKVRead and DeclinedInflight are the
-	// pressure on the replica the spill rule turned down. Zero and unread on
-	// every decision that declined nothing.
+	// DeclinedHonouredRate, DeclinedHonouredRead, DeclinedBatchKVOccupancy,
+	// DeclinedBatchKVRead and DeclinedInflight are the pressure on the replica
+	// the spill rule turned down. Zero and unread on every decision that
+	// declined nothing.
 	//
 	// The columns above describe the replica that served the request; on a spill
 	// that is by construction one *under* the threshold, so without these the
@@ -132,9 +193,13 @@ type Request struct {
 	// carry. A grid point can then say how often it spilled but not what it was
 	// reacting to — which is how the 2026-09-10 run came to show a KV column
 	// peaking below the very threshold that was declining matches.
-	DeclinedKVUtilization float64 `json:"declined_kv_utilization" parquet:"declined_kv_utilization"`
-	DeclinedKVRead        bool    `json:"declined_kv_read" parquet:"declined_kv_read"`
-	DeclinedInflight      int     `json:"declined_inflight" parquet:"declined_inflight"`
+	DeclinedHonouredRate     float64 `json:"declined_honoured_rate" parquet:"declined_honoured_rate"`
+	DeclinedHonouredRead     bool    `json:"declined_honoured_read" parquet:"declined_honoured_read"`
+	DeclinedHitRate          float64 `json:"declined_hit_rate" parquet:"declined_hit_rate"`
+	DeclinedHitRateRead      bool    `json:"declined_hit_rate_read" parquet:"declined_hit_rate_read"`
+	DeclinedBatchKVOccupancy float64 `json:"declined_batch_kv_occupancy" parquet:"declined_batch_kv_occupancy"`
+	DeclinedBatchKVRead      bool    `json:"declined_batch_kv_read" parquet:"declined_batch_kv_read"`
+	DeclinedInflight         int     `json:"declined_inflight" parquet:"declined_inflight"`
 	// PrefixMatchTokens and DeclinedMatchTokens are the two match columns above
 	// for exact residency, which knows what a replica holds in the engine's own
 	// tokens rather than in bytes of prompt. Zero under every other policy, and

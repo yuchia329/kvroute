@@ -430,7 +430,7 @@ func TestValidityReportsPrefillCacheAndBothSpillBranches(t *testing.T) {
 		if cs[i].Policy == policy.PrefixAffinityName {
 			cs[i].PromptTokensCached = 500_000
 			cs[i].PrefixCacheHits = 700
-			cs[i].Decisions = bench.DecisionMix{PrefixAffinity: 80, SpillKV: 15, SpillLoad: 5}
+			cs[i].Decisions = bench.DecisionMix{PrefixAffinity: 80, SpillHitRate: 15, SpillLoad: 5}
 		}
 	}
 
@@ -452,8 +452,8 @@ func TestValidityReportsPrefillCacheAndBothSpillBranches(t *testing.T) {
 		t.Errorf("hit rate spread = %v (measured %v), want 70%% against 40%%", v.HitRateSpread, v.HitRateMeasured)
 	}
 	// Three repetitions of 15 and 5, and the two branches never merge.
-	if v.SpillKV != 45 || v.SpillLoad != 15 {
-		t.Errorf("spill = KV %d, load %d; want 45 and 15, counted apart", v.SpillKV, v.SpillLoad)
+	if v.SpillHitRate != 45 || v.SpillLoad != 15 {
+		t.Errorf("spill = KV %d, load %d; want 45 and 15, counted apart", v.SpillHitRate, v.SpillLoad)
 	}
 	if !v.Fired() {
 		t.Error("validity says the mechanism did not fire on a point with all three kinds of evidence")
@@ -486,7 +486,7 @@ func TestTheSeparabilityTablePoolsEachAxisOverTheOther(t *testing.T) {
 	load := bothPolicies(highSkew, []float64{8, 8, 8}, []float64{9, 9, 9})
 	for i := range kv {
 		if kv[i].Policy == policy.PrefixAffinityName {
-			kv[i].Decisions = bench.DecisionMix{SpillKV: 20}
+			kv[i].Decisions = bench.DecisionMix{SpillHitRate: 20}
 		}
 	}
 	for i := range load {
@@ -575,7 +575,7 @@ func TestPointsJudgedAgainstDifferentSLOsAreNotOneMap(t *testing.T) {
 func TestPoolingDecisionsKeepsEveryReason(t *testing.T) {
 	full := bench.DecisionMix{
 		RoundRobin: 1, LeastOutstanding: 2, SessionAffinity: 3, SessionUnidentified: 4,
-		PrefixAffinity: 5, Cold: 6, SpillKV: 7, SpillLoad: 8, Undecided: 9,
+		PrefixAffinity: 5, Cold: 6, SpillHitRate: 7, SpillLoad: 8, Undecided: 9,
 	}
 	cs := bothPolicies(highPressure, []float64{8, 8, 8}, []float64{9, 9, 9})
 	for i := range cs {

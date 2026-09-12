@@ -22,7 +22,7 @@
 #    network.
 #
 # 2. It scrapes every replica directly and labels it with the id the router
-#    gives it, so the engine's KV utilization and the router's inflight for one
+#    gives it, so the engine's batch KV occupancy and the router's inflight for one
 #    replica land on one label and a panel can draw them together. The config is
 #    written from `ops/fleet.sh replicas` at every start, so it cannot name a
 #    replica the fleet no longer runs: GPU 3 is out of the fleet (#25), and a

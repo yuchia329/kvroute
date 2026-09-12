@@ -218,7 +218,7 @@ type Cell struct {
 	ArrivalRate float64 `json:"arrival_rate" parquet:"arrival_rate"`
 	Repetition  int     `json:"repetition" parquet:"repetition"`
 	Workload    string  `json:"workload" parquet:"workload"`
-	// HonouredLowWater and LoadImbalanceFactor are the spill grid point this cell
+	// HitRateLowWater and LoadImbalanceFactor are the spill grid point this cell
 	// ran at, flattened for the reason the load axis is. Both zero under a
 	// policy with no spill rule, and under prefix affinity run without one.
 	//
@@ -226,8 +226,16 @@ type Cell struct {
 	// tunable sweep is a table whose rows are these two numbers: a directory of
 	// cells that did not each carry the point they ran at could not be read as
 	// a grid at all, and two grid points' cells would differ in nothing.
-	HonouredLowWater    float64 `json:"honoured_low_water" parquet:"honoured_low_water"`
+	HitRateLowWater     float64 `json:"hit_rate_low_water" parquet:"hit_rate_low_water"`
 	LoadImbalanceFactor float64 `json:"load_imbalance_factor" parquet:"load_imbalance_factor"`
+	// MeanInflightDenominator is what that factor was a multiple of: the fleet's
+	// mean inflight when true, and its minimum when false, which is every cell
+	// measured before #31. False under a policy with no spill rule.
+	//
+	// A third column on the point rather than a detail of the second, because at
+	// low open-loop load the two denominators are different rules and a table
+	// indexed by the factor alone would put their cells in one row.
+	MeanInflightDenominator bool `json:"mean_inflight_denominator" parquet:"mean_inflight_denominator"`
 	// HashLeadingBlocks and HashWeight are the stateless prefix hash's grid
 	// point: how many leading prefix blocks it hashed, and what that hash was
 	// worth against load. Both zero under every other policy, which hashes
@@ -580,7 +588,7 @@ type SweepConfig struct {
 	// the reason Spill is: the router is a separate process started with its own
 	// flags, and checkRouter verifies this against what it reports. Its zero
 	// value is a router that hashes nothing, which is every policy but that one.
-	HashPoint          policy.HashPoint
+	HashPoint     policy.HashPoint
 	Contamination ContaminationConfig
 	// FleetKVEvents is whether the fleet is publishing its KV cache events, and
 	// what every cell is labelled with. Told rather than probed, like the model
@@ -1037,6 +1045,13 @@ func checkRouter(ctx context.Context, cfg SweepConfig) error {
 	}
 	cfg.Log.Info("router is up and running the policy these cells will name",
 		"router", cfg.Target, "policy", stats.Policy, "spill", cfg.Spill, "hash", cfg.HashPoint, "replicas", len(stats.Replicas))
+	if len(cfg.ArrivalRates) > 0 && OffItsSettledRung(cfg.Spill) {
+		// A warning rather than a refusal: the run is not wrong, it is being
+		// made at a rung nothing settled this point at, and that is a judgement
+		// for whoever is making it. It is said once, at the start, where it can
+		// still change what gets run.
+		cfg.Log.Warn(SettledRungWarning, "spill", cfg.Spill, "arrival_rates", cfg.ArrivalRates)
+	}
 	return nil
 }
 
@@ -1290,8 +1305,9 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		WorkingSet:  OfferedWorkingSet(cfg.Workload),
 		Skew:        OfferedSkew(cfg.Workload),
 
-		HonouredLowWater:    cfg.Spill.HonouredLowWater,
-		LoadImbalanceFactor: cfg.Spill.LoadImbalanceFactor,
+		HitRateLowWater:         cfg.Spill.HitRateLowWater,
+		LoadImbalanceFactor:     cfg.Spill.LoadImbalanceFactor,
+		MeanInflightDenominator: cfg.Spill.MeanInflightDenominator,
 
 		HashLeadingBlocks: cfg.HashPoint.LeadingBlocks,
 		HashWeight:        cfg.HashPoint.HashWeight,

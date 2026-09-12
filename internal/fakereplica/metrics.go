@@ -92,11 +92,24 @@ func (r *Replica) cacheConfigLabels() string {
 func (r *Replica) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	r.mu.Lock()
 	c := r.counters
-	kvUtil := r.cfg.KVUtilization
-	// Prefix-cache and preemption counters stay at zero: the fake models no
-	// prefix cache yet, and reporting queries without hits would fabricate a
-	// real-looking 0% hit rate. A block-LRU cache arrives with the prefix-index
-	// work that first depends on these.
+	kvUtil := r.cfg.BatchKVOccupancy
+	// The prefix-cache counters are derived from the same CachedPromptFraction
+	// that drives the per-request usage block, in blocks rather than tokens,
+	// because the engine counts one query per block of every prompt.
+	//
+	// They used to be pinned at zero, on the grounds that the fake models no
+	// prefix cache and that reporting queries without hits would fabricate a
+	// real-looking 0% hit rate. That was right while nothing read them. The spill
+	// rule's residency branch now routes on exactly these two counters
+	// (ADR-0011), so a fake that reports no queries makes the rule untestable
+	// without a GPU — and pinning them at zero would now fabricate the very
+	// reading the rule fires on, which is worse than the fraction being a knob.
+	//
+	// Still a knob and not a model of a cache: the fraction is stated by the
+	// caller. What it buys is that the fleet counter and the usage block agree,
+	// as they do on a real replica.
+	queries := float64(c.promptTokens) / float64(r.cfg.BlockSize)
+	hits := float64(c.cachedPromptTokens) / float64(r.cfg.BlockSize)
 	scalars := map[string]float64{
 		"vllm:kv_cache_usage_perc": kvUtil,
 		// The fake serves every request it accepts immediately, so everything
@@ -105,8 +118,8 @@ func (r *Replica) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		// by never reporting a queue rather than by inventing one.
 		vllmmetrics.NumRequestsRunning:    float64(c.running),
 		vllmmetrics.NumRequestsWaiting:    0,
-		"vllm:prefix_cache_hits_total":    0,
-		"vllm:prefix_cache_queries_total": 0,
+		vllmmetrics.PrefixCacheHits:       hits,
+		vllmmetrics.PrefixCacheQueries:    queries,
 		"vllm:prompt_tokens_total":        float64(c.promptTokens),
 		"vllm:prompt_tokens_cached_total": float64(c.cachedPromptTokens),
 		"vllm:num_preemptions_total":      0,

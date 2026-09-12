@@ -26,7 +26,21 @@ import (
 	"github.com/yuchia329/kvroute/internal/record"
 	"github.com/yuchia329/kvroute/internal/residency"
 	"github.com/yuchia329/kvroute/internal/router"
+	"github.com/yuchia329/kvroute/internal/vllmmetrics"
 )
+
+// scrapeReason says why the scrape loop is running, so a run's own log can be
+// read back without knowing which flag was passed.
+func scrapeReason(asked bool, lowWater float64) string {
+	switch {
+	case asked && lowWater > 0:
+		return "asked and required by the residency threshold"
+	case lowWater > 0:
+		return "required by the residency threshold"
+	default:
+		return "asked"
+	}
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -44,7 +58,7 @@ func run() error {
 		calibration = flag.String("prefix-calibration", "",
 			"path to the prefix index's calibration, as written by cmd/calibrate. Required by "+policy.PrefixAffinityName+
 				", which will not run on an index whose bounds were guessed")
-		honouredLowWater = flag.Float64("honoured-low-water", 0,
+		hitRateLowWater = flag.Float64("hit-rate-low-water", 0,
 			"share of its recently claimed tokens a replica has to be honouring for "+policy.PrefixAffinityName+" and "+policy.ExactResidencyName+" to keep the best prefix match there; below it the match is declined and the request routed on load. "+
 				"A replica that has stopped honouring the index's beliefs is a replica that is evicting them (ADR-0011). "+
 				"0 disables the condition, which is the policy as it was measured before the spill rule existed")
@@ -58,6 +72,10 @@ func run() error {
 		loadImbalanceFactor = flag.Float64("load-imbalance-factor", 0,
 			"multiple of the fleet's minimum inflight above which "+policy.PrefixAffinityName+" and "+policy.ExactResidencyName+" decline the best prefix match and route on load. "+
 				"0 disables the condition")
+		meanInflightDenominator = flag.Bool("mean-inflight-denominator", false,
+			"hold the load imbalance factor against the fleet's mean inflight rather than its minimum. "+
+				"The minimum is a small integer at low load, and a multiple of it is then an absolute inflight count rather than the ratio the rule is written as (#31). "+
+				"The two denominators are a grid axis, and false is the rule as #18 settled it")
 		hashLeadingBlocks = flag.Int("hash-leading-blocks", 0,
 			"how many of a prompt's leading "+strconv.Itoa(prefix.BlockBytes)+"-byte prefix blocks "+policy.PrefixHashName+" hashes on. "+
 				"Required by that policy and not defaulted: OpenAI's documented router hashes \"the initial tokens\" and has never published a number, so every run states its own")
@@ -75,11 +93,15 @@ func run() error {
 				"Required by that policy and not defaulted, because a size that disagreed with the engines' would refuse every event they sent")
 		kvEventsWait = flag.Duration("kv-events-wait", 30*time.Second,
 			"how long to wait at startup for every replica's event stream to connect before refusing to start")
-		scrapeBatchKV = flag.Bool("scrape-batch-kv", false,
+		scrapeReplicas = flag.Bool("scrape-replicas", false,
 			"scrape vllm:kv_cache_usage_perc onto every row. No policy routes on it — it counts the blocks held by the running batch, which the router already counts itself as inflight (ADR-0011) — so it is off unless a run wants the column, "+
 				"and the run that checks the two spill signals against each other is the one that does")
-		batchKVScrapeInterval = flag.Duration("batch-kv-scrape-interval", fleet.DefaultBatchKVScrapeInterval,
-			"how often each replica's batch KV occupancy is re-read. Only -scrape-batch-kv reads it")
+		scrapeInterval = flag.Duration("scrape-interval", fleet.DefaultBatchKVScrapeInterval,
+			"how often each replica's /metrics is read for the prefix-cache counters and the batch gauge")
+		hitRateWindow = flag.Duration("hit-rate-window", vllmmetrics.DefaultHitRateSpan.Window,
+			"how far back each replica's prefix cache hit rate looks. The counters are cumulative, so a rate is a difference across this window")
+		hitRateMinQueries = flag.Float64("hit-rate-min-queries", vllmmetrics.DefaultHitRateSpan.MinQueries,
+			"the fewest block queries a replica's hit rate may rest on. Below it the rate is unread, and an unread rate declines nothing")
 		healthInterval = flag.Duration("health-interval", fleet.DefaultHealthInterval,
 			"how often every replica's /health is checked. Two failed checks in a row eject a replica and two passed ones readmit it; a request that cannot reach a replica ejects it at once")
 		recordsPath  = flag.String("records", "", "path to append per-request JSONL rows to; empty discards them")
@@ -104,7 +126,8 @@ func run() error {
 	// two runs whose rates were averaged over different windows are not
 	// comparable even if neither spilled.
 	window := belief.Window{Requests: *honouredWindow, TTL: *honouredTTL, Quorum: *honouredQuorum}
-	f, err := fleet.New(replicas, fleet.WithHonouredWindow(window))
+	span := vllmmetrics.HitRateSpan{Window: *hitRateWindow, MinQueries: *hitRateMinQueries}
+	f, err := fleet.New(replicas, fleet.WithHonouredWindow(window), fleet.WithHitRateSpan(span))
 	if err != nil {
 		return err
 	}
@@ -112,7 +135,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	options.Spill = policy.Spill{HonouredLowWater: *honouredLowWater, LoadImbalanceFactor: *loadImbalanceFactor}
+	options.Spill = policy.Spill{
+		HitRateLowWater:         *hitRateLowWater,
+		LoadImbalanceFactor:     *loadImbalanceFactor,
+		MeanInflightDenominator: *meanInflightDenominator,
+	}
 	options.HashPoint = policy.HashPoint{LeadingBlocks: *hashLeadingBlocks, HashWeight: *hashWeight}
 
 	// Exact residency's index is fed by every engine's event stream, and it is
@@ -162,7 +189,7 @@ func run() error {
 	// one layer earlier. Asked of the policy itself, which is the one party that
 	// knows whether it has a rule to tune.
 	if _, tuned := chosen.(policy.Tuned); options.Spill.Enabled() && !tuned {
-		return fmt.Errorf("-honoured-low-water and -load-imbalance-factor configure the spill rule, which %s does not have: it would ignore them and its cells would be labelled with thresholds nothing applied", *policyName)
+		return fmt.Errorf("-hit-rate-low-water and -load-imbalance-factor configure the spill rule, which %s does not have: it would ignore them and its cells would be labelled with thresholds nothing applied", *policyName)
 	}
 	// And the same for the hash point, one policy over. A weight set on a policy
 	// that hashes nothing is a run whose cells would name a grid point no
@@ -200,15 +227,23 @@ func run() error {
 	// inflight on the same row, which is what ADR-0011's correlation is derived
 	// from and what any later re-derivation of it needs — so the run that checks
 	// the spill rule's signals turns it on and the rest do not.
-	if *scrapeBatchKV {
+	// The scrape now feeds the signal the spill rule ROUTES ON, not just a column,
+	// so it cannot be silently optional the way the batch gauge was: a residency
+	// threshold set on an unscraped fleet would leave every replica unread and the
+	// condition disabled for the whole run without a line saying so, which is the
+	// failure #28 exists to stop repeating. It is therefore turned on by the
+	// threshold as well as by the flag, and refused the other way round.
+	scraping := *scrapeReplicas || options.Spill.HitRateLowWater > 0
+	if scraping {
 		ctx, stopScraping := context.WithCancel(context.Background())
 		defer stopScraping()
 		go fleet.ScrapeBatchOccupancy(ctx, fleet.BatchKVScrapeConfig{
 			Fleet:    f,
-			Interval: *batchKVScrapeInterval,
+			Interval: *scrapeInterval,
 			Log:      log,
 		})
-		log.Info("scraping batch KV occupancy", "interval", *batchKVScrapeInterval, "replicas", len(replicas))
+		log.Info("scraping replicas", "interval", *scrapeInterval, "replicas", len(replicas),
+			"hit_rate_span", span, "reason", scrapeReason(*scrapeReplicas, options.Spill.HitRateLowWater))
 	}
 
 	rt, err := router.New(router.Config{
@@ -232,6 +267,7 @@ func run() error {
 		"policy", chosen.Name(),
 		"spill", options.Spill,
 		"honoured_window", window,
+		"hit_rate_span", span,
 		"hash", options.HashPoint,
 		"replicas", len(replicas),
 		"records", *recordsPath,

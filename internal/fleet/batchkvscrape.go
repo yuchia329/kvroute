@@ -12,43 +12,45 @@ import (
 	"github.com/yuchia329/kvroute/internal/vllmmetrics"
 )
 
-// DefaultKVScrapeInterval is how often the fleet's KV utilization is re-read.
+// DefaultBatchKVScrapeInterval is how often the fleet's batch KV occupancy is
+// re-read.
 //
-// Short, because the signal it feeds is a spill threshold and a reading is at
-// worst one interval stale: a replica that crosses its high-water mark keeps
-// collecting affinity for the rest of the window. Not shorter, because this is
+// Short, because the column it fills is read against the router's own inflight
+// on the same row, and the two have to describe the same moment for that
+// comparison to mean anything: a reading a second old would be compared with an
+// inflight count that had turned over. Not shorter, because this is
 // one HTTP round trip per replica per tick against the same engines that are
 // serving the measurement, and the whole project's numbers come off those
 // engines. A quarter second is roughly one scrape per replica per served
 // request at the top of the arrival ladder, which is cheap beside a prefill and
 // still inside the window a conversation's turns arrive in.
-const DefaultKVScrapeInterval = 250 * time.Millisecond
+const DefaultBatchKVScrapeInterval = 250 * time.Millisecond
 
-// KVScrapeConfig configures the loop that keeps the fleet's KV utilization
-// current. Fleet is required.
-type KVScrapeConfig struct {
+// BatchKVScrapeConfig configures the loop that keeps the fleet's batch KV
+// occupancy current. Fleet is required.
+type BatchKVScrapeConfig struct {
 	Fleet *Fleet
 	// Interval is how often every replica is re-read. Zero uses
-	// DefaultKVScrapeInterval.
+	// DefaultBatchKVScrapeInterval.
 	Interval time.Duration
 	// Timeout bounds one replica's scrape. Zero derives it from Interval, so a
 	// replica that has stopped answering cannot hold a tick open past the next
 	// one: a scraper blocked on one dead replica would leave the whole fleet's
-	// readings frozen at whatever they last were, which is the stale-belief
-	// failure this loop exists to prevent.
+	// readings frozen at whatever they last were, and a frozen column is worse
+	// than a missing one because nothing about it looks wrong.
 	Timeout time.Duration
 	Client  *http.Client
 	Log     *slog.Logger
 }
 
-func (c KVScrapeConfig) interval() time.Duration {
+func (c BatchKVScrapeConfig) interval() time.Duration {
 	if c.Interval <= 0 {
-		return DefaultKVScrapeInterval
+		return DefaultBatchKVScrapeInterval
 	}
 	return c.Interval
 }
 
-func (c KVScrapeConfig) timeout() time.Duration {
+func (c BatchKVScrapeConfig) timeout() time.Duration {
 	if c.Timeout > 0 {
 		return c.Timeout
 	}
@@ -57,18 +59,15 @@ func (c KVScrapeConfig) timeout() time.Duration {
 	return c.interval() * 4 / 5
 }
 
-// ScrapeKVUtilization keeps every replica's KV utilization current until the
-// context is done. It blocks, so callers run it in a goroutine.
+// ScrapeBatchOccupancy keeps every replica's batch KV occupancy current until
+// the context is done. It blocks, so callers run it in a goroutine.
 //
 // Every tick writes a reading for every replica, including the ones that did
-// not answer. That is the whole of the graceful degradation the spill rule
-// rests on, and writing the failure is as important as writing the success: a
+// not answer, and writing the failure is as important as writing the success: a
 // loop that only recorded what it could read would leave a replica that has
-// stopped answering believed at the utilization it last reported, and the spill
-// rule would go on declining — or failing to decline — on a figure that stopped
-// being true. An unread replica instead reads as having no KV signal at all,
-// and the policy routes it as it did before the signal existed.
-func ScrapeKVUtilization(ctx context.Context, cfg KVScrapeConfig) {
+// stopped answering believed at the occupancy it last reported, and every row
+// written after that would carry a figure that had stopped being true.
+func ScrapeBatchOccupancy(ctx context.Context, cfg BatchKVScrapeConfig) {
 	if cfg.Fleet == nil {
 		return
 	}
@@ -100,7 +99,7 @@ func ScrapeKVUtilization(ctx context.Context, cfg KVScrapeConfig) {
 // In parallel because they are read serially otherwise and a fleet of six with
 // one slow replica would take the slow one's latency for all of them, making
 // every other reading that much staler than the interval promises.
-func (c KVScrapeConfig) scrapeOnce(ctx context.Context) {
+func (c BatchKVScrapeConfig) scrapeOnce(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout())
 	defer cancel()
 
@@ -110,9 +109,14 @@ func (c KVScrapeConfig) scrapeOnce(ctx context.Context) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			reading := vllmmetrics.ReadKVUtilization(ctx, c.Client, MetricsURL(r.BaseURL))
-			if err := c.Fleet.ObserveKVUtilization(r.ID, reading); err != nil {
-				c.Log.Warn("could not record a KV utilization reading", "replica", r.ID, "err", err)
+			// One GET, both signals. They used to be two scrapes of the same
+			// endpoint on the same tick, which doubled the request rate against
+			// the engines the measurement comes off and made the pair describe
+			// two different instants — which is the one thing the correlation
+			// between them may not have.
+			sample := vllmmetrics.ReadReplica(ctx, c.Client, MetricsURL(r.BaseURL))
+			if err := c.Fleet.ObserveReplica(r.ID, time.Now(), sample); err != nil {
+				c.Log.Warn("could not record a replica scrape", "replica", r.ID, "err", err)
 			}
 		}()
 	}
@@ -136,20 +140,40 @@ func (f *Fleet) Replicas() []Replica {
 	return append([]Replica(nil), f.replicas...)
 }
 
-// ObserveKVUtilization records what a scrape of one replica found, including
+// ObserveBatchOccupancy records what a scrape of one replica found, including
 // that it found nothing.
 //
 // A reading for a replica the fleet does not front is an error rather than a
 // discarded write: it means the scraper and the router were pointed at
 // different fleets, and a scraper silently writing into nothing would leave
-// every replica unread and the spill rule quietly disabled for the whole run.
-func (f *Fleet) ObserveKVUtilization(id string, reading vllmmetrics.KVUtilization) error {
+// every row's engine-side load column empty for the whole run.
+func (f *Fleet) ObserveBatchOccupancy(id string, reading vllmmetrics.BatchOccupancy) error {
 	f.mu.RLock()
 	i, ok := f.index[id]
 	f.mu.RUnlock()
 	if !ok {
-		return fmt.Errorf("fleet: no replica %q to record a KV utilization reading for", id)
+		return fmt.Errorf("fleet: no replica %q to record a batch KV occupancy reading for", id)
 	}
 	f.kv[i].Store(&reading)
+	return nil
+}
+
+// ObserveReplica records one scrape of one replica: the batch gauge it keeps as
+// a column, and the prefix-cache counters its hit rate is differenced from.
+//
+// Both together, because they came from one response and describe one instant.
+// A failed scrape is still recorded for the gauge — an unread reading is what
+// keeps a replica that has stopped answering from being believed at what it last
+// said — and dropped for the hit rate, where a missing counter is not a data
+// point and the window simply spans the gap.
+func (f *Fleet) ObserveReplica(id string, at time.Time, sample vllmmetrics.ReplicaSample) error {
+	f.mu.RLock()
+	i, ok := f.index[id]
+	f.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("fleet: no replica %q to record a scrape for", id)
+	}
+	f.kv[i].Store(&sample.BatchKV)
+	f.hitRate[i].Observe(at, sample.PrefixCache)
 	return nil
 }

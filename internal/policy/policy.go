@@ -73,16 +73,18 @@ const (
 	// nothing but cold decisions has an index that is not working, which no
 	// goodput figure beside it would reveal.
 	ReasonCold Reason = "COLD"
-	// ReasonSpillUnhonoured is an affinity declined because the best match's
-	// replica had stopped honouring what the index believed about it — it is
-	// evicting — and the request placed on load instead.
+	// ReasonSpillHitRate is an affinity declined because the best match's replica
+	// was answering too few of its block queries out of cache — it is evicting —
+	// and the request placed on load instead.
 	//
-	// Named for the signal rather than for the pressure. The pressure is memory,
-	// but this reason's predecessor was called SPILL_KV and read a gauge that
-	// turned out to measure the batch (ADR-0011), so a name that says which
-	// measurement fired is worth more here than one that says what it was
-	// believed to mean.
-	ReasonSpillUnhonoured Reason = "SPILL_UNHONOURED"
+	// Named for the signal rather than for the pressure, and this is the third
+	// name this branch has had. It was SPILL_KV while it read a gauge that turned
+	// out to measure the running batch, and SPILL_UNHONOURED while it read a
+	// belief rate that turned out to be pinned at 1.0 by the index's own
+	// calibration (ADR-0011). Both were named for what the signal was believed to
+	// mean; naming it for the measurement is what makes a rename necessary when
+	// the measurement changes, which is the point.
+	ReasonSpillHitRate Reason = "SPILL_HIT_RATE"
 	// ReasonSpillLoad is an affinity declined because the best match was buried
 	// under inflight relative to the fleet, and the request placed on load
 	// instead.
@@ -109,7 +111,7 @@ const (
 // Spilled reports whether this reason is a declined affinity, so that callers
 // counting the decision mix do not each carry their own list of which reasons
 // are spills.
-func (r Reason) Spilled() bool { return r == ReasonSpillUnhonoured || r == ReasonSpillLoad }
+func (r Reason) Spilled() bool { return r == ReasonSpillHitRate || r == ReasonSpillLoad }
 
 // Order is the order the policies are compared in: the naive baseline first, then
 // each policy that claims to improve on it, as idea.md §5 numbers them. Exact
@@ -209,6 +211,16 @@ type Choice struct {
 	// signal's whole range — including on the policies whose cells the range is
 	// not cut from.
 	Honoured belief.Honoured
+	// HitRate is the chosen replica's prefix cache hit rate when the decision was
+	// made, or unread when its window held too little traffic to say.
+	//
+	// This is the pressure the spill rule's residency branch was weighed against.
+	// Honoured above is kept beside it as a recorded diagnostic rather than a
+	// routed-on signal: it is the live counterpart of the belief divergence #17
+	// measures after a run, it costs nothing to keep, and #28 spent a fleet run
+	// establishing that it saturates — a column that shows that stays cheaper
+	// than rediscovering it.
+	HitRate vllmmetrics.HitRate
 	// DeclinedMatchBytes is the prefix match the spill rule gave up, in bytes.
 	// Zero unless this decision was a spill.
 	//
@@ -231,6 +243,7 @@ type Choice struct {
 	// 0.697 while a high-water mark of 0.70 was demonstrably declining matches,
 	// because every row reported the target rather than the replica turned down.
 	DeclinedHonoured belief.Honoured
+	DeclinedHitRate  vllmmetrics.HitRate
 	DeclinedBatchKV  vllmmetrics.BatchOccupancy
 	DeclinedInflight int
 	// PrefixMatchTokens and DeclinedMatchTokens are PrefixMatchBytes and

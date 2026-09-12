@@ -85,8 +85,20 @@ _Avoid_: bytes/token (unqualified — that is the KV arithmetic), token size, co
 
 **Prefix cache hit rate**:
 vLLM's own reported figure, scraped from a replica. This is ground truth; prefix match is the
-router's prediction of it.
+router's prediction of it. Unqualified, it is the figure for a whole run or cell: the two
+cumulative counters read once at each end and differenced.
 _Avoid_: hit rate (unqualified)
+
+**Windowed hit rate**:
+The prefix cache hit rate taken per replica over a moving window of the router's own scrapes —
+the oldest reading in the window differenced against the newest — rather than over a run. It is
+the spill rule's residency signal since #28. The windowing is the whole of it: the counters are
+cumulative, so a replica's lifetime ratio barely moves once a run is under way and says nothing
+about what that replica is doing now. A window holding too few block queries is unread rather than
+low, because a rate over three blocks is arithmetic and thresholding it would spill on noise.
+Measured over 4,022 decisions it spans 0.014 to 0.908 and moves 0.6 points across the whole load
+range, against the batch gauge's 47.3 (ADR-0011).
+_Avoid_: prefix cache hit rate (unqualified — that is the per-run figure above), cache health
 
 **Belief divergence**:
 The gap between the router's prefix match prediction and the replica's actual prefix cache hit
@@ -113,6 +125,33 @@ The share of the prompt tokens the index claimed that the engine turned out to b
 what the index's node cap is scaled by, and it is bounded above by one: an index that was right
 about everything it claimed is fully honoured however much it missed.
 _Avoid_: accuracy, precision, hit rate
+
+**Honoured rate**:
+Honoured belief taken per replica, live, over a bounded window of that replica's most recent
+requests, fed from the usage block of every response the router already proxies. Recorded on every
+decision and routed on by nothing. It was built as the spill rule's residency signal and measured
+saturated: because the index is calibrated not to over-predict, it drops beliefs before the engines
+evict the blocks, so 70% of readings are exactly 1.0 and no window recovers a range (ADR-0011). Kept
+as the live counterpart of belief divergence, and as the column that shows the saturation rather
+than letting it be rediscovered.
+_Avoid_: cache health, residency score, honoured belief (unqualified — that is the per-run figure
+above)
+
+**Residency signal**:
+Whatever the spill rule's first branch reads to decide that a replica is evicting the match it is
+being asked to serve. It is a role rather than a metric, and three have held it: the KV gauge, which
+measured the running batch; the honoured rate, which measured the index's own conservatism; and now
+the per-replica prefix cache hit rate over a moving window, which measures what the engine's cache
+actually answered. Each rename was forced by measuring the signal rather than trusting its name
+(ADR-0011).
+_Avoid_: memory pressure signal, cache pressure (those name the pressure, not the measurement)
+
+**Scoring request**:
+A request that said something about whether a replica is honouring beliefs: one the router claimed
+a prefix match for, sent to that replica, and got a usage block back from. A request the index
+claimed nothing for is not one, and is not counted: it would be a claim perfectly honoured by
+arithmetic, dragging every rate towards one and silently disabling the condition that reads it.
+_Avoid_: sample, observation, probe (that is a characterization measurement)
 
 **KV cache event**:
 A notification published by a replica when it stores or removes a block. Consuming the stream
@@ -148,10 +187,27 @@ below and not from this column. Every session-affinity row written before 9311e6
 here, meaning "not recorded" rather than "idle" (#27).
 _Avoid_: queue depth, outstanding, load, concurrency
 
-**KV utilization**:
-The fraction of a replica's KV cache blocks currently allocated, scraped from that replica. The
-one load signal the router cannot derive locally.
-_Avoid_: memory pressure, cache usage
+**Load denominator**:
+What the spill rule's load condition holds a replica's inflight against: the fleet's minimum
+inflight, or its mean, floored at one request either way. It is part of the grid point a cell
+records rather than a detail of the comparison, because the two are one rule only while the fleet
+is busy — the minimum is a single replica's small integer, and under the open-loop driver at a low
+arrival rate it is 0 or 1 on most decisions, which makes a multiple of it an absolute count of
+requests rather than the ratio the rule is written as (#31). Flooring the minimum at the mean is
+the mean: a minimum is never above its own mean, so there is no regime where the first comes back.
+_Avoid_: floor (that is the one request below which neither is used), threshold (that is the factor
+times this), fleet load
+
+**Batch KV occupancy**:
+The fraction of a replica's KV cache blocks held by the requests it is currently running, scraped
+from that replica as `vllm:kv_cache_usage_perc`. A load signal, and named for what it counts
+rather than for what it was taken to mean: through #16 it was read as memory pressure, and it is
+not that. Blocks holding the cached prefixes of finished requests are free to the allocator and do
+not count, so the gauge is blind to exactly the residency a prefix match depends on. Measured, it
+is 0.021 + 0.0214 × inflight at r = 0.973 — the router's own inflight in other units. Nothing
+routes on it; it is recorded beside the inflight of the same decision so that claim stays checkable
+(ADR-0011).
+_Avoid_: KV utilization, memory pressure, cache usage, cache residency
 
 ### Routing
 
@@ -168,8 +224,10 @@ it deliberately.
 _Avoid_: option, target, choice (that is the decision, not what it was made from)
 
 **Spill**:
-The router's decision to decline the best prefix match and route elsewhere because that replica
-is under KV or load pressure. A router-layer decision only.
+The router's decision to decline the best prefix match and route elsewhere because that replica is
+evicting the match or is buried under load. A router-layer decision only. Its two branches read two
+signals — the honoured rate and inflight — and that they are two signals rather than one in two
+units is a measurement each run makes, not a property of the code (ADR-0011).
 _Avoid_: preemption, eviction, overflow — vLLM independently preempts and swaps sequences under
 its own KV pressure, which is a different thing at a different layer. Never call that spilling.
 
@@ -417,7 +475,9 @@ The driver reports the two separately, and the distinction is the whole point: e
 loaded fleet is power-capped, which is normal and equal, while a card that is *thermally* limited
 is slower than its siblings for a reason that has nothing to do with the workload. Measured on GPU
 3 of this host, where it appears only when all six cards draw power at once and worsens with time
-on load. A throttled cell is as invalid as an unclean one and is not the same thing.
+on load. A throttled cell is as invalid as an unclean one and is not the same thing. Every cell
+records what each of its cards clocked at and why, and is flagged when one of them spent more than
+half its busy samples limited by heat (ADR-0013).
 _Avoid_: overheating, thermal issue, slow GPU
 
 **Closed-loop driver**:

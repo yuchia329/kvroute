@@ -1,6 +1,6 @@
 // Package vllmmetrics declares the /metrics surface the router depends on.
 //
-// Metric names have churned across vLLM releases — the KV-utilization gauge was
+// Metric names have churned across vLLM releases — the batch KV occupancy gauge was
 // renamed, and a redundant-prefill counter was removed in favour of deriving it
 // from two others. The set is therefore declared once, here, and asserted
 // against a live replica by the contract test, so a version drift fails loudly
@@ -65,7 +65,7 @@ func (f Family) SeriesNames() []string {
 // Adding a dependency on a new metric means adding it here, so that the
 // contract test starts checking for it.
 var Required = []Family{
-	{KVCacheUsage, Gauge, "KV-cache usage as a fraction of capacity. The spill rule's signal. NOT gpu_cache_usage_perc."},
+	{BatchKVUsage, Gauge, "KV cache blocks allocated to the running batch, as a fraction of capacity. A load signal, not cache residency: see ADR-0011. NOT gpu_cache_usage_perc."},
 	{NumRequestsRunning, Gauge, "Requests currently in model execution batches. This is the engine's actual batch."},
 	{NumRequestsWaiting, Gauge, "Requests waiting in the engine queue. Never call this inflight."},
 	{PrefixCacheHits, Counter, "Prefix-cache block hits. Ground truth for the router's prefix match."},

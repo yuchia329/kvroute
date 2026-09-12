@@ -14,13 +14,13 @@ import (
 )
 
 // kvOf pulls one replica's reading out of a snapshot.
-func kvOf(t *testing.T, state fleet.State, id string) vllmmetrics.KVUtilization {
+func kvOf(t *testing.T, state fleet.State, id string) vllmmetrics.BatchOccupancy {
 	t.Helper()
 	c, present := state.Candidate(id)
 	if !present {
 		t.Fatalf("no replica %s in the snapshot", id)
 	}
-	return c.KV
+	return c.BatchKV
 }
 
 func TestAReplicaNobodyHasScrapedYetIsUnreadRatherThanEmpty(t *testing.T) {
@@ -40,8 +40,8 @@ func TestAScrapedReadingReachesThePolicysSnapshot(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	if err := f.ObserveKVUtilization("replica-0", vllmmetrics.KVUtilization{Fraction: 0.72, Read: true}); err != nil {
-		t.Fatalf("ObserveKVUtilization: %v", err)
+	if err := f.ObserveBatchOccupancy("replica-0", vllmmetrics.BatchOccupancy{Fraction: 0.72, Read: true}); err != nil {
+		t.Fatalf("ObserveBatchOccupancy: %v", err)
 	}
 
 	got := kvOf(t, f.State(), "replica-0")
@@ -55,7 +55,7 @@ func TestAScrapedReadingReachesThePolicysSnapshot(t *testing.T) {
 func TestAReadingForAReplicaTheFleetDoesNotHaveIsRefused(t *testing.T) {
 	f, _ := fleet.New([]fleet.Replica{{ID: "replica-0", BaseURL: "http://127.0.0.1:8000"}})
 
-	if err := f.ObserveKVUtilization("replica-9", vllmmetrics.KVUtilization{Read: true}); err == nil {
+	if err := f.ObserveBatchOccupancy("replica-9", vllmmetrics.BatchOccupancy{Read: true}); err == nil {
 		t.Error("a reading for a replica the fleet does not front was accepted")
 	}
 }
@@ -71,14 +71,14 @@ func TestAReplicaThatStopsAnsweringGoesBackToUnread(t *testing.T) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		fmt.Fprintf(w, "%s{model_name=\"m\"} 0.10\n", vllmmetrics.KVCacheUsage)
+		fmt.Fprintf(w, "%s{model_name=\"m\"} 0.10\n", vllmmetrics.BatchKVUsage)
 	}))
 	defer srv.Close()
 
 	f, _ := fleet.New([]fleet.Replica{{ID: "replica-0", BaseURL: srv.URL}})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go fleet.ScrapeKVUtilization(ctx, fleet.KVScrapeConfig{Fleet: f, Interval: 5 * time.Millisecond})
+	go fleet.ScrapeBatchOccupancy(ctx, fleet.BatchKVScrapeConfig{Fleet: f, Interval: 5 * time.Millisecond})
 
 	waitFor(t, func() bool { return kvOf(t, f.State(), "replica-0").Read })
 
@@ -90,7 +90,7 @@ func TestAReplicaThatStopsAnsweringGoesBackToUnread(t *testing.T) {
 // routing carries on for everyone the scraper can still reach.
 func TestOneReplicaFailingLeavesTheRestScraped(t *testing.T) {
 	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprintf(w, "%s{model_name=\"m\"} 0.44\n", vllmmetrics.KVCacheUsage)
+		fmt.Fprintf(w, "%s{model_name=\"m\"} 0.44\n", vllmmetrics.BatchKVUsage)
 	}))
 	defer good.Close()
 
@@ -100,7 +100,7 @@ func TestOneReplicaFailingLeavesTheRestScraped(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go fleet.ScrapeKVUtilization(ctx, fleet.KVScrapeConfig{Fleet: f, Interval: 5 * time.Millisecond, Timeout: 50 * time.Millisecond})
+	go fleet.ScrapeBatchOccupancy(ctx, fleet.BatchKVScrapeConfig{Fleet: f, Interval: 5 * time.Millisecond, Timeout: 50 * time.Millisecond})
 
 	waitFor(t, func() bool { return kvOf(t, f.State(), "replica-0").Fraction == 0.44 })
 	if got := kvOf(t, f.State(), "replica-1"); got.Read {

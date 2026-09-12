@@ -51,7 +51,7 @@ func run() error {
 		TTFT:                    *ttft,
 		InterToken:              *interToken,
 		OutputTokens:            *outputTokens,
-		KVUtilization:           *kvUtil,
+		BatchKVOccupancy:        *kvUtil,
 		CachedPromptFraction:    *cachedShare,
 		OmitPromptTokensDetails: *omitDetails,
 	})

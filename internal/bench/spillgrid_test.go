@@ -25,11 +25,11 @@ import (
 // led by a spill-off reference at its own workload point.
 func TestEachThresholdIsSweptAloneAgainstItsOwnReference(t *testing.T) {
 	for name, sweep := range map[string][]policy.Spill{
-		"kv":   bench.KVHighWaterSweep(),
-		"load": bench.LoadImbalanceSweep(),
+		"honoured": bench.HitRateLowWaterSweep(),
+		"load":     bench.LoadImbalanceSweep(),
 	} {
-		if len(sweep) < 2 {
-			t.Fatalf("%s sweep has %d points, want a reference and its levels", name, len(sweep))
+		if len(sweep) == 0 {
+			t.Fatalf("%s sweep has no points at all, not even its reference", name)
 		}
 		if sweep[0].Enabled() {
 			t.Errorf("%s sweep does not open on a spill-off reference: %v", name, sweep[0])
@@ -44,11 +44,11 @@ func TestEachThresholdIsSweptAloneAgainstItsOwnReference(t *testing.T) {
 			// The other condition is off, which is what makes the row
 			// single-factor: a second live condition would move the result and
 			// the table would credit the axis that happened to be swept.
-			if name == "kv" && p.LoadImbalanceFactor != 0 {
-				t.Errorf("the KV sweep leaves the load condition on at %v", p)
+			if name == "honoured" && p.LoadImbalanceFactor != 0 {
+				t.Errorf("the residency sweep leaves the load condition on at %v", p)
 			}
-			if name == "load" && p.KVHighWater != 0 {
-				t.Errorf("the load sweep leaves the KV condition on at %v", p)
+			if name == "load" && p.HitRateLowWater != 0 {
+				t.Errorf("the load sweep leaves the residency condition on at %v", p)
 			}
 		}
 	}
@@ -56,13 +56,71 @@ func TestEachThresholdIsSweptAloneAgainstItsOwnReference(t *testing.T) {
 
 // Each sweep covers its own axis exactly once.
 func TestEachSweepCoversItsAxis(t *testing.T) {
-	kv := bench.KVHighWaterSweep()
-	if len(kv) != len(bench.KVHighWaterGrid)+1 {
-		t.Errorf("the KV sweep has %d points, want %d levels plus a reference", len(kv), len(bench.KVHighWaterGrid))
+	honoured := bench.HitRateLowWaterSweep()
+	if len(honoured) != len(bench.HitRateLowWaterGrid)+1 {
+		t.Errorf("the residency sweep has %d points, want %d levels plus a reference", len(honoured), len(bench.HitRateLowWaterGrid))
 	}
 	load := bench.LoadImbalanceSweep()
 	if len(load) != len(bench.LoadImbalanceGrid)+1 {
 		t.Errorf("the load sweep has %d points, want %d levels plus a reference", len(load), len(bench.LoadImbalanceGrid))
+	}
+}
+
+// While the residency grid is empty, the sweep is the pass that observes the
+// signal rather than one that thresholds it. #16 cut three levels against a
+// signal nobody had seen the range of and two of them could not fire; the
+// levels here are written only once a run has said where the rate actually
+// sits, and until then this sweep runs the spill-off reference alone.
+func TestTheResidencySweepIsAnObservingPassUntilItsGridIsCut(t *testing.T) {
+	sweep := bench.HitRateLowWaterSweep()
+	if len(bench.HitRateLowWaterGrid) == 0 && len(sweep) != 1 {
+		t.Errorf("the sweep runs %d points against an uncut grid, want the reference alone", len(sweep))
+	}
+	for _, p := range sweep[1:] {
+		if p.HitRateLowWater <= 0 || p.HitRateLowWater >= 1 {
+			t.Errorf("the grid holds %v, which is not a share of block queries strictly inside (0, 1)", p.HitRateLowWater)
+		}
+	}
+}
+
+// #28's fourth acceptance criterion, checked against the run rather than
+// against the comment that quotes it. #16's grid failed exactly here: 0.85 and
+// 0.95 needed more concurrent requests on one replica than the run had virtual
+// users, and nothing in the sweep said so until 13,658 rows had been spent
+// finding out.
+func TestEveryResidencyLevelWasReachedByTheRunTheGridWasCutFrom(t *testing.T) {
+	for _, mark := range bench.HitRateLowWaterGrid {
+		if !bench.HitRateObserved.Reaches(mark) {
+			t.Errorf("the grid holds %v, which the observing run never went below (min %v): that level cannot fire at this rung",
+				mark, bench.HitRateObserved.Min)
+		}
+	}
+}
+
+// A level above everything the signal was seen to do declines every match, and
+// one below everything declines none. Both are cells that measure the workload
+// rather than the threshold, so the grid has to sit inside the run's own
+// bracket rather than merely above its floor.
+func TestTheResidencyGridSitsInsideTheObservedDistribution(t *testing.T) {
+	for _, mark := range bench.HitRateLowWaterGrid {
+		if mark > bench.HitRateObserved.P90 {
+			t.Errorf("the grid holds %v, above the run's p90 of %v: it would decline nearly every match",
+				mark, bench.HitRateObserved.P90)
+		}
+		if mark < bench.HitRateObserved.Min {
+			t.Errorf("the grid holds %v, below the run's minimum of %v", mark, bench.HitRateObserved.Min)
+		}
+	}
+}
+
+// The levels are distinct and ordered, so the sweep draws a curve rather than
+// three readings of one point.
+func TestTheResidencyGridIsOrderedAndDistinct(t *testing.T) {
+	for i := 1; i < len(bench.HitRateLowWaterGrid); i++ {
+		if bench.HitRateLowWaterGrid[i] <= bench.HitRateLowWaterGrid[i-1] {
+			t.Errorf("the grid runs %v then %v, which is not increasing",
+				bench.HitRateLowWaterGrid[i-1], bench.HitRateLowWaterGrid[i])
+		}
 	}
 }
 
@@ -87,7 +145,7 @@ func TestTheTwoWorkloadPointsSeparateTheTwoPressures(t *testing.T) {
 // A grid point is a label a cell carries, so it has to survive the round trip
 // through the spec a command takes it as.
 func TestAGridPointSurvivesItsSpec(t *testing.T) {
-	for _, want := range append(bench.KVHighWaterSweep(), bench.LoadImbalanceSweep()...) {
+	for _, want := range append(bench.HitRateLowWaterSweep(), bench.LoadImbalanceSweep()...) {
 		got, err := bench.ParseSpill(bench.FormatSpill(want))
 		if err != nil {
 			t.Fatalf("ParseSpill(%q): %v", bench.FormatSpill(want), err)
@@ -112,8 +170,8 @@ func TestAnUnreadableGridPointIsRefused(t *testing.T) {
 // ran — nine cells of one point measured nine times, which no later analysis
 // could detect.
 func TestASweepRefusesARouterAtADifferentGridPoint(t *testing.T) {
-	running := policy.Spill{KVHighWater: 0.80, LoadImbalanceFactor: 2.0}
-	labelled := policy.Spill{KVHighWater: 0.90, LoadImbalanceFactor: 2.0}
+	running := policy.Spill{HitRateLowWater: 0.80, LoadImbalanceFactor: 2.0}
+	labelled := policy.Spill{HitRateLowWater: 0.90, LoadImbalanceFactor: 2.0}
 
 	err := routerCheckUnderTest(t, policy.PrefixAffinityName, running, labelled)
 	if err == nil {
@@ -125,7 +183,7 @@ func TestASweepRefusesARouterAtADifferentGridPoint(t *testing.T) {
 }
 
 func TestASweepAtTheRoutersOwnGridPointIsAllowed(t *testing.T) {
-	running := policy.Spill{KVHighWater: 0.80, LoadImbalanceFactor: 2.0}
+	running := policy.Spill{HitRateLowWater: 0.80, LoadImbalanceFactor: 2.0}
 	if err := routerCheckUnderTest(t, policy.PrefixAffinityName, running, running); err != nil {
 		t.Fatalf("a matching grid point was refused: %v", err)
 	}
@@ -213,15 +271,17 @@ func TestTheChosenGridPointIsOneTheRouterWouldRun(t *testing.T) {
 	}
 }
 
-// The KV condition is off on purpose. vllm:kv_cache_usage_perc tracks the active
-// batch rather than cache residency (r = 0.973 against inflight), so a non-zero
-// mark either cannot fire at a reachable rung or fires on load, which the other
-// condition already covers. Turning it on is a decision that belongs to #28 and
-// wants this test updated with it, not a default somebody restores in passing.
-func TestTheChosenPointLeavesTheKVConditionOff(t *testing.T) {
-	if bench.Chosen.KVHighWater != 0 {
-		t.Errorf("the chosen point sets a KV high-water mark of %v; see #28 before turning this condition on",
-			bench.Chosen.KVHighWater)
+// The residency condition is off on purpose, and stays off until a run has
+// shown where the honoured rate sits. #16's three levels were cut against a
+// gauge nobody had seen the range of and two of them could not fire; a level
+// chosen the same way against the new signal would be the same mistake in a new
+// unit. Turning it on is a decision that belongs with HitRateLowWaterGrid
+// being cut, and wants this test updated with it — not a default somebody
+// restores in passing.
+func TestTheChosenPointLeavesTheResidencyConditionOff(t *testing.T) {
+	if bench.Chosen.HitRateLowWater != 0 {
+		t.Errorf("the chosen point sets an honoured low-water mark of %v against an uncut grid; see #28",
+			bench.Chosen.HitRateLowWater)
 	}
 }
 

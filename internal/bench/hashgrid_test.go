@@ -180,7 +180,7 @@ func hashSweepAgainst(t *testing.T, dir, policyName string, running, labelled po
 		Dir:           dir,
 		Target:        target,
 		Policy:        policyName,
-		HashPoint:          labelled,
+		HashPoint:     labelled,
 		Concurrencies: []int{1},
 		Repetitions:   1,
 		CellDuration:  20 * time.Millisecond,

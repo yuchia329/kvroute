@@ -25,17 +25,18 @@ import (
 // reading one live condition and one dormant one at every cell. Two points,
 // each with the other condition switched off, is what the generator permits:
 //
-//	KV high-water     WS 3, skew 0    replicas evict; load stays even
-//	Load imbalance    WS 1, skew 1.4  conversations pile up; caches stay roomy
+//	Honoured low-water   WS 3, skew 0    replicas evict; load stays even
+//	Load imbalance       WS 1, skew 1.4  conversations pile up; caches stay roomy
 //
 // Switching the other condition off at each point — a zero threshold disables
 // it, see policy.Spill — is what makes each row single-factor. It also disposes
 // of the interaction that made crossing them attractive in the first place: a
-// high-water mark that spills often would leave less load imbalance for the
+// low-water mark that spills often would leave less load imbalance for the
 // second condition to find, and here there is no second condition running to
 // find any.
 const (
-	// KVPressureWorkingSet is the WS point the high-water mark is measured at.
+	// KVPressureWorkingSet is the WS point the honoured low-water mark is
+	// measured at.
 	//
 	// 3 rather than 8 because a cell of 4,864 requests makes 1,216 session
 	// visits and cannot touch a pool of 2,952 whatever it is labelled — WS 8
@@ -46,8 +47,8 @@ const (
 	KVPressureSkew = 0.0
 
 	// LoadImbalanceWorkingSet is WS 1, where the fleet holds its sessions and
-	// the caches stay roomy enough that the high-water mark has nothing to fire
-	// on even if it were enabled.
+	// nothing is evicted, so the low-water mark has nothing to fire on even if
+	// it were enabled.
 	LoadImbalanceWorkingSet = 1.0
 	// LoadImbalanceSkew is the top of idea.md §5's skew axis, where a handful of
 	// conversations take most of the draws and several virtual users hold the
@@ -57,15 +58,7 @@ const (
 	LoadImbalanceSkew = 1.4
 )
 
-// KVHighWaterGrid and LoadImbalanceGrid are the levels each threshold is
-// measured at.
-//
-// Spread rather than clustered, because a first pass is looking for which end
-// of an axis the answer is at and not refining a value it already has. Where
-// the useful region turns out to be is a question the run answers: every row
-// records the KV utilization and inflight its decision was weighed against, so
-// the second pass can be cut against the distribution the first one saw rather
-// than against another guess.
+// LoadImbalanceGrid is the levels the load threshold is measured at.
 //
 // The load levels start at 2 rather than at 1.5. A cache hit on this workload
 // is worth a great deal of queueing — the concurrency-1 cells put a full
@@ -83,10 +76,69 @@ const (
 // threshold could not see it. The axis was also bracketed only from below, so
 // nothing in it said where the rule stopped working. 12/16/24/32 closed both
 // gaps and found the turn.
-var (
-	KVHighWaterGrid   = []float64{0.70, 0.85, 0.95}
-	LoadImbalanceGrid = []float64{2, 4, 8, 12, 16, 24, 32}
-)
+var LoadImbalanceGrid = []float64{2, 4, 8, 12, 16, 24, 32}
+
+// HitRateLowWaterGrid is the levels the residency threshold is measured at,
+// cut against the observed range in runs/spill-signal on 2026-09-12.
+//
+// #16 swept 0.70/0.85/0.95 against the old gauge and two of the three could not
+// fire at the concurrency they ran at — a level is only a level if the signal
+// reaches it, and nothing in that sweep checked. So these were left empty until
+// a run had said where the rate actually sits, which is what the observing pass
+// at KVPressureWorkingSet and KVPressureSkew was for: 4,022 decisions, spill
+// off, the rate recorded on every row and routed on by nothing.
+//
+// What it saw, over the 3,955 rows that carried a reading:
+//
+//	min 0.014   p10 0.560   p50 0.662   p90 0.735   max 0.908
+//
+// Every level below is therefore reachable in the sense #28 asks for — the
+// signal was observed beneath each of them — but reachability alone is the
+// weaker half of the question. #16's 0.70 was reachable too and still caught
+// 0.14% of decisions. What a level has to do is decline matches at a rate that
+// separates it from its neighbours, and it has to decline them somewhere: the
+// residency branch excludes every replica equally under the mark (see
+// Spill.targets), so when the whole fleet is under, the set is empty and the
+// match is kept. A level whose firings mostly land there measures the rule
+// declining to act.
+//
+// Both, over the 3,510 decisions that carried a prefix match to decline:
+//
+//	mark   declines   of those, a target existed   effective
+//	0.55      8.4%              61.6%                 5.2%
+//	0.62     29.7%              78.6%                23.3%
+//	0.70     72.1%              58.9%                42.5%
+//
+// So 0.55/0.62/0.70 spans light to heavy at roughly even steps in the rate that
+// matters, and every point spends the majority of its firings actually moving a
+// request. The ends are where they are for a reason. Below 0.55 the signal is
+// into its cold-start tail — the readings under 0.50 are 5.5% of the run and
+// cluster at the first seconds of each repetition — and 0.50 declines 5.8% of
+// matches, too few to move a goodput number. Above 0.70 the no-op share takes
+// over: 0.72 declines 84.8% and finds a target for 45.3% of them, 0.75 declines
+// 93.8% and finds one for 23.7%, so those levels increasingly price the empty
+// target set rather than the spill.
+//
+// This is the discipline the load axis arrived at the long way round, and the
+// one ADR-0006 applies to the index's bounds: a threshold nobody has seen the
+// signal's range for is not a grid point, it is a guess with a decimal place.
+var HitRateLowWaterGrid = []float64{0.55, 0.62, 0.70}
+
+// HitRateObserved is the distribution the grid above was cut from, kept so a
+// test can check the levels against the run rather than against a comment, and
+// so a later pass can say whether the fleet still behaves this way.
+//
+// runs/spill-signal, 2026-09-12: WS 3, skew 0, 32 users, 3 repetitions, spill
+// off, five replicas.
+var HitRateObserved = Range{
+	Readings: 3955,
+	Unread:   67,
+	Min:      0.014,
+	P10:      0.560,
+	P50:      0.662,
+	P90:      0.735,
+	Max:      0.908,
+}
 
 // Chosen is the grid point the sweep settled on, and the one every later
 // measurement of policy 4 runs at unless it is deliberately sweeping this axis.
@@ -126,30 +178,42 @@ var (
 // minimum was genuinely 0 in 16% of decisions, and there factor × 1 is an
 // absolute inflight threshold rather than the ratio it is written as.
 //
-// KVHighWater is zero — the condition is OFF, and that is a finding rather than
-// an omission. vllm:kv_cache_usage_perc counts blocks held by *running*
-// requests, so it reads the active batch and not cache residency: over 13,658
-// rows it is kv = 0.02128 + 0.02135 × inflight at r = 0.973, and an idle
-// replica with a full cache reads 0.021. Inverting that, 0.85 needs 38.8
-// concurrent requests on one replica and 0.95 needs 43.5, against 32 virtual
-// users in the entire fleet — so two of the three levels could not fire, and
-// the third caught 7 decisions in 12,000. Any non-zero value here either cannot
-// fire or fires on load, which the other condition already covers. See #28.
-var Chosen = policy.Spill{KVHighWater: 0, LoadImbalanceFactor: 2}
+// HitRateLowWater is zero — the residency condition is OFF, and that is a
+// finding about the signal it used to read rather than about the condition.
+// Through #16 that branch read vllm:kv_cache_usage_perc, which counts blocks
+// held by *running* requests: over 13,658 rows it came to
+// kv = 0.02128 + 0.02135 × inflight at r = 0.973, and an idle replica with a
+// full cache read 0.021. Inverting that, its 0.85 level needed 38.8 concurrent
+// requests on one replica and 0.95 needed 43.5, against 32 virtual users in the
+// entire fleet — so two of the three levels could not fire, and the third
+// caught 7 decisions in 12,000.
+//
+// The branch now reads the engines' own prefix cache hit rate, per replica over
+// a moving window (ADR-0011), which responds to eviction because it measures
+// what eviction leaves behind. HitRateLowWaterGrid has since been cut against
+// that signal's observed range, but the axis has not been swept yet, so the
+// condition stays off here: a value chosen before the sweep would be the same
+// guess in a new unit. This becomes one of 0.55/0.62/0.70 when the run that
+// prices them says which.
+var Chosen = policy.Spill{HitRateLowWater: 0, LoadImbalanceFactor: 2}
 
-// KVHighWaterSweep is the high-water mark measured alone, at
+// HitRateLowWaterSweep is the residency mark measured alone, at
 // KVPressureWorkingSet and KVPressureSkew. The load condition is off at every
 // point, so nothing but the mark can decline a match.
 //
 // The zero Spill leads it: a run of policy 4 with no spill rule at all, at the
-// same workload point, which is the reference the three thresholds are read
-// against. The four-policy comparison's own prefix_affinity cells cannot serve
-// as that reference because they run at the frozen workload — WS 1, skew 0 —
-// and a row measured under different pressure is not a baseline.
-func KVHighWaterSweep() []policy.Spill {
+// same workload point, which is the reference every threshold is read against.
+// The four-policy comparison's own prefix_affinity cells cannot serve as that
+// reference because they run at the frozen workload — WS 1, skew 0 — and a row
+// measured under different pressure is not a baseline.
+//
+// It returns the reference plus one point per level in HitRateLowWaterGrid,
+// which was empty until the observing pass of 2026-09-12 cut it: see
+// HitRateLowWaterGrid for the range the levels came from.
+func HitRateLowWaterSweep() []policy.Spill {
 	points := []policy.Spill{{}}
-	for _, mark := range KVHighWaterGrid {
-		points = append(points, policy.Spill{KVHighWater: mark})
+	for _, mark := range HitRateLowWaterGrid {
+		points = append(points, policy.Spill{HitRateLowWater: mark})
 	}
 	return points
 }
@@ -168,31 +232,55 @@ func LoadImbalanceSweep() []policy.Spill {
 // FormatSpill renders a grid point as the spec the commands take, so a flag's
 // default can be the package's own value rather than a second copy of it that
 // drifts.
+//
+// The denominator is written out whenever the load condition is on, even where
+// it is the settled one. A point is a label a cell carries, and "2" without it
+// names two different rules — the ambiguity #31 spent a chaos arm discovering.
+// A disabled load condition has no denominator to name and is written as the
+// two-part spec every run before #31 used.
 func FormatSpill(s policy.Spill) string {
-	return strconv.FormatFloat(s.KVHighWater, 'g', -1, 64) + "/" + strconv.FormatFloat(s.LoadImbalanceFactor, 'g', -1, 64)
+	spec := strconv.FormatFloat(s.HitRateLowWater, 'g', -1, 64) + "/" + strconv.FormatFloat(s.LoadImbalanceFactor, 'g', -1, 64)
+	if s.LoadImbalanceFactor > 0 {
+		spec += "/" + s.LoadDenominatorName()
+	}
+	return spec
 }
 
-// ParseSpill reads a grid point written as "kv/load", and refuses one the
-// router would not run.
+// ParseSpill reads a grid point written as "honoured/load" or
+// "honoured/load/denominator", and refuses one the router would not run.
+//
+// The denominator is optional and absent means the minimum, so every spec
+// written before #31 — in a box script, a measurement's evidence, a resumed
+// sweep's cells — still names the point it named when it was written.
 //
 // Validated here rather than only at the router, because this is where a cell's
 // label comes from: a sweep that accepted an impossible threshold would write
 // the label onto every cell it produced and fail at the router afterwards, by
 // which point the directory names a grid point that cannot exist.
 func ParseSpill(spec string) (policy.Spill, error) {
-	kv, load, found := strings.Cut(strings.TrimSpace(spec), "/")
+	honoured, rest, found := strings.Cut(strings.TrimSpace(spec), "/")
 	if !found {
-		return policy.Spill{}, fmt.Errorf("bench: a spill grid point is written as <kv-high-water>/<load-imbalance-factor>, got %q", spec)
+		return policy.Spill{}, fmt.Errorf("bench: a spill grid point is written as <hit-rate-low-water>/<load-imbalance-factor> or <hit-rate-low-water>/<load-imbalance-factor>/<min|mean>, got %q", spec)
 	}
-	highWater, err := strconv.ParseFloat(strings.TrimSpace(kv), 64)
+	lowWater, err := strconv.ParseFloat(strings.TrimSpace(honoured), 64)
 	if err != nil {
-		return policy.Spill{}, fmt.Errorf("bench: %q is not a KV high-water mark: %w", kv, err)
+		return policy.Spill{}, fmt.Errorf("bench: %q is not an honoured low-water mark: %w", honoured, err)
 	}
+	load, denominator, named := strings.Cut(rest, "/")
 	factor, err := strconv.ParseFloat(strings.TrimSpace(load), 64)
 	if err != nil {
 		return policy.Spill{}, fmt.Errorf("bench: %q is not a load imbalance factor: %w", load, err)
 	}
-	point := policy.Spill{KVHighWater: highWater, LoadImbalanceFactor: factor}
+	point := policy.Spill{HitRateLowWater: lowWater, LoadImbalanceFactor: factor}
+	if named {
+		switch strings.TrimSpace(denominator) {
+		case "min":
+		case "mean":
+			point.MeanInflightDenominator = true
+		default:
+			return policy.Spill{}, fmt.Errorf("bench: %q is not a denominator for the load imbalance factor: it is held against the fleet's inflight minimum (\"min\") or its mean (\"mean\")", denominator)
+		}
+	}
 	if err := point.Validate(); err != nil {
 		return policy.Spill{}, err
 	}

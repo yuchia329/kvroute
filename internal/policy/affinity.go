@@ -97,7 +97,9 @@ func (r *affinityRule) decide(held []holding, state fleet.State) (verdict, error
 			// how balanced a cache-aware policy leaves the fleet is the
 			// comparison, and it has to be a figure the rows can show.
 			Inflight: best.Inflight,
-			KV:       best.KV,
+			BatchKV:  best.BatchKV,
+			Honoured: best.Honoured,
+			HitRate:  best.HitRate,
 		},
 		matched: size,
 	}, nil
@@ -125,11 +127,14 @@ func (r *affinityRule) placeOnLoad(state fleet.State, reason Reason, held []hold
 	}
 	choice.Reason = reason
 	// Only a spill turned a replica down; a cold request is passed the zero
-	// candidate, whose unread KV keeps "declined nothing" apart from "declined a
-	// replica whose cache nobody had scraped".
-	choice.DeclinedKV, choice.DeclinedInflight = turnedDown.KV, turnedDown.Inflight
+	// candidate, whose unread readings keep "declined nothing" apart from
+	// "declined a replica nobody had a signal for".
+	choice.DeclinedHonoured, choice.DeclinedBatchKV = turnedDown.Honoured, turnedDown.BatchKV
+	choice.DeclinedHitRate = turnedDown.HitRate
+	choice.DeclinedInflight = turnedDown.Inflight
 	if target, present := state.Candidate(choice.Replica.ID); present {
-		choice.KV = target.KV
+		choice.BatchKV, choice.Honoured = target.BatchKV, target.Honoured
+		choice.HitRate = target.HitRate
 	}
 	return verdict{choice: choice, matched: heldBy(held, choice.Replica.ID), declined: declined}, nil
 }

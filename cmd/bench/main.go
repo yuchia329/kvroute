@@ -59,7 +59,7 @@ func run() error {
 		replicaSpecs = flag.String("replicas", "", "the same -replicas spec the router was given; each is asked for /health before the sweep starts, and scraped for its prefix-cache counters around every cell")
 		dir          = flag.String("dir", "runs/concurrency", "where cells are written and resumed from")
 		policyName   = flag.String("policy", "round_robin", "the policy the router is running; recorded as the cell's label")
-		spillSpec    = flag.String("spill", "", "the spill grid point the router is running, written <honoured-low-water>/<load-imbalance-factor>; recorded as the cell's label and checked against the router before the first cell. Empty means a router with no spill rule")
+		spillSpec    = flag.String("spill", "", "the spill grid point the router is running, written <hit-rate-low-water>/<load-imbalance-factor>; recorded as the cell's label and checked against the router before the first cell. Empty means a router with no spill rule")
 		hashSpec     = flag.String("hash", "", "the hash grid point the router is running, written <leading-blocks>/<weight>; recorded as the cell's label and checked against the router before the first cell. Empty means a router that hashes nothing, which is every policy but "+policy.PrefixHashName+". Sweep each point into its own -dir")
 		driver       = flag.String("driver", string(bench.ClosedLoopDriver), "which axis to run: closed_loop holds virtual users at each -concurrency level, open_loop fires at each -arrival-rates level, both runs the two in one directory")
 		levels       = flag.String("concurrency", bench.FormatLevels(bench.ConcurrencySweep), "closed-loop axis: concurrency levels to sweep, holding that many virtual users")
@@ -266,7 +266,7 @@ func run() error {
 		Target:               *target,
 		Policy:               *policyName,
 		Spill:                spill,
-		HashPoint:                 hashPoint,
+		HashPoint:            hashPoint,
 		FleetKVEvents:        *fleetEvents,
 		Replicas:             bases,
 		Concurrencies:        concurrencies,

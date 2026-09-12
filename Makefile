@@ -317,16 +317,54 @@ dashboards-status: ## Show the tunnel, Prometheus and Grafana
 # two disagree. That refusal is the whole reason it is spelled twice rather than
 # inferred once — see checkGridPoint.
 #
-#	make run-router POLICY=prefix_affinity HONOURED_LOW_WATER=0.40 LOAD_IMBALANCE=2.0
-#	make tunables   HONOURED_LOW_WATER=0.40 LOAD_IMBALANCE=2.0
-HONOURED_LOW_WATER ?=
+#	make run-router POLICY=prefix_affinity HIT_RATE_LOW_WATER=0.40 LOAD_IMBALANCE=2.0
+#	make tunables   HIT_RATE_LOW_WATER=0.40 LOAD_IMBALANCE=2.0
+HIT_RATE_LOW_WATER ?=
 LOAD_IMBALANCE ?=
-SPILL_ARGS = $(if $(HONOURED_LOW_WATER),-honoured-low-water $(HONOURED_LOW_WATER),) $(if $(LOAD_IMBALANCE),-load-imbalance-factor $(LOAD_IMBALANCE),)
+
+# What the load imbalance factor is a multiple of: the fleet's mean inflight when
+# set, and its minimum — the rule as #18 settled it — when empty.
+#
+# It is a grid axis rather than a fix, because which one is better is a goodput
+# question nothing has answered yet. The minimum is a small integer, and at low
+# open-loop load it is 0 or 1 on most decisions, so a multiple of it is an
+# absolute inflight count: at 6 req/s the settled factor of 2 declined a fifth of
+# later turns against 0.674% at the rung it was chosen at (#31).
+#
+# The denominator rung is one point of the open-loop ladder, so it is the goodput
+# target rather than a target of its own:
+#
+#	make goodput POLICY=prefix_affinity GOODPUT_RATES=6                          # the observing pass, spill off
+#	make goodput POLICY=prefix_affinity GOODPUT_RATES=6 LOAD_IMBALANCE=2         # the settled point
+#	make goodput POLICY=prefix_affinity GOODPUT_RATES=6 LOAD_IMBALANCE=2 MEAN_DENOMINATOR=1
+#
+# Read the first with `make load-comparison` before running the rest: it says
+# which points can fire at that rung at all. See internal/bench/loaddenominatorgrid.go.
+MEAN_DENOMINATOR ?=
+SPILL_ARGS = $(if $(HIT_RATE_LOW_WATER),-hit-rate-low-water $(HIT_RATE_LOW_WATER),) $(if $(LOAD_IMBALANCE),-load-imbalance-factor $(LOAD_IMBALANCE),) $(if $(MEAN_DENOMINATOR),-mean-inflight-denominator,)
+
+# Whether the router reads each replica's /metrics. One GET per replica per tick
+# gives both the prefix-cache counters the residency branch routes on and the
+# batch gauge kept as a column.
+#
+# The router turns it on by itself whenever HIT_RATE_LOW_WATER is set, because a
+# threshold on an unscraped fleet is a condition silently disabled for a whole
+# run — #28's original defect. This flag is for the other case: the observing
+# pass, which runs with the rule OFF and still needs both signals on every row,
+# because the correlations are only comparable when they were recorded against
+# the same decisions.
+#
+#	make run-router POLICY=prefix_affinity SCRAPE_REPLICAS=1
+SCRAPE_REPLICAS ?=
+SCRAPE_ARGS = $(if $(SCRAPE_REPLICAS),-scrape-replicas,)
 # Each half defaults to 0 — the value that disables that condition — so a
 # one-sided grid point reaches the sweep as it reaches the router. Interpolating
 # an empty half would emit "-spill 0.80/" and fail in ParseSpill, leaving a rule
 # the router will happily run unreachable from the harness.
-SPILL_LABEL = $(if $(HONOURED_LOW_WATER)$(LOAD_IMBALANCE),-spill $(if $(HONOURED_LOW_WATER),$(HONOURED_LOW_WATER),0)/$(if $(LOAD_IMBALANCE),$(LOAD_IMBALANCE),0),)
+# The denominator is appended only when it is the new one, so every invocation
+# written before #31 emits the spec it always emitted and labels the cells it
+# always labelled: ParseSpill reads a two-part spec as the fleet minimum.
+SPILL_LABEL = $(if $(HIT_RATE_LOW_WATER)$(LOAD_IMBALANCE),-spill $(if $(HIT_RATE_LOW_WATER),$(HIT_RATE_LOW_WATER),0)/$(if $(LOAD_IMBALANCE),$(LOAD_IMBALANCE),0)$(if $(MEAN_DENOMINATOR),/mean,),)
 
 # The stateless prefix hash's own grid point (#26): how many leading 64-byte
 # prefix blocks it hashes, and what that hash is worth against load in inflight
@@ -385,12 +423,12 @@ TUNABLES_LOAD_WORKLOAD = $(TUNABLES_GEOMETRY) -working-set 1 -skew 1.4
 
 # The residency sweep's own point. Its levels are not chosen yet: #16's were cut
 # against a gauge nobody had seen the range of and two of the three could not
-# fire, so bench.HonouredLowWaterGrid is empty until a run says where the
-# honoured rate sits. Run this at HONOURED_LOW_WATER=0 first — that is the
+# fire, so bench.HitRateLowWaterGrid is empty until a run says where the
+# honoured rate sits. Run this at HIT_RATE_LOW_WATER=0 first — that is the
 # observing pass — then read the range off it with `make spill-signal`.
 .PHONY: tunables-residency
 tunables-residency: build ## Run one point of the residency sweep (WS 3, skew 0)
-	@test -n "$(HONOURED_LOW_WATER)" || { echo "tunables-residency: set HONOURED_LOW_WATER to a level from bench.HonouredLowWaterGrid, or to 0 for the spill-off reference cell that the grid is cut from" >&2; exit 1; }
+	@test -n "$(HIT_RATE_LOW_WATER)" || { echo "tunables-residency: set HIT_RATE_LOW_WATER to a level from bench.HitRateLowWaterGrid, or to 0 for the spill-off reference cell that the grid is cut from" >&2; exit 1; }
 	@test -z "$(LOAD_IMBALANCE)" || { echo "tunables-residency: LOAD_IMBALANCE must stay unset; this point measures the low-water mark alone" >&2; exit 1; }
 	$(BIN)/bench$(EXE) -router $(ROUTER) -dir $(TUNABLES_DIR)/residency -policy prefix_affinity $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		-concurrency $(TUNABLES_CONCURRENCY) \
@@ -405,7 +443,7 @@ tunables-residency: build ## Run one point of the residency sweep (WS 3, skew 0)
 .PHONY: tunables-load
 tunables-load: build ## Run one point of the load imbalance sweep (WS 1, skew 1.4)
 	@test -n "$(LOAD_IMBALANCE)" || { echo "tunables-load: set LOAD_IMBALANCE to a level from bench.LoadImbalanceGrid, or to 0 for the spill-off reference cell" >&2; exit 1; }
-	@test -z "$(HONOURED_LOW_WATER)" || { echo "tunables-load: HONOURED_LOW_WATER must stay unset; this point measures the imbalance factor alone" >&2; exit 1; }
+	@test -z "$(HIT_RATE_LOW_WATER)" || { echo "tunables-load: HIT_RATE_LOW_WATER must stay unset; this point measures the imbalance factor alone" >&2; exit 1; }
 	$(BIN)/bench$(EXE) -router $(ROUTER) -dir $(TUNABLES_DIR)/load -policy prefix_affinity $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		-concurrency $(TUNABLES_CONCURRENCY) \
 		-model "$$(ops/fleet.sh env MODEL)" \
@@ -749,15 +787,30 @@ divergence: build ## Measure how far the router's index was from what the engine
 #
 # SPILL_SIGNAL_ROWS names the router rows to read: the observing pass at WS 3,
 # skew 0 with the condition off. Start the router for that pass with
-# -scrape-batch-kv, so the gauge the branch used to read is on the same rows as
-# the signal that replaced it and the two correlations are measured against the
-# same decisions.
+# -scrape-replicas, so all three signals land on the same rows and their
+# correlations are measured against the same decisions. The router turns the
+# scrape on by itself once a residency threshold is set, but the observing pass
+# runs the rule off, so it has to ask.
 SPILL_SIGNAL_ROWS ?= $(TUNABLES_DIR)/residency/router.jsonl
 SPILL_SIGNAL_OUT  ?= $(TUNABLES_DIR)/residency/spill-signal.md
 
 .PHONY: spill-signal
 spill-signal: build ## Report what the spill rule's two branches were reading, and the range its grid is cut from
 	$(BIN)/spillsignal$(EXE) -out $(SPILL_SIGNAL_OUT) $(SPILL_SIGNAL_ROWS)
+
+# What the load condition was comparing against, and which points could fire at
+# the rung a run was made at (#31).
+#
+# LOAD_COMPARISON_ROWS names the router rows to read: the open-loop observing
+# pass, spill off, at LoadDenominatorRate. The rule has to be off for the same
+# reason it is off for the residency pass — a condition that is declining matches
+# is changing the fleet whose load is being observed.
+LOAD_COMPARISON_ROWS ?= $(GOODPUT_DIR)/router.jsonl
+LOAD_COMPARISON_OUT  ?= $(GOODPUT_DIR)/load-comparison.md
+
+.PHONY: load-comparison
+load-comparison: build ## Report what the spill rule's load condition compared against, and which points reach this rung
+	$(BIN)/loadcomparison$(EXE) -out $(LOAD_COMPARISON_OUT) $(LOAD_COMPARISON_ROWS)
 
 # Every published figure, regenerated from the committed measurements with one
 # command — no fleet and no GPU, only a checkout, Go and uv. The Go commands
@@ -815,7 +868,7 @@ run-router: build ## Run the router against REPLICAS, keeping its own rows in RE
 	$(BIN)/router$(EXE) -listen $(LISTEN) -replicas $(REPLICAS) -policy $(POLICY) -records $(RECORDS) \
 		$(if $(wildcard $(PREFIX_CALIBRATION)),-prefix-calibration $(PREFIX_CALIBRATION),) \
 		$(if $(filter exact_residency,$(POLICY)),$(KV_EVENTS_ARGS),) \
-		$(SPILL_ARGS) $(HASH_ARGS)
+		$(SPILL_ARGS) $(HASH_ARGS) $(SCRAPE_ARGS)
 
 # exact_residency follows every engine's KV cache events, so it needs a fleet
 # brought up with KV_EVENTS=1 (ops/versions.env) and the endpoints that fleet

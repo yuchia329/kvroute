@@ -41,8 +41,10 @@ type Config struct {
 	// it with max_tokens. Defaults to 8.
 	OutputTokens int
 
-	// KVUtilization is reported as vllm:kv_cache_usage_perc.
-	KVUtilization float64
+	// BatchKVOccupancy is reported as vllm:kv_cache_usage_perc: the share of the
+	// cache held by the running batch. A load signal nothing routes on since
+	// ADR-0011, kept because runs still record the column.
+	BatchKVOccupancy float64
 
 	// CachedPromptFraction is the share of each request's prompt tokens the
 	// replica reports having served out of its KV cache rather than prefilled.

@@ -18,8 +18,8 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "KV utilization and inflight, per replica",
-      "description": "KV utilization (solid, left axis) is vLLM's own vllm:kv_cache_usage_perc, scraped from each replica. Inflight (dashed, right axis) is the router's exact count of requests dispatched to the replica and not yet complete. On this fleet the engine's gauge counts blocks held by running requests, so it tracks the active batch rather than what the cache holds (#16).",
+      "title": "Batch KV occupancy and inflight, per replica",
+      "description": "Batch KV occupancy (solid, left axis) is vLLM's own vllm:kv_cache_usage_perc, scraped from each replica. Inflight (dashed, right axis) is the router's exact count of requests dispatched to the replica and not yet complete. The two are the same quantity in different units: the engine's gauge counts blocks held by running requests, so it tracks the active batch rather than what the cache holds, at r = 0.973 against inflight. Nothing routes on it (ADR-0011); the signal the spill rule reads is the per-replica prefix cache hit rate over a moving window.",
       "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
       "fieldConfig": {
@@ -32,7 +32,7 @@
             "lineWidth": 1,
             "fillOpacity": 0,
             "showPoints": "never",
-            "axisLabel": "KV utilization"
+            "axisLabel": "Batch KV occupancy"
           }
         },
         "overrides": [
@@ -147,7 +147,7 @@
       "id": 4,
       "type": "timeseries",
       "title": "Decision mix",
-      "description": "Share of routing decisions by the reason the policy gave. Prefix affinity splits into PREFIX_AFFINITY, COLD, SPILL_KV and SPILL_LOAD; session affinity into SESSION_AFFINITY and SESSION_UNIDENTIFIED; the two baselines give one reason each. A prefix affinity run that is nearly all COLD has an index that is not working. Counted as each request finishes, from the decision that placed it, as its row records.",
+      "description": "Share of routing decisions by the reason the policy gave. Prefix affinity splits into PREFIX_AFFINITY, COLD, SPILL_HIT_RATE and SPILL_LOAD; session affinity into SESSION_AFFINITY and SESSION_UNIDENTIFIED; the two baselines give one reason each. A prefix affinity run that is nearly all COLD has an index that is not working. Counted as each request finishes, from the decision that placed it, as its row records.",
       "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 18 },
       "fieldConfig": {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yuchia329/kvroute/internal/policy"
 	"github.com/yuchia329/kvroute/internal/record"
 )
 
@@ -89,11 +90,16 @@ type Event struct {
 type ChaosRun struct {
 	ID     string `json:"id"`
 	Policy string `json:"policy"`
-	// HonouredLowWater and LoadImbalanceFactor are the spill point the router ran,
+	// HitRateLowWater and LoadImbalanceFactor are the spill point the router ran,
 	// for the reason a cell records it: prefix affinity at two spill points is
 	// two policies as far as any comparison is concerned.
-	HonouredLowWater    float64 `json:"honoured_low_water"`
+	HitRateLowWater     float64 `json:"hit_rate_low_water"`
 	LoadImbalanceFactor float64 `json:"load_imbalance_factor"`
+	// MeanInflightDenominator is what that factor was held against. A chaos run
+	// is driven open-loop at a low rate, which is exactly where the two
+	// denominators are different rules (#31), so a run recording the factor
+	// without it records half its own spill point.
+	MeanInflightDenominator bool `json:"mean_inflight_denominator"`
 
 	Replica     string  `json:"replica"`
 	Fault       Fault   `json:"fault"`
@@ -237,8 +243,9 @@ func (s ChaosRun) Report() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Chaos: %s %s under %s\n\n", s.Replica, s.Fault.Verb(), s.Policy)
 	b.WriteString(s.setting() + "\n")
-	if s.HonouredLowWater > 0 || s.LoadImbalanceFactor > 0 {
-		fmt.Fprintf(&b, "Spill point: honoured low-water %g, load imbalance factor %g.\n", s.HonouredLowWater, s.LoadImbalanceFactor)
+	if s.HitRateLowWater > 0 || s.LoadImbalanceFactor > 0 {
+		fmt.Fprintf(&b, "Spill point: honoured low-water %g, load imbalance factor %g against the fleet's inflight %s.\n",
+			s.HitRateLowWater, s.LoadImbalanceFactor, s.Spill().LoadDenominatorName())
 	}
 	b.WriteString("\n")
 
@@ -311,4 +318,16 @@ func describeSLO(slo SLO) string {
 // signed renders an offset from the fault in seconds, with its sign.
 func signed(ns int64) string {
 	return fmt.Sprintf("%+.2fs", time.Duration(ns).Seconds())
+}
+
+// Spill is the grid point this run's router was at, rebuilt from the columns
+// the record carries. It is the ChaosRun's CellSpill, and it exists for the same
+// reason: a reader that assembled the point field by field would silently drop
+// whichever column was added last.
+func (s ChaosRun) Spill() policy.Spill {
+	return policy.Spill{
+		HitRateLowWater:         s.HitRateLowWater,
+		LoadImbalanceFactor:     s.LoadImbalanceFactor,
+		MeanInflightDenominator: s.MeanInflightDenominator,
+	}
 }

@@ -117,10 +117,10 @@ type Stats struct {
 	// Published for the reason Spill is, and it is the whole configuration of
 	// that policy: its cells are a table indexed by these two numbers, and they
 	// reach the router as flags on a separate process.
-	HashPoint           *policy.HashPoint   `json:"hash,omitempty"`
-	Replicas       []ReplicaStats `json:"replicas"`
-	Requests       int64          `json:"requests"`
-	RouterOverhead stats.Summary  `json:"router_overhead"`
+	HashPoint      *policy.HashPoint `json:"hash,omitempty"`
+	Replicas       []ReplicaStats    `json:"replicas"`
+	Requests       int64             `json:"requests"`
+	RouterOverhead stats.Summary     `json:"router_overhead"`
 	// PrefixIndex is the belief the running policy routes on: how many blocks it
 	// currently holds, and the cap and TTL it holds them under. Absent under the
 	// three policies that consult no index, which is not the same as an index
@@ -178,6 +178,11 @@ type ReplicaStats struct {
 	HonouredRate   float64 `json:"honoured_rate"`
 	HonouredRead   bool    `json:"honoured_read"`
 	HonouredClaims int     `json:"honoured_claims"`
+	// HitRate is what this replica's prefix cache served over its window, and
+	// the signal the spill rule's residency branch reads. HitRateRead says
+	// whether the window held traffic enough to say.
+	HitRate     float64 `json:"hit_rate"`
+	HitRateRead bool    `json:"hit_rate_read"`
 	// Draining and Ejected say whether the router is sending this replica new
 	// requests, and if not, why: an operator drained it, or it stopped answering.
 	// Both false is a replica in rotation. Two negative flags rather than one
@@ -309,7 +314,7 @@ func (rt *Router) Stats() Stats {
 	return Stats{
 		Policy:         rt.policy.Name(),
 		Spill:          spill,
-		HashPoint:           hashPoint,
+		HashPoint:      hashPoint,
 		Replicas:       replicas,
 		Requests:       rt.requests.Load(),
 		RouterOverhead: rt.overhead.Summary(),
@@ -333,6 +338,8 @@ func statsOf(m fleet.Member) ReplicaStats {
 		HonouredRate:     m.Honoured.Fraction,
 		HonouredRead:     m.Honoured.Read,
 		HonouredClaims:   m.Honoured.Claims,
+		HitRate:          m.HitRate.Fraction,
+		HitRateRead:      m.HitRate.Read,
 		Draining:         m.Draining,
 		Ejected:          m.Ejected,
 		Ejections:        m.Ejections,
@@ -483,7 +490,13 @@ func (rt *Router) place(w http.ResponseWriter, req *http.Request, row *record.Re
 	var failures []string
 	dispatched := false
 	for range rt.maxAttempts {
-		choice, err := rt.policy.Choose(asked, excluding(rt.fleet.State(), failed))
+		// The snapshot is held rather than passed straight through, because what
+		// the policy was shown is also what the row has to record: the fleet's
+		// own load is the other half of every load comparison a policy makes, and
+		// reading it again after the decision would report a fleet a moment
+		// later than the one that was decided against.
+		state := excluding(rt.fleet.State(), failed)
+		choice, err := rt.policy.Choose(asked, state)
 		if err != nil {
 			if len(failures) > 0 {
 				// Every replica left to try has failed this request, so the last
@@ -495,6 +508,7 @@ func (rt *Router) place(w http.ResponseWriter, req *http.Request, row *record.Re
 			return placement{}, false
 		}
 		recordChoice(row, choice)
+		recordFleetLoad(row, state)
 		row.Reroutes = len(failed)
 
 		release, err := rt.fleet.Dispatch(choice.Replica.ID)
@@ -592,12 +606,35 @@ func recordChoice(row *record.Request, choice policy.Choice) {
 	row.PrefixMatchBytes = choice.PrefixMatchBytes
 	row.BatchKVOccupancy, row.BatchKVRead = choice.BatchKV.Fraction, choice.BatchKV.Read
 	row.HonouredRate, row.HonouredRead, row.HonouredClaims = choice.Honoured.Fraction, choice.Honoured.Read, choice.Honoured.Claims
+	row.HitRate, row.HitRateRead, row.HitRateQueries = choice.HitRate.Fraction, choice.HitRate.Read, choice.HitRate.Queries
 	row.DeclinedMatchBytes = choice.DeclinedMatchBytes
 	row.DeclinedBatchKVOccupancy, row.DeclinedBatchKVRead = choice.DeclinedBatchKV.Fraction, choice.DeclinedBatchKV.Read
 	row.DeclinedHonouredRate, row.DeclinedHonouredRead = choice.DeclinedHonoured.Fraction, choice.DeclinedHonoured.Read
+	row.DeclinedHitRate, row.DeclinedHitRateRead = choice.DeclinedHitRate.Fraction, choice.DeclinedHitRate.Read
 	row.DeclinedInflight = choice.DeclinedInflight
 	row.PrefixMatchTokens, row.DeclinedMatchTokens = choice.PrefixMatchTokens, choice.DeclinedMatchTokens
 	row.TokenizeNs = choice.Tokenize.Nanoseconds()
+}
+
+// recordFleetLoad puts the fleet the decision was made against on the row: the
+// quietest replica's inflight and the average replica's.
+//
+// Separate from recordChoice because it comes from somewhere else. A choice is
+// what the policy decided; this is what it was shown, and it is written whatever
+// the policy did with it — including under the policies that consult no load at
+// all, so that a row is a complete account of the fleet one decision was made
+// against whoever made it. What a threshold would have declined is projected
+// from the cache-aware policies' rows, where there was a match on the table to
+// decline; the rest are not evidence about a rule they never ran, and
+// bench.MeasureLoadComparison does not read them as any.
+//
+// A rerouted request keeps the last snapshot, as its decision does: the row says
+// where the request was finally placed and what the fleet looked like when it
+// was.
+func recordFleetLoad(row *record.Request, state fleet.State) {
+	row.FleetMinInflight = state.MinInflight()
+	row.FleetMeanInflight = state.MeanInflight()
+	row.FleetLoadRead = true
 }
 
 // excluding is a snapshot without the replicas that have already failed this
@@ -637,6 +674,7 @@ func (rt *Router) relay(w http.ResponseWriter, req *http.Request, row *record.Re
 		"replica", choice.Replica.ID,
 		"reason", choice.Reason,
 		"inflight", choice.Inflight,
+		"hit_rate", choice.HitRate,
 		"honoured", choice.Honoured,
 		"batch_kv", choice.BatchKV,
 		"prefix_match_b", choice.PrefixMatchBytes,
@@ -644,6 +682,7 @@ func (rt *Router) relay(w http.ResponseWriter, req *http.Request, row *record.Re
 		"prefix_match_tok", choice.PrefixMatchTokens,
 		"declined_match_tok", choice.DeclinedMatchTokens,
 		"tokenize_us", float64(choice.Tokenize.Nanoseconds())/1000,
+		"declined_hit_rate", choice.DeclinedHitRate,
 		"declined_honoured", choice.DeclinedHonoured,
 		"declined_batch_kv", choice.DeclinedBatchKV,
 		"declined_inflight", choice.DeclinedInflight,

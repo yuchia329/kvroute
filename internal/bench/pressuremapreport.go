@@ -115,7 +115,7 @@ func (m PressureMap) reportValidity(b *strings.Builder) {
 			rate = fmt.Sprintf("%.3f%%", v.SpillRate*100)
 		}
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %d | %d | %s | %s |\n",
-			point.At, prefill, prefillTokens, hitRate, v.SpillUnhonoured, v.SpillLoad, rate, exercised)
+			point.At, prefill, prefillTokens, hitRate, v.SpillHitRate, v.SpillLoad, rate, exercised)
 	}
 	fmt.Fprintln(b)
 
@@ -303,28 +303,35 @@ func (m PressureMap) reportDetail(b *strings.Builder) {
 //
 // The spill rule has two branches and they are counted apart all the way from
 // the router to this table, so this is the direct evidence: if the grid is doing
-// what it was built to do, the KV branch climbs with working set and the load
-// branch climbs with skew. Two marginals rather than the full grid, because the
-// question is whether each axis moves its own branch, and pooling the other axis
-// is what isolates it.
+// what it was built to do, the residency branch climbs with working set and the
+// load branch climbs with skew. Two marginals rather than the full grid, because
+// the question is whether each axis moves its own branch, and pooling the other
+// axis is what isolates it.
 //
 // It is also the one place a reader can catch the axes having been crossed
-// wrongly. A KV branch that climbs with skew rather than with working set is a
-// grid whose two knobs are not doing what their names say.
+// wrongly. A residency branch that climbs with skew rather than with working set
+// is a grid whose two knobs are not doing what their names say.
+//
+// It is worth saying what this table cannot catch, because #28 found out the
+// hard way. Two branches that read one pressure in two units would climb with
+// whichever axis drives that pressure, together, and look perfectly orderly
+// here. What tells those apart is the correlation between the two signals,
+// which is a measurement of a run rather than of a grid: see MeasureSpillSignals
+// and ADR-0011.
 func (m PressureMap) reportSeparability(b *strings.Builder) {
 	fmt.Fprintf(b, "## Are the two pressures separable?\n\n")
 	fmt.Fprintf(b, "The spill rule's two branches are counted apart, and the grid exists because they\n")
-	fmt.Fprintf(b, "answer to different axes: memory pressure evicts and trips the KV high-water mark,\n")
+	fmt.Fprintf(b, "answer to different axes: memory pressure evicts and trips the honoured low-water mark,\n")
 	fmt.Fprintf(b, "load imbalance piles conversations up and trips the imbalance factor. Each axis is\n")
 	fmt.Fprintf(b, "pooled over the other, so each row isolates one of them.\n\n")
 
-	if !m.SpillVaried && m.Spill.HonouredLowWater == 0 {
+	if !m.SpillVaried && m.Spill.HitRateLowWater == 0 {
 		// The criterion cannot be answered, and the tables below cannot answer it
 		// either. Said here, above them, because a column of zeros read without
 		// this reads as a finding about the axis rather than as a condition that
 		// was never armed.
 		fmt.Fprintf(b, "🚧 **This grid cannot answer that question, and the tables below must not be read\n")
-		fmt.Fprintf(b, "as though it had.** The KV high-water branch was switched off for these cells\n")
+		fmt.Fprintf(b, "as though it had.** The residency branch was switched off for these cells\n")
 		fmt.Fprintf(b, "(`bench.Chosen`), so its column is zero everywhere by construction rather than by\n")
 		fmt.Fprintf(b, "measurement.\n\n")
 		fmt.Fprintf(b, "The reason is a property of the metric, not of this grid. `vllm:kv_cache_usage_perc`\n")
@@ -354,7 +361,7 @@ func (m PressureMap) reportSeparability(b *strings.Builder) {
 				continue
 			}
 			v := point.Validity(m.Challenger)
-			kv, load = kv+v.SpillUnhonoured, load+v.SpillLoad
+			kv, load = kv+v.SpillHitRate, load+v.SpillLoad
 		}
 		fmt.Fprintf(b, "| %s | %d | %d |\n", formatAxis(ws), kv, load)
 	}
@@ -369,7 +376,7 @@ func (m PressureMap) reportSeparability(b *strings.Builder) {
 				continue
 			}
 			v := point.Validity(m.Challenger)
-			kv, load = kv+v.SpillUnhonoured, load+v.SpillLoad
+			kv, load = kv+v.SpillHitRate, load+v.SpillLoad
 		}
 		fmt.Fprintf(b, "| %s | %d | %d |\n", formatAxis(skew), kv, load)
 	}

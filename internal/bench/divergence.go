@@ -247,7 +247,7 @@ func spillOrder(label string) float64 {
 
 // spillLabel names a cell's grid point.
 func spillLabel(cell Cell) string {
-	s := policy.Spill{KVHighWater: cell.KVHighWater, LoadImbalanceFactor: cell.LoadImbalanceFactor}
+	s := CellSpill(cell)
 	if !s.Enabled() {
 		return SpillOffLabel
 	}

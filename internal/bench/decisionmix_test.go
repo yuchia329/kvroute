@@ -29,7 +29,7 @@ func TestTheDecisionMixIsCountedPerReason(t *testing.T) {
 		decided(start, policy.ReasonPrefixAffinity),
 		decided(start, policy.ReasonPrefixAffinity),
 		decided(start, policy.ReasonCold),
-		decided(start, policy.ReasonSpillKV),
+		decided(start, policy.ReasonSpillHitRate),
 		decided(start, policy.ReasonSpillLoad),
 		decided(start, policy.ReasonSpillLoad),
 		decided(start, policy.ReasonPromptUntokenized),
@@ -51,8 +51,8 @@ func TestTheDecisionMixIsCountedPerReason(t *testing.T) {
 	if got.Cold != 1 {
 		t.Errorf("cold = %d, want 1", got.Cold)
 	}
-	if got.SpillKV != 1 || got.SpillLoad != 2 {
-		t.Errorf("spills = %d KV and %d load, want 1 and 2", got.SpillKV, got.SpillLoad)
+	if got.SpillHitRate != 1 || got.SpillLoad != 2 {
+		t.Errorf("spills = %d KV and %d load, want 1 and 2", got.SpillHitRate, got.SpillLoad)
 	}
 	if got.Spilled() != 3 {
 		t.Errorf("Spilled() = %d, want 3", got.Spilled())
@@ -68,13 +68,13 @@ func TestTheDecisionMixIsCountedPerReason(t *testing.T) {
 // separately.
 func TestTheSummaryDoesNotCollapseTheTwoSpillConditions(t *testing.T) {
 	start := time.Unix(1757000000, 0)
-	kv := bench.Summarize([]bench.Result{decided(start, policy.ReasonSpillKV)}, bench.SummaryOptions{}).Decisions
+	kv := bench.Summarize([]bench.Result{decided(start, policy.ReasonSpillHitRate)}, bench.SummaryOptions{}).Decisions
 	load := bench.Summarize([]bench.Result{decided(start, policy.ReasonSpillLoad)}, bench.SummaryOptions{}).Decisions
 
-	if kv.SpillKV != 1 || kv.SpillLoad != 0 {
+	if kv.SpillHitRate != 1 || kv.SpillLoad != 0 {
 		t.Errorf("a KV spill counted as %+v", kv)
 	}
-	if load.SpillLoad != 1 || load.SpillKV != 0 {
+	if load.SpillLoad != 1 || load.SpillHitRate != 0 {
 		t.Errorf("a load spill counted as %+v", load)
 	}
 }

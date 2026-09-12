@@ -343,7 +343,7 @@ func TestASweepStillResumesIntoCellsOfTheSameWorkload(t *testing.T) {
 // measures the index on the wrong population.
 func TestDivergenceIsBinnedBySpillPoint(t *testing.T) {
 	off := bench.Cell{ID: "prefix_affinity-c64-r1", Policy: "prefix_affinity", WorkingSet: 3}
-	kv := bench.Cell{ID: "prefix_affinity-c64-r2", Policy: "prefix_affinity", WorkingSet: 3, KVHighWater: 0.85}
+	kv := bench.Cell{ID: "prefix_affinity-c64-r2", Policy: "prefix_affinity", WorkingSet: 3, HitRateLowWater: 0.85}
 	load := bench.Cell{ID: "prefix_affinity-c64-r3", Policy: "prefix_affinity", WorkingSet: 1, LoadImbalanceFactor: 4}
 
 	offRow := row("s1", 0, 10, 1600, 1000, 200)
@@ -383,7 +383,7 @@ func TestOnlyTheSpillOffCellsCalibrateTheCap(t *testing.T) {
 	off := bench.Cell{ID: "prefix_affinity-c64-r1", Policy: "prefix_affinity",
 		WorkingSet: 3, PrefixIndexNodes: 100, PrefixIndexCap: 100}
 	spilling := bench.Cell{ID: "prefix_affinity-c64-r2", Policy: "prefix_affinity",
-		WorkingSet: 3, KVHighWater: 0.85, PrefixIndexNodes: 100, PrefixIndexCap: 100}
+		WorkingSet: 3, HitRateLowWater: 0.85, PrefixIndexNodes: 100, PrefixIndexCap: 100}
 
 	// Spill-off: claimed 400 tokens, engine held 200 -> half honoured.
 	offRow := row("s1", 0, 10, 1600, 1000, 200)

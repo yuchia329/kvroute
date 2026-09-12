@@ -165,6 +165,14 @@ func (r Result) ComputedPrefillTokens() (int, bool) {
 // Exact residency's prediction needs none of that: it is already in the engine's
 // tokens, and it is taken as it stands, because converting it through bytes would
 // put into it an error it does not have.
+//
+// belief.PredictedTokens does the same conversion for the router's live honoured
+// rate and deliberately does *not* agree with this one in one place: a claim of
+// zero is a real prediction here and no prediction there. Divergence counts a
+// request the index claimed nothing for and the engine held nothing for as
+// exactly right, which it was; the honoured rate must not, because a zero claim
+// is perfectly honoured by arithmetic and would drag every replica's rate towards
+// one. The two are not a duplicate to be unified.
 func (r Result) PredictedCachedTokens() (float64, bool) {
 	if !r.EngineUsageRead {
 		return 0, false

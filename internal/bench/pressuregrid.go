@@ -13,7 +13,7 @@ import (
 // It is two-dimensional because the two pressures are physically different and
 // act on different parts of the policy. Working set ratio is offered session
 // tokens over measured aggregate fleet KV, so it drives eviction and fires the
-// spill rule's KV high-water branch. Skew concentrates the draws onto a few
+// spill rule's residency branch. Skew concentrates the draws onto a few
 // conversations, so it drives load imbalance and fires the imbalance branch —
 // and load imbalance is the pressure session-sticky hashing has no answer to,
 // which is the single clearest place a cache-aware policy can beat it.
@@ -73,8 +73,8 @@ var (
 //
 // 32 rather than another rung, for two reasons that point the same way. The
 // first is the one the tunable sweep already runs at 32 for: spill only fires
-// under pressure, and an idle fleet crosses no high-water mark and has no load
-// imbalance to speak of, so a grid run too low would report policy 4 collapsing
+// under pressure, and an idle fleet evicts nothing and has no load imbalance to
+// speak of, so a grid run too low would report policy 4 collapsing
 // into policy 3 everywhere and would be measuring the rung rather than the
 // grid. The second is that the spill thresholds this grid runs with are chosen
 // on the tunable sweep at 32 (see spillgrid.go). Running the grid at a

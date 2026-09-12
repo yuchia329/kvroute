@@ -55,12 +55,12 @@ const (
 // TestFakeReplicaHonoursTheContract runs the contract against the fake.
 func TestFakeReplicaHonoursTheContract(t *testing.T) {
 	replica := fakereplica.New(fakereplica.Config{
-		ID:            "contract",
-		Model:         defaultModel,
-		TTFT:          5 * time.Millisecond,
-		InterToken:    5 * time.Millisecond,
-		OutputTokens:  maxTokens,
-		KVUtilization: 0.42,
+		ID:               "contract",
+		Model:            defaultModel,
+		TTFT:             5 * time.Millisecond,
+		InterToken:       5 * time.Millisecond,
+		OutputTokens:     maxTokens,
+		BatchKVOccupancy: 0.42,
 	})
 	srv := httptest.NewServer(replica.Handler())
 	t.Cleanup(srv.Close)
