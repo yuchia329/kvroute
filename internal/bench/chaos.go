@@ -89,10 +89,10 @@ type Event struct {
 type ChaosRun struct {
 	ID     string `json:"id"`
 	Policy string `json:"policy"`
-	// KVHighWater and LoadImbalanceFactor are the spill point the router ran,
+	// HonouredLowWater and LoadImbalanceFactor are the spill point the router ran,
 	// for the reason a cell records it: prefix affinity at two spill points is
 	// two policies as far as any comparison is concerned.
-	KVHighWater         float64 `json:"kv_high_water"`
+	HonouredLowWater    float64 `json:"honoured_low_water"`
 	LoadImbalanceFactor float64 `json:"load_imbalance_factor"`
 
 	Replica     string  `json:"replica"`
@@ -127,6 +127,11 @@ type ChaosRun struct {
 	Recovery         Recovery     `json:"recovery"`
 
 	Contamination Contamination `json:"contamination"`
+	// Throttle is what the cards said about their own clocks over the run. Its
+	// own field beside the cleanliness evidence, for the reason a cell's is: a
+	// run can be clean and still have been served by a card that could not keep
+	// up with its siblings (#25).
+	Throttle Throttle `json:"throttle"`
 }
 
 // Assess fills in everything a run's rows and events say about it: the
@@ -232,8 +237,8 @@ func (s ChaosRun) Report() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Chaos: %s %s under %s\n\n", s.Replica, s.Fault.Verb(), s.Policy)
 	b.WriteString(s.setting() + "\n")
-	if s.KVHighWater > 0 || s.LoadImbalanceFactor > 0 {
-		fmt.Fprintf(&b, "Spill point: KV high-water %g, load imbalance factor %g.\n", s.KVHighWater, s.LoadImbalanceFactor)
+	if s.HonouredLowWater > 0 || s.LoadImbalanceFactor > 0 {
+		fmt.Fprintf(&b, "Spill point: honoured low-water %g, load imbalance factor %g.\n", s.HonouredLowWater, s.LoadImbalanceFactor)
 	}
 	b.WriteString("\n")
 
@@ -257,6 +262,9 @@ func (s ChaosRun) Report() string {
 		fmt.Fprintf(&b, "\n⚠️ %s\n", reason)
 	}
 	for _, reason := range s.Contamination.Reasons() {
+		fmt.Fprintf(&b, "\n⚠️ %s\n", reason)
+	}
+	for _, reason := range s.Throttle.Reasons() {
 		fmt.Fprintf(&b, "\n⚠️ %s\n", reason)
 	}
 

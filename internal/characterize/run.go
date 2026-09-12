@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -145,6 +146,13 @@ type Probe struct {
 
 	bench.Summary       `json:"summary"`
 	bench.Contamination `json:"contamination"`
+	// Throttle is what the cards said about their own clocks while this probe
+	// ran. It belongs here more than anywhere: the together arm of a
+	// characterization is the only condition in which every card draws power at
+	// once, which is the only condition GPU 3's defect appears in (#25), and the
+	// run that found it had to be re-read off separate telemetry afterwards
+	// because the probes themselves recorded nothing about clocks.
+	bench.Throttle `json:"throttle"`
 }
 
 // ProbeID is a probe's identity: replica, level, repetition. The schedule is
@@ -323,13 +331,14 @@ func drive(ctx context.Context, cfg Config, placements []Placement) ([]Probe, []
 				// which is load the measurement did not intend to apply.
 				watcher := bench.Watch(ctx, cfg.Contamination)
 				groupProbes, groupRows, err := driveGroup(ctx, cfg, group, concurrency, repetition, &order, writer)
-				contamination := watcher.Stop()
+				contamination, throttle := watcher.Stop()
 				if err != nil {
 					return probes, rows, err
 				}
 				for i := range groupProbes {
 					groupProbes[i].Contamination = contamination
-					for _, reason := range contamination.Reasons() {
+					groupProbes[i].Throttle = throttle
+					for _, reason := range slices.Concat(contamination.Reasons(), throttle.Reasons()) {
 						groupProbes[i].Flag(reason)
 					}
 					if reason := prefixCacheReason(groupProbes[i].PrefixCache, cfg.MaxPrefixHitRate); reason != "" {

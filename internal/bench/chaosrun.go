@@ -280,7 +280,7 @@ func RunChaos(ctx context.Context, cfg ChaosConfig) (ChaosRun, error) {
 	run := <-drive
 	stopPolling()
 	<-polled
-	contamination := watcher.Stop()
+	contamination, throttle := watcher.Stop()
 	if err := rows.Close(); err != nil && run.err == nil {
 		run.err = err
 	}
@@ -314,9 +314,10 @@ func RunChaos(ctx context.Context, cfg ChaosConfig) (ChaosRun, error) {
 		Tolerance:   cfg.Tolerance,
 
 		Contamination: contamination,
+		Throttle:      throttle,
 	}
 	if stats.Spill != nil {
-		s.KVHighWater, s.LoadImbalanceFactor = stats.Spill.KVHighWater, stats.Spill.LoadImbalanceFactor
+		s.HonouredLowWater, s.LoadImbalanceFactor = stats.Spill.HonouredLowWater, stats.Spill.LoadImbalanceFactor
 	}
 	s.Assess(run.results, events.relativeTo(start.Add(cfg.FaultAt)))
 

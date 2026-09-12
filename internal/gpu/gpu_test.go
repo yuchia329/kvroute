@@ -2,6 +2,7 @@ package gpu_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -146,5 +147,84 @@ func TestLimitRestrictsTheSnapshotToTheFleetsGPUs(t *testing.T) {
 	}
 	if dirty := s.Dirty(256); len(dirty) != 2 {
 		t.Errorf("limited snapshot found %d dirty devices, want the fleet's own 2", len(dirty))
+	}
+}
+
+// TestSnapshotReadsTheClockAndWhyItIsNotHigher. The mask is the whole reason
+// this column is read: a card can be at a low clock for a normal reason, and
+// only the driver knows which.
+func TestSnapshotReadsTheClockAndWhyItIsNotHigher(t *testing.T) {
+	s := snapshot(t, gputest.SixDevicesGPU3Thermal, gputest.NoComputeApps, gputest.FleetProcesses)
+
+	healthy := s.Devices[0]
+	if !healthy.ClocksRead || healthy.SMClockMHz != 1305 {
+		t.Errorf("GPU 0 read as %+v, want 1305 MHz read", healthy)
+	}
+	if !healthy.Throttle.Has(gpu.ThrottleSwPowerCap) || healthy.Throttle.Thermal() {
+		t.Errorf("GPU 0 throttle is %s, want the power cap alone", healthy.Throttle)
+	}
+
+	bad := s.Devices[3]
+	if bad.SMClockMHz != 960 {
+		t.Errorf("GPU 3 is at %d MHz, want 960", bad.SMClockMHz)
+	}
+	if !bad.Throttle.Thermal() {
+		t.Errorf("GPU 3 throttle is %s, want a thermal reason in it", bad.Throttle)
+	}
+	// Both bits, not one: the card is power-capped like its siblings *and*
+	// thermally limited unlike them, and collapsing that to one reason would
+	// lose the comparison the flag is drawn from.
+	if got, want := bad.Throttle.Names(), []string{"SwPowerCap", "SwThermal"}; !slices.Equal(got, want) {
+		t.Errorf("GPU 3 reasons are %v, want %v", got, want)
+	}
+}
+
+// TestAnIdleCardIsNotAThrottledOne: every card in an idle fleet reports GpuIdle,
+// which is the driver answering "nothing is asking for more", not a defect.
+func TestAnIdleCardIsNotAThrottledOne(t *testing.T) {
+	s := snapshot(t, gputest.SixIdleDevices, gputest.NoComputeApps, gputest.FleetProcesses)
+
+	for _, d := range s.Devices {
+		if d.Throttle.Thermal() {
+			t.Errorf("idle GPU %d reads as thermally throttled: %s", d.Index, d.Throttle)
+		}
+		if !d.Throttle.Has(gpu.ThrottleGPUIdle) {
+			t.Errorf("idle GPU %d reports %s, want GpuIdle", d.Index, d.Throttle)
+		}
+	}
+}
+
+// TestADriverThatReportsNoClocksSaysSoRatherThanReadingAsZero. A card sitting at
+// 0 MHz and a driver that will not answer must not be the same record, and
+// neither may take the probe down with it: cleanliness is what this probe is
+// for.
+func TestADriverThatReportsNoClocksSaysSoRatherThanReadingAsZero(t *testing.T) {
+	s := snapshot(t, gputest.SixDevicesNoClocks, gputest.NoComputeApps, gputest.FleetProcesses)
+
+	if len(s.Devices) != 6 {
+		t.Fatalf("read %d devices, want all 6 despite the missing clocks", len(s.Devices))
+	}
+	for _, d := range s.Devices {
+		if d.ClocksRead {
+			t.Errorf("GPU %d claims its clocks were read from [N/A]", d.Index)
+		}
+	}
+	if got := s.Devices[0].MemoryUsedMiB; got != 20481 {
+		t.Errorf("GPU 0 memory is %d MiB, want the probe's own column still read", got)
+	}
+}
+
+// TestDeviceLinesFromBeforeTheClockColumnsStillParse: captures and older
+// callers hold four-column lines, and the columns that decide cleanliness are
+// all in them.
+func TestDeviceLinesFromBeforeTheClockColumnsStillParse(t *testing.T) {
+	s := snapshot(t, "0, GPU-aaaa0000-1111-2222-3333-444444444444, 20481, 97\n",
+		gputest.NoComputeApps, gputest.FleetProcesses)
+
+	if len(s.Devices) != 1 || s.Devices[0].MemoryUsedMiB != 20481 {
+		t.Fatalf("read %+v, want the one device", s.Devices)
+	}
+	if s.Devices[0].ClocksRead {
+		t.Error("a four-column line claims its clocks were read")
 	}
 }

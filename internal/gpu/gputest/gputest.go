@@ -18,12 +18,47 @@ import (
 // Canned command output, in the exact shape the real commands produce.
 const (
 	// SixIdleDevices is the fleet's six cards with nothing running on them.
-	SixIdleDevices = `0, GPU-aaaa0000-1111-2222-3333-444444444444, 1, 0
-1, GPU-bbbb0000-1111-2222-3333-444444444444, 1, 0
-2, GPU-cccc0000-1111-2222-3333-444444444444, 1, 0
-3, GPU-dddd0000-1111-2222-3333-444444444444, 1, 0
-4, GPU-eeee0000-1111-2222-3333-444444444444, 1, 0
-5, GPU-ffff0000-1111-2222-3333-444444444444, 1, 0
+	// An idle card clocks down to 210 MHz and gives GpuIdle (0x001) as its
+	// reason, which is the driver's normal answer and not a defect.
+	SixIdleDevices = `0, GPU-aaaa0000-1111-2222-3333-444444444444, 1, 0, 210, 0x0000000000000001
+1, GPU-bbbb0000-1111-2222-3333-444444444444, 1, 0, 210, 0x0000000000000001
+2, GPU-cccc0000-1111-2222-3333-444444444444, 1, 0, 210, 0x0000000000000001
+3, GPU-dddd0000-1111-2222-3333-444444444444, 1, 0, 210, 0x0000000000000001
+4, GPU-eeee0000-1111-2222-3333-444444444444, 1, 0, 210, 0x0000000000000001
+5, GPU-ffff0000-1111-2222-3333-444444444444, 1, 0, 210, 0x0000000000000001
+`
+
+	// SixBusyDevices is the fleet under load with every card healthy: all six
+	// power-capped at the same clock, which is what a loaded fleet is supposed
+	// to look like.
+	SixBusyDevices = `0, GPU-aaaa0000-1111-2222-3333-444444444444, 20481, 96, 1305, 0x0000000000000004
+1, GPU-bbbb0000-1111-2222-3333-444444444444, 20481, 97, 1305, 0x0000000000000004
+2, GPU-cccc0000-1111-2222-3333-444444444444, 20481, 95, 1290, 0x0000000000000004
+3, GPU-dddd0000-1111-2222-3333-444444444444, 20481, 96, 1305, 0x0000000000000004
+4, GPU-eeee0000-1111-2222-3333-444444444444, 20481, 97, 1305, 0x0000000000000004
+5, GPU-ffff0000-1111-2222-3333-444444444444, 20481, 96, 1305, 0x0000000000000004
+`
+
+	// SixDevicesGPU3Thermal is the condition #25 measured: the same loaded
+	// fleet, but GPU 3 held at 960 MHz with SwThermal (0x020) set as well as the
+	// power cap every card carries. The five healthy cards are power-capped
+	// only, which is the contrast the flag is drawn from.
+	SixDevicesGPU3Thermal = `0, GPU-aaaa0000-1111-2222-3333-444444444444, 20481, 96, 1305, 0x0000000000000004
+1, GPU-bbbb0000-1111-2222-3333-444444444444, 20481, 97, 1305, 0x0000000000000004
+2, GPU-cccc0000-1111-2222-3333-444444444444, 20481, 95, 1290, 0x0000000000000004
+3, GPU-dddd0000-1111-2222-3333-444444444444, 20481, 96, 960, 0x0000000000000024
+4, GPU-eeee0000-1111-2222-3333-444444444444, 20481, 97, 1305, 0x0000000000000004
+5, GPU-ffff0000-1111-2222-3333-444444444444, 20481, 96, 1305, 0x0000000000000004
+`
+
+	// SixDevicesNoClocks is a driver that answers the clock columns with [N/A],
+	// which is not zero and not a healthy card: it is nobody having looked.
+	SixDevicesNoClocks = `0, GPU-aaaa0000-1111-2222-3333-444444444444, 20481, 96, [N/A], [N/A]
+1, GPU-bbbb0000-1111-2222-3333-444444444444, 20481, 97, [N/A], [N/A]
+2, GPU-cccc0000-1111-2222-3333-444444444444, 20481, 95, [N/A], [N/A]
+3, GPU-dddd0000-1111-2222-3333-444444444444, 20481, 96, [N/A], [N/A]
+4, GPU-eeee0000-1111-2222-3333-444444444444, 20481, 97, [N/A], [N/A]
+5, GPU-ffff0000-1111-2222-3333-444444444444, 20481, 96, [N/A], [N/A]
 `
 	// NoComputeApps is what nvidia-smi prints when nothing holds a card.
 	NoComputeApps = ""
@@ -31,8 +66,8 @@ const (
 	// FleetDevices, FleetApps and FleetProcesses are two of our own replicas
 	// running. The pid files hold 12100 and 22000; the processes on the cards
 	// are their EngineCore children.
-	FleetDevices = `0, GPU-aaaa0000-1111-2222-3333-444444444444, 20481, 97
-1, GPU-bbbb0000-1111-2222-3333-444444444444, 20481, 95
+	FleetDevices = `0, GPU-aaaa0000-1111-2222-3333-444444444444, 20481, 97, 1305, 0x0000000000000004
+1, GPU-bbbb0000-1111-2222-3333-444444444444, 20481, 95, 1305, 0x0000000000000004
 `
 	FleetApps = `12345, GPU-aaaa0000-1111-2222-3333-444444444444, 20480
 22345, GPU-bbbb0000-1111-2222-3333-444444444444, 20480
@@ -93,10 +128,28 @@ func Fleet() *gpu.Prober {
 	return gpu.NewProber(Runner(FleetDevices, FleetApps, FleetProcesses))
 }
 
+// Busy is a prober showing the six cards under load and all healthy: every one
+// of them power-capped at the same clock, which is what a loaded fleet is meant
+// to look like.
+func Busy() *gpu.Prober {
+	return gpu.NewProber(Runner(SixBusyDevices, NoComputeApps, FleetProcesses))
+}
+
+// Throttled is a prober showing the same loaded fleet with GPU 3 thermally
+// limited, as #25 measured it.
+func Throttled() *gpu.Prober {
+	return gpu.NewProber(Runner(SixDevicesGPU3Thermal, NoComputeApps, FleetProcesses))
+}
+
+// NoClocks is a prober whose driver answers the clock columns with [N/A].
+func NoClocks() *gpu.Prober {
+	return gpu.NewProber(Runner(SixDevicesNoClocks, NoComputeApps, FleetProcesses))
+}
+
 // Contaminated is a prober showing another user's process holding GPU 0.
 func Contaminated() *gpu.Prober {
 	return gpu.NewProber(Runner(
-		"0, GPU-aaaa0000-1111-2222-3333-444444444444, 9000, 80\n",
+		"0, GPU-aaaa0000-1111-2222-3333-444444444444, 9000, 80, 1305, 0x0000000000000004\n",
 		"77777, GPU-aaaa0000-1111-2222-3333-444444444444, 8999\n",
 		"  77777       1 labmate  python3\n",
 	))

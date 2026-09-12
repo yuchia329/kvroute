@@ -37,7 +37,16 @@ type ContaminationConfig struct {
 	// began: judged against the pids read at the start, its engine would be a
 	// foreign process, and every kill run would be discarded as unclean.
 	OwnPIDsNow func() []int
-	Log        *slog.Logger
+	// ThermalShareThreshold is the share of its busy samples a card may spend
+	// thermally throttled before the measurement is flagged. Zero uses
+	// DefaultThermalShareThreshold.
+	//
+	// It sits in this config, whose name is about cleanliness, because there is
+	// one sampler: the cards are probed once and the snapshot answers both
+	// questions. A second config would imply a second probe, and a second probe
+	// would eventually disagree with this one about what the fleet was doing.
+	ThermalShareThreshold float64
+	Log                   *slog.Logger
 }
 
 // Contamination is one measurement's cleanliness evidence — a cell's, or a
@@ -68,6 +77,7 @@ type Watcher struct {
 	mu       sync.Mutex
 	result   Contamination
 	procSeen map[int]bool
+	clocks   throttleCounter
 }
 
 // Watch starts sampling and returns a watcher to stop at the end of the cell.
@@ -92,8 +102,14 @@ func Watch(ctx context.Context, cfg ContaminationConfig) *Watcher {
 	return w
 }
 
-// Stop ends sampling and returns what the cell saw.
-func (w *Watcher) Stop() Contamination {
+// Stop ends sampling and returns what the cell saw: who else was on the cards,
+// and what the cards said about their own clocks.
+//
+// Two values from one sampler, and they stay two values. Cleanliness is about
+// foreign processes and throttling is about a card that is slower than its
+// siblings; a cell can be clean and throttled at once, and folding the second
+// into the first would let one of them hide the other.
+func (w *Watcher) Stop() (Contamination, Throttle) {
 	if w.stop != nil {
 		w.stop()
 	}
@@ -106,7 +122,7 @@ func (w *Watcher) Stop() Contamination {
 	// Clean requires evidence: at least one successful probe, no probe that
 	// failed, and nothing foreign in any of them.
 	result.Clean = result.GPUSamples > 0 && result.ProbeErrors == 0 && len(result.ForeignProcs) == 0
-	return result
+	return result, w.clocks.result(w.cfg.ThermalShareThreshold)
 }
 
 func (w *Watcher) sample(ctx context.Context) {
@@ -150,6 +166,17 @@ func (w *Watcher) once(ctx context.Context) {
 		snapshot = snapshot.Limit(w.cfg.GPUs)
 	}
 	w.result.GPUSamples++
+
+	// The same snapshot, read for the second question: what were the cards
+	// doing, and why were they not doing it faster.
+	clocked := false
+	for _, d := range snapshot.Devices {
+		w.clocks.add(d)
+		clocked = clocked || d.ClocksRead
+	}
+	if clocked {
+		w.clocks.samples++
+	}
 
 	for _, p := range snapshot.Foreign(own) {
 		if !w.procSeen[p.PID] {

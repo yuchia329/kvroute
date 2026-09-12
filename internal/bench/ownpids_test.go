@@ -24,7 +24,7 @@ func TestAReplicaRestartedDuringAMeasurementIsStillTheFleetsOwn(t *testing.T) {
 		OwnPIDsNow: func() []int { return gputest.OwnFleetPIDs },
 	})
 
-	got := w.Stop()
+	got, _ := w.Stop()
 
 	if len(got.ForeignProcs) != 0 || !got.Clean {
 		t.Errorf("a replica restarted mid-measurement was booked as foreign: %+v", got)
@@ -40,7 +40,7 @@ func TestRefreshingTheFleetsPIDsStillCatchesAForeignProcess(t *testing.T) {
 		OwnPIDsNow: func() []int { return gputest.OwnFleetPIDs },
 	})
 
-	if got := w.Stop(); len(got.ForeignProcs) == 0 || got.Clean {
+	if got, _ := w.Stop(); len(got.ForeignProcs) == 0 || got.Clean {
 		t.Errorf("another user's process went unseen: %+v", got)
 	}
 }

@@ -147,6 +147,71 @@ func TestACellRecordsTheForeignProcessesItSawAndIsNotClean(t *testing.T) {
 	}
 }
 
+// A card that is slower than its siblings because it is hot is a defect of a
+// different kind from another user's process, and a cell can carry both or
+// either. This one is perfectly clean and still must not be averaged in.
+func TestACleanCellIsStillFlaggedWhenOneOfItsCardsWasThrottled(t *testing.T) {
+	dir := t.TempDir()
+
+	cells, _ := sweepUnderTest(t, dir, bench.SweepConfig{
+		Concurrencies:        []int{1},
+		WarmupDriftThreshold: -1,
+		Contamination: bench.ContaminationConfig{
+			Prober:   gputest.Throttled(),
+			Interval: time.Millisecond,
+			GPUs:     []int{0, 1, 2, 3, 4, 5},
+			OwnPIDs:  gputest.OwnFleetPIDs,
+		},
+	})
+
+	got := cells[0]
+	if !got.Clean {
+		t.Errorf("a cell with no foreign process was reported unclean: %v", got.ForeignProcs)
+	}
+	if !got.Throttled {
+		t.Errorf("a cell whose GPU 3 ran at 960 MHz on a thermal limit was not marked throttled: %+v", got.Throttle)
+	}
+	if !got.Flagged {
+		t.Error("a throttled cell was not flagged")
+	}
+	// The evidence, not just the verdict: which card, how much of the time, and
+	// how far down it clocked.
+	over := got.Throttle.Thermal()
+	if len(over) != 1 || over[0].GPU != 3 || over[0].MinSMClockMHz != 960 {
+		t.Errorf("the cell names %+v as throttled, want GPU 3 at 960 MHz", over)
+	}
+}
+
+// The other half of the same distinction: every card in a loaded fleet sits on
+// its power cap, and a cell that ran on six healthy cards must not be discarded
+// for it.
+func TestALoadedFleetOnItsPowerCapIsNotFlagged(t *testing.T) {
+	dir := t.TempDir()
+
+	cells, _ := sweepUnderTest(t, dir, bench.SweepConfig{
+		Concurrencies:        []int{1},
+		WarmupDriftThreshold: -1,
+		Contamination: bench.ContaminationConfig{
+			Prober:   gputest.Busy(),
+			Interval: time.Millisecond,
+			GPUs:     []int{0, 1, 2, 3, 4, 5},
+			OwnPIDs:  gputest.OwnFleetPIDs,
+		},
+	})
+
+	got := cells[0]
+	if got.Throttled {
+		t.Errorf("a healthy loaded fleet was marked throttled: %+v", got.Throttle)
+	}
+	if got.Flagged {
+		t.Errorf("a healthy loaded fleet was flagged: %v", got.FlagReasons)
+	}
+	if got.ClockSamples == 0 || len(got.Throttle.GPUs) != 6 {
+		t.Errorf("the cell recorded %d clock samples over %d cards, want every card carried in the record",
+			got.ClockSamples, len(got.Throttle.GPUs))
+	}
+}
+
 func TestACellIsNotClaimedCleanWhenTheGPUsWereNeverSampled(t *testing.T) {
 	dir := t.TempDir()
 

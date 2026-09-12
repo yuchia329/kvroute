@@ -34,6 +34,98 @@ type Device struct {
 	UUID           string `json:"uuid"`
 	MemoryUsedMiB  int    `json:"memory_used_mib"`
 	UtilizationPct int    `json:"utilization_pct"`
+
+	// SMClockMHz is the clock the card is running its SMs at, and Throttle the
+	// driver's own account of why it is not running them faster.
+	//
+	// They are read here, in the probe a cell already takes every few seconds,
+	// rather than by a second sampler: a card that is thermally limited is
+	// slower than its siblings for a reason that has nothing to do with the
+	// workload (#25), and a cell that cannot say whether that happened while it
+	// ran cannot be defended afterwards. Two samplers would also be two answers
+	// to "what were the cards doing during this cell", and the one that drifted
+	// would be the one nobody was reading.
+	SMClockMHz int             `json:"sm_clock_mhz"`
+	Throttle   ThrottleReasons `json:"throttle_reasons"`
+	// ClocksRead says the driver answered for both of the fields above. A card
+	// reporting [N/A] for its clock, and one genuinely sitting at 0 MHz, must
+	// not read the same — the same distinction GPUSamples draws for
+	// cleanliness.
+	ClocksRead bool `json:"clocks_read"`
+}
+
+// ThrottleReasons is nvidia-smi's clocks_throttle_reasons.active bitmask: every
+// reason the driver is currently holding this card below its maximum clock.
+//
+// A bitmask rather than a single reason because they are not exclusive, and the
+// combination is the diagnosis. Every card in a loaded fleet reports SwPowerCap,
+// which is normal and equal; a card that reports SwThermal *more often than* its
+// siblings is the defect this project found on GPU 3.
+type ThrottleReasons uint64
+
+// The bits, as the NVML docs define them. Named as the driver names them, so a
+// record and nvidia-smi's own output can be read against each other.
+const (
+	ThrottleGPUIdle           ThrottleReasons = 0x001
+	ThrottleAppClocks         ThrottleReasons = 0x002
+	ThrottleSwPowerCap        ThrottleReasons = 0x004
+	ThrottleHwSlowdown        ThrottleReasons = 0x008
+	ThrottleSyncBoost         ThrottleReasons = 0x010
+	ThrottleSwThermal         ThrottleReasons = 0x020
+	ThrottleHwThermal         ThrottleReasons = 0x040
+	ThrottleHwPowerBrake      ThrottleReasons = 0x080
+	ThrottleDisplayClkSetting ThrottleReasons = 0x100
+)
+
+var throttleNames = []struct {
+	bit  ThrottleReasons
+	name string
+}{
+	{ThrottleGPUIdle, "GpuIdle"},
+	{ThrottleAppClocks, "AppClocks"},
+	{ThrottleSwPowerCap, "SwPowerCap"},
+	{ThrottleHwSlowdown, "HwSlowdown"},
+	{ThrottleSyncBoost, "SyncBoost"},
+	{ThrottleSwThermal, "SwThermal"},
+	{ThrottleHwThermal, "HwThermal"},
+	{ThrottleHwPowerBrake, "HwPowerBrake"},
+	{ThrottleDisplayClkSetting, "DisplayClk"},
+}
+
+// Has reports whether every bit in want is set.
+func (r ThrottleReasons) Has(want ThrottleReasons) bool { return r&want == want }
+
+// Any reports whether any bit in want is set.
+func (r ThrottleReasons) Any(want ThrottleReasons) bool { return r&want != 0 }
+
+// Thermal reports whether the driver is holding this card back because it is
+// too hot — either slowdown it distinguishes as thermal.
+//
+// HwSlowdown is deliberately not one of them: the driver raises it for heat and
+// for a power brake alike, so counting it would put power-capped samples into
+// the count that decides whether a card is the odd one out on temperature.
+func (r ThrottleReasons) Thermal() bool {
+	return r.Any(ThrottleSwThermal | ThrottleHwThermal)
+}
+
+// Names lists the reasons set, in bit order, for a record or a log line.
+func (r ThrottleReasons) Names() []string {
+	var out []string
+	for _, n := range throttleNames {
+		if r.Any(n.bit) {
+			out = append(out, n.name)
+		}
+	}
+	return out
+}
+
+// String renders the mask the way nvidia-smi prints it, with the names it
+// stands for.
+func (r ThrottleReasons) String() string {
+	if r == 0 {
+		return "none"
+	}
+	return fmt.Sprintf("0x%03x(%s)", uint64(r), strings.Join(r.Names(), "|"))
 }
 
 // Process is one process holding memory on a GPU.
@@ -95,7 +187,8 @@ func execRunner(ctx context.Context, name string, args ...string) ([]byte, error
 // that attributes those processes to an owner.
 func (p *Prober) Snapshot(ctx context.Context) (Snapshot, error) {
 	deviceOut, err := p.run(ctx, "nvidia-smi",
-		"--query-gpu=index,uuid,memory.used,utilization.gpu", "--format=csv,noheader,nounits")
+		"--query-gpu=index,uuid,memory.used,utilization.gpu,clocks.sm,clocks_throttle_reasons.active",
+		"--format=csv,noheader,nounits")
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -291,7 +384,7 @@ func parseDevices(out []byte) ([]Device, map[string]int, error) {
 	for line := range lines(out) {
 		fields := splitCSV(line)
 		if len(fields) < 4 {
-			return nil, nil, fmt.Errorf("gpu: device line %q has %d fields, want 4", line, len(fields))
+			return nil, nil, fmt.Errorf("gpu: device line %q has %d fields, want at least 4", line, len(fields))
 		}
 		index, err := atoi(fields[0], "device index", line)
 		if err != nil {
@@ -306,10 +399,36 @@ func parseDevices(out []byte) ([]Device, map[string]int, error) {
 		// cleanliness, so an unreadable value records as zero rather than
 		// failing the whole probe.
 		util, _ := strconv.Atoi(fields[3])
-		devices = append(devices, Device{Index: index, UUID: fields[1], MemoryUsedMiB: used, UtilizationPct: util})
+		device := Device{Index: index, UUID: fields[1], MemoryUsedMiB: used, UtilizationPct: util}
+		// The clock columns are read the same forgiving way, and for a stronger
+		// reason: they are not what this probe exists for. A driver that does not
+		// report throttle reasons must leave the fleet's start-up check and the
+		// cleanliness evidence working, saying only that the clocks are unknown.
+		// A line with four fields is a capture taken before these were asked for.
+		if len(fields) >= 6 {
+			clock, clockErr := strconv.Atoi(fields[4])
+			reasons, reasonsErr := parseThrottleReasons(fields[5])
+			if clockErr == nil && reasonsErr == nil {
+				device.SMClockMHz = clock
+				device.Throttle = reasons
+				device.ClocksRead = true
+			}
+		}
+		devices = append(devices, device)
 		byUUID[fields[1]] = index
 	}
 	return devices, byUUID, nil
+}
+
+// parseThrottleReasons reads the hexadecimal mask nvidia-smi prints for
+// clocks_throttle_reasons.active, "0x0000000000000001".
+func parseThrottleReasons(field string) (ThrottleReasons, error) {
+	digits := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(field), "0x"), "0X")
+	mask, err := strconv.ParseUint(digits, 16, 64)
+	if err != nil {
+		return 0, fmt.Errorf("gpu: throttle reasons %q: %w", field, err)
+	}
+	return ThrottleReasons(mask), nil
 }
 
 func parseComputeApps(out []byte, byUUID map[string]int, table map[int]psEntry) ([]Process, error) {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/yuchia329/kvroute/internal/bench"
+	"github.com/yuchia329/kvroute/internal/gpu/gputest"
 	"github.com/yuchia329/kvroute/internal/record"
 )
 
@@ -62,6 +63,49 @@ func TestCompactionRewritesTheRunAsParquetWithoutLosingRows(t *testing.T) {
 			got.SLOViolations != want.SLOViolations || got.Clean != want.Clean {
 			t.Errorf("cell %s changed in compaction: %+v then %+v", want.ID, want.Summary, got.Summary)
 		}
+	}
+}
+
+// The per-card throttle evidence is a repeated group rather than a flat column,
+// because a fleet is named card by card and not counted. It is worth one test of
+// its own that the columnar half of the record can hold it: the analysis reads
+// Parquet, and evidence that only survives in the JSONL is evidence no figure
+// will ever be drawn from.
+func TestTheThrottleEvidenceSurvivesCompaction(t *testing.T) {
+	dir := t.TempDir()
+	cells, _ := sweepUnderTest(t, dir, bench.SweepConfig{
+		Concurrencies:        []int{1},
+		WarmupDriftThreshold: -1,
+		Contamination: bench.ContaminationConfig{
+			Prober:   gputest.Throttled(),
+			Interval: time.Millisecond,
+			GPUs:     []int{0, 1, 2, 3, 4, 5},
+			OwnPIDs:  gputest.OwnFleetPIDs,
+		},
+	})
+
+	got, err := bench.Compact(dir)
+	if err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	compacted, err := parquet.ReadFile[bench.Cell](got.CellsPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", got.CellsPath, err)
+	}
+	if len(compacted) != len(cells) {
+		t.Fatalf("%s holds %d cells, want %d", got.CellsPath, len(compacted), len(cells))
+	}
+
+	cell := compacted[0]
+	if !cell.Throttled || cell.ClockSamples == 0 {
+		t.Errorf("the verdict did not survive compaction: %+v", cell.Throttle)
+	}
+	over := cell.Throttle.Thermal()
+	if len(over) != 1 || over[0].GPU != 3 || over[0].MinSMClockMHz != 960 {
+		t.Errorf("the per-card evidence did not survive compaction: %+v", cell.Throttle.GPUs)
+	}
+	if len(over[0].Reasons) == 0 {
+		t.Error("the driver's own words for why the card was held back did not survive compaction")
 	}
 }
 
