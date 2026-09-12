@@ -322,7 +322,9 @@ re-verify warning because three of its claims moved within four weeks during res
 **The field is convergent.** Every system above scores replicas by predicted prefix reuse and
 penalizes by load. Policy 4 is that same shape. The two real axes of variation are approximate
 router-side index versus exact engine-published events, and how aggressively the load term overrides
-the locality term — precisely this project's `KV_HIGH_WATER` and `LOAD_IMBALANCE_FACTOR`.
+the locality term — precisely this project's two spill thresholds. idea.md §4.1 names them
+`KV_HIGH_WATER` and `LOAD_IMBALANCE_FACTOR`; the first is now an honoured low-water mark, because
+the gauge the spec reached for measures the running batch rather than cache residency (ADR-0011).
 
 **And the ablation this project runs has already been published, at datacentre scale.** Saying
 otherwise would be wrong and instantly caught:
@@ -422,7 +424,7 @@ cached cells from their own rows rather than costing another hour of GPU time
 cmd/bench ──► router (:8080) ──► replica-0..5 (:8000..:8005, one GPU each)
     │             │                   │
     │             │                   └─ /v1/chat/completions (SSE), /metrics
-    │             └─ six policies, exact per-replica inflight, scraped KV utilization,
+    │             └─ six policies, exact per-replica inflight, per-replica honoured rate,
     │                health checks and ejection, per-request JSONL rows
     └─ closed-loop and open-loop drivers, per-cell caching, nvidia-smi sampling
 
@@ -473,7 +475,7 @@ ops/prometheus.sh up     # on the fleet host, loopback only
 make dashboards-up       # on the workstation: ssh tunnel + Grafana
 ```
 
-Five panels: per-replica KV utilization and inflight, prefix cache hit rate, TTFT p50/p99, decision
+Five panels: per-replica batch KV occupancy and inflight, prefix cache hit rate, TTFT p50/p99, decision
 mix, router overhead. It is for watching and nothing else — no sweep reads it, and the rows stay the
 system of record, because a panel's p99 is interpolated from a sample every few seconds and the
 rows' is exact.
@@ -484,9 +486,13 @@ rows' is exact.
   project. A test compares the bytes from the router against the bytes from the replica.
 - **The decision reason is a return value, not a log line.** The mix of affinity, cold, spill and
   untokenized decisions is a reported result, so a policy returns it alongside the replica.
-- **Inflight is counted, never scraped; KV utilization is scraped, never counted.** The router is the
-  sole ingress, so it knows exactly what it dispatched; cache occupancy is the one load signal it
-  cannot derive locally.
+- **Inflight is counted, never scraped; cache residency is fed back, never guessed.** The router is
+  the sole ingress, so it knows exactly what it dispatched. What it cannot know locally is whether a
+  replica still holds what the index believes it holds — and the engine's own gauge does not say
+  either: `vllm:kv_cache_usage_perc` counts the blocks held by the running batch, so it tracks
+  inflight at r = 0.973 and is blind to residency. The spill rule therefore reads the share of its
+  own claims each replica turns out to be honouring, taken from the usage block of every response it
+  already proxies (ADR-0011).
 - **Dropped, failed, cancelled and SLO-violating never share a column.** Under overload a replica
   rejects in milliseconds; fold those into a latency distribution and an overloaded fleet looks
   *faster*.
