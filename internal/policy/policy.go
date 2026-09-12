@@ -256,11 +256,11 @@ type Options struct {
 	// PrefixIndex is the index prefix affinity routes on. Required by that
 	// policy and ignored by the others, which route on the fleet snapshot alone.
 	PrefixIndex *prefix.Index
-	// Hash is the window and weighting the stateless prefix hash routes at.
+	// HashPoint is the window and weighting the stateless prefix hash routes at.
 	// Required by that policy, which will not invent either, and ignored by the
-	// others. See Hash: neither figure is a measurement, and neither is
+	// others. See HashPoint: neither figure is a measurement, and neither is
 	// defaulted.
-	Hash Hash
+	HashPoint HashPoint
 	// Spill is the pressure at which prefix affinity is declined. Its zero value
 	// is no spill rule, which is the policy measured before one existed, so this
 	// is optional where PrefixIndex is required: an unset threshold is a
@@ -286,13 +286,13 @@ func ByName(name string, opts Options) (Policy, error) {
 	case SessionAffinityName:
 		return NewSessionAffinity(), nil
 	case PrefixHashName:
-		if err := opts.Hash.Validate(); err != nil {
+		if err := opts.HashPoint.Validate(); err != nil {
 			return nil, err
 		}
-		if !opts.Hash.Stated() {
+		if !opts.HashPoint.Stated() {
 			return nil, fmt.Errorf("policy: %s needs a hash window: how many leading blocks it covers is a number nobody has published, so it is stated for every run rather than defaulted", PrefixHashName)
 		}
-		return NewPrefixHash(opts.Hash), nil
+		return NewPrefixHash(opts.HashPoint), nil
 	case PrefixAffinityName:
 		if opts.PrefixIndex == nil {
 			return nil, fmt.Errorf("policy: %s needs a prefix index, and its bounds are measurements rather than defaults: build one with prefix.Calibration", PrefixAffinityName)

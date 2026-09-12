@@ -130,7 +130,8 @@ func (m DecisionMix) SpillRate() float64 {
 }
 
 // String renders only the reasons that actually fired, so a policy's mix reads
-// as its own decisions rather than as six zeros belonging to other policies.
+// as its own decisions rather than as a row of zeros belonging to other
+// policies.
 func (m DecisionMix) String() string {
 	parts := make([]string, 0, 12)
 	for _, named := range []struct {

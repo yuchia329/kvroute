@@ -25,7 +25,7 @@ import (
 // through the spec a command takes it as.
 func TestAHashPointSurvivesItsSpec(t *testing.T) {
 	for _, weight := range bench.HashWeightGrid {
-		want := policy.Hash{LeadingBlocks: bench.HashLeadingBlocks, HashWeight: weight}
+		want := policy.HashPoint{LeadingBlocks: bench.HashLeadingBlocks, HashWeight: weight}
 		got, err := bench.ParseHash(bench.FormatHash(want))
 		if err != nil {
 			t.Fatalf("ParseHash(%q): %v", bench.FormatHash(want), err)
@@ -50,7 +50,7 @@ func TestAnUnreadableHashPointIsRefused(t *testing.T) {
 // so both are checked against it.
 func TestTheStatedWindowFitsTheWorkloadItIsRunAgainst(t *testing.T) {
 	const declaredBytesPerToken = 4
-	window := policy.Hash{LeadingBlocks: bench.HashLeadingBlocks}.WindowBytes()
+	window := policy.HashPoint{LeadingBlocks: bench.HashLeadingBlocks}.WindowBytes()
 
 	// The shared system prompt is the one opening many unrelated sessions send
 	// byte for byte. A window inside it would hash them to one key and
@@ -82,7 +82,7 @@ func TestTheWeightAxisCarriesBothOfItsControls(t *testing.T) {
 		t.Errorf("the weight axis tops out at %v, below the concurrency the sweep runs at, so it never reaches the pure-hash end", top)
 	}
 	for _, weight := range bench.HashWeightGrid {
-		if err := (policy.Hash{LeadingBlocks: bench.HashLeadingBlocks, HashWeight: weight}).Validate(); err != nil {
+		if err := (policy.HashPoint{LeadingBlocks: bench.HashLeadingBlocks, HashWeight: weight}).Validate(); err != nil {
 			t.Errorf("the axis carries a point the router would refuse: %v", err)
 		}
 	}
@@ -93,8 +93,8 @@ func TestTheWeightAxisCarriesBothOfItsControls(t *testing.T) {
 // so nothing else stands between a mistyped flag and an axis whose cells all ran
 // at one point.
 func TestASweepRefusesARouterAtADifferentHashPoint(t *testing.T) {
-	running := policy.Hash{LeadingBlocks: 16, HashWeight: 4}
-	labelled := policy.Hash{LeadingBlocks: 16, HashWeight: 12}
+	running := policy.HashPoint{LeadingBlocks: 16, HashWeight: 4}
+	labelled := policy.HashPoint{LeadingBlocks: 16, HashWeight: 12}
 
 	err := hashCheckUnderTest(t, policy.PrefixHashName, running, labelled)
 	if err == nil {
@@ -106,7 +106,7 @@ func TestASweepRefusesARouterAtADifferentHashPoint(t *testing.T) {
 }
 
 func TestASweepAtTheRoutersOwnHashPointIsAllowed(t *testing.T) {
-	running := policy.Hash{LeadingBlocks: 16, HashWeight: 4}
+	running := policy.HashPoint{LeadingBlocks: 16, HashWeight: 4}
 	if err := hashCheckUnderTest(t, policy.PrefixHashName, running, running); err != nil {
 		t.Fatalf("a matching hash point was refused: %v", err)
 	}
@@ -116,10 +116,10 @@ func TestASweepAtTheRoutersOwnHashPointIsAllowed(t *testing.T) {
 // one — a cell labelled with a window nothing applied is the same fiction the
 // spill check refuses.
 func TestASweepMayNotLabelAPolicyThatHashesNothing(t *testing.T) {
-	if err := hashCheckUnderTest(t, policy.RoundRobinName, policy.Hash{}, policy.Hash{}); err != nil {
+	if err := hashCheckUnderTest(t, policy.RoundRobinName, policy.HashPoint{}, policy.HashPoint{}); err != nil {
 		t.Fatalf("a policy with no hash point was refused: %v", err)
 	}
-	err := hashCheckUnderTest(t, policy.RoundRobinName, policy.Hash{}, policy.Hash{LeadingBlocks: 16, HashWeight: 4})
+	err := hashCheckUnderTest(t, policy.RoundRobinName, policy.HashPoint{}, policy.HashPoint{LeadingBlocks: 16, HashWeight: 4})
 	if err == nil {
 		t.Fatal("round robin's cells were allowed to name a hash point, and it hashes nothing")
 	}
@@ -128,7 +128,7 @@ func TestASweepMayNotLabelAPolicyThatHashesNothing(t *testing.T) {
 // The cell carries the point it ran at, because the weight axis is a table
 // indexed by it.
 func TestACellRecordsTheHashPointItRanAt(t *testing.T) {
-	point := policy.Hash{LeadingBlocks: 16, HashWeight: 12}
+	point := policy.HashPoint{LeadingBlocks: 16, HashWeight: 12}
 	dir := t.TempDir()
 	if err := hashSweepInto(t, dir, point, point); err != nil {
 		t.Fatalf("sweep: %v", err)
@@ -145,11 +145,11 @@ func TestACellRecordsTheHashPointItRanAt(t *testing.T) {
 // send nothing, and draw a weight axis that is one weight plotted five times.
 func TestASweepRefusesToResumeCellsOfAnotherHashPoint(t *testing.T) {
 	dir := t.TempDir()
-	first := policy.Hash{LeadingBlocks: 16, HashWeight: 4}
+	first := policy.HashPoint{LeadingBlocks: 16, HashWeight: 4}
 	if err := hashSweepInto(t, dir, first, first); err != nil {
 		t.Fatalf("first sweep: %v", err)
 	}
-	second := policy.Hash{LeadingBlocks: 16, HashWeight: 12}
+	second := policy.HashPoint{LeadingBlocks: 16, HashWeight: 12}
 	err := hashSweepInto(t, dir, second, second)
 	if err == nil {
 		t.Fatal("a sweep at a second weight resumed the first one's cells, so its axis would be one point plotted twice")
@@ -161,17 +161,17 @@ func TestASweepRefusesToResumeCellsOfAnotherHashPoint(t *testing.T) {
 
 // hashCheckUnderTest starts a router at one hash point and asks a sweep labelled
 // with another to run against it, returning what the sweep refused to do.
-func hashCheckUnderTest(t *testing.T, policyName string, running, labelled policy.Hash) error {
+func hashCheckUnderTest(t *testing.T, policyName string, running, labelled policy.HashPoint) error {
 	t.Helper()
 	return hashSweepAgainst(t, t.TempDir(), policyName, running, labelled)
 }
 
-func hashSweepInto(t *testing.T, dir string, running, labelled policy.Hash) error {
+func hashSweepInto(t *testing.T, dir string, running, labelled policy.HashPoint) error {
 	t.Helper()
 	return hashSweepAgainst(t, dir, policy.PrefixHashName, running, labelled)
 }
 
-func hashSweepAgainst(t *testing.T, dir, policyName string, running, labelled policy.Hash) error {
+func hashSweepAgainst(t *testing.T, dir, policyName string, running, labelled policy.HashPoint) error {
 	t.Helper()
 	_, replicaURL := fakeReplicaServer(t)
 	target := routerHashing(t, policyName, running, "replica-0="+replicaURL)
@@ -180,7 +180,7 @@ func hashSweepAgainst(t *testing.T, dir, policyName string, running, labelled po
 		Dir:           dir,
 		Target:        target,
 		Policy:        policyName,
-		Hash:          labelled,
+		HashPoint:     labelled,
 		Concurrencies: []int{1},
 		Repetitions:   1,
 		CellDuration:  20 * time.Millisecond,
@@ -191,7 +191,7 @@ func hashSweepAgainst(t *testing.T, dir, policyName string, running, labelled po
 }
 
 // routerHashing serves a router at a named policy and hash point.
-func routerHashing(t *testing.T, policyName string, point policy.Hash, specs ...string) string {
+func routerHashing(t *testing.T, policyName string, point policy.HashPoint, specs ...string) string {
 	t.Helper()
 	replicas, err := fleet.ParseSpecs(specs)
 	if err != nil {
@@ -205,7 +205,7 @@ func routerHashing(t *testing.T, policyName string, point policy.Hash, specs ...
 	if err != nil {
 		t.Fatalf("prefix.New: %v", err)
 	}
-	chosen, err := policy.ByName(policyName, policy.Options{PrefixIndex: index, Hash: point})
+	chosen, err := policy.ByName(policyName, policy.Options{PrefixIndex: index, HashPoint: point})
 	if err != nil {
 		t.Fatalf("policy.ByName: %v", err)
 	}

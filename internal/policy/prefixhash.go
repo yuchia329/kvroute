@@ -11,7 +11,7 @@ import (
 // PrefixHashName is the configuration name of the stateless prefix-hash policy.
 const PrefixHashName = "prefix_hash"
 
-// Hash is the grid point the stateless prefix hash routes at: how much of a
+// HashPoint is the grid point the stateless prefix hash routes at: how much of a
 // prompt the hash reads, and what the hash is worth against load.
 //
 // Both are judgements rather than measurements, which puts them in the same
@@ -20,7 +20,7 @@ const PrefixHashName = "prefix_hash"
 // window especially — OpenAI's documented router hashes "the initial tokens" and
 // no number has ever been published for it, so any default here would be a guess
 // wearing a citation.
-type Hash struct {
+type HashPoint struct {
 	// LeadingBlocks is how many of the prompt's leading prefix blocks the hash
 	// covers, in the prefix index's own blocks (prefix.BlockBytes each).
 	//
@@ -47,10 +47,10 @@ type Hash struct {
 
 // Stated reports whether a window was set. Its zero value is not a policy: a
 // hash over no blocks is no hash at all.
-func (h Hash) Stated() bool { return h.LeadingBlocks > 0 }
+func (h HashPoint) Stated() bool { return h.LeadingBlocks > 0 }
 
 // Validate refuses a point that cannot mean what it says.
-func (h Hash) Validate() error {
+func (h HashPoint) Validate() error {
 	if h.LeadingBlocks < 0 {
 		return fmt.Errorf("policy: the hash window is a count of leading prefix blocks and cannot be negative, got %d", h.LeadingBlocks)
 	}
@@ -63,11 +63,11 @@ func (h Hash) Validate() error {
 // WindowBytes is how much prompt the window covers. The grid point is written in
 // blocks and the policy reads a prompt in bytes, and a window nobody can convert
 // is a window nobody can check against a prompt.
-func (h Hash) WindowBytes() int { return h.LeadingBlocks * prefix.BlockBytes }
+func (h HashPoint) WindowBytes() int { return h.LeadingBlocks * prefix.BlockBytes }
 
 // String renders the grid point, with the window in blocks and in the bytes it
 // covers.
-func (h Hash) String() string {
+func (h HashPoint) String() string {
 	if !h.Stated() {
 		return "off"
 	}
@@ -84,7 +84,7 @@ func (h Hash) String() string {
 // every caller a struct of which half is always zero, which is how a cell ends
 // up labelled with a threshold nothing applied.
 type HashTuned interface {
-	HashTunables() Hash
+	HashTunables() HashPoint
 }
 
 // PrefixHash routes on a hash of the prompt's leading blocks combined with
@@ -92,8 +92,8 @@ type HashTuned interface {
 //
 // It is the control that isolates what the prefix index buys. Policy 4 tracks
 // believed residency in a trie and decays it; this tracks nothing, and the pair
-// therefore asks what tracking belief is worth over a content hash that costs a
-// ring walk. With exact residency above it the project has a ladder of how much
+// therefore asks what tracking belief is worth over a stateless prefix hash that
+// costs a ring walk. With exact residency above it the project has a ladder of how much
 // residency knowledge a router has: none, believed, exact.
 //
 // It is deliberately outside idea.md §5's five and nothing downstream depends on
@@ -110,7 +110,7 @@ type HashTuned interface {
 // that: a stateless prefix hash with a load term, of the kind a frontier lab has
 // documented running, not theirs.
 type PrefixHash struct {
-	point Hash
+	point HashPoint
 	// ring places the hash on the fleet, and is session affinity's own. The two
 	// policies differ in what they hash — a session id against a prompt's
 	// leading blocks — and must not differ in how they place it: a replica
@@ -126,12 +126,12 @@ type PrefixHash struct {
 
 // NewPrefixHash builds the stateless prefix-hash policy at a grid point. The
 // point is validated by ByName, which is how a router gets one.
-func NewPrefixHash(point Hash) *PrefixHash { return &PrefixHash{point: point} }
+func NewPrefixHash(point HashPoint) *PrefixHash { return &PrefixHash{point: point} }
 
 func (p *PrefixHash) Name() string { return PrefixHashName }
 
 // HashTunables reports the grid point this policy is running.
-func (p *PrefixHash) HashTunables() Hash { return p.point }
+func (p *PrefixHash) HashTunables() HashPoint { return p.point }
 
 // Choose ranks the replicas by where the prompt's leading blocks hash onto the
 // ring, and takes the first one that load does not argue against.

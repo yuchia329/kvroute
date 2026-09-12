@@ -175,7 +175,7 @@ func TestByNameResolvesEveryPolicyTheComparisonReports(t *testing.T) {
 		PrefixIndex:    prefixIndex(t),
 		ResidencyIndex: residencyIndex,
 		Tokenizer:      tokenizer(),
-		Hash:           policy.Hash{LeadingBlocks: 16, HashWeight: 4},
+		HashPoint:      policy.HashPoint{LeadingBlocks: 16, HashWeight: 4},
 	}
 	for _, name := range policy.Order {
 		p, err := policy.ByName(name, options)

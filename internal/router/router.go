@@ -109,17 +109,17 @@ type Stats struct {
 	// router was never running would be a tradeoff curve drawn from one point
 	// measured nine times, and no later analysis could detect it.
 	Spill *policy.Spill `json:"spill,omitempty"`
-	// Hash is the grid point the stateless prefix hash is running: how many
+	// HashPoint is the grid point the stateless prefix hash is running: how many
 	// leading blocks it hashes and what that hash is worth against load. Absent
 	// under every other policy, which hash nothing.
 	//
 	// Published for the reason Spill is, and it is the whole configuration of
 	// that policy: its cells are a table indexed by these two numbers, and they
 	// reach the router as flags on a separate process.
-	Hash           *policy.Hash   `json:"hash,omitempty"`
-	Replicas       []ReplicaStats `json:"replicas"`
-	Requests       int64          `json:"requests"`
-	RouterOverhead stats.Summary  `json:"router_overhead"`
+	HashPoint      *policy.HashPoint `json:"hash,omitempty"`
+	Replicas       []ReplicaStats    `json:"replicas"`
+	Requests       int64             `json:"requests"`
+	RouterOverhead stats.Summary     `json:"router_overhead"`
 	// PrefixIndex is the belief the running policy routes on: how many blocks it
 	// currently holds, and the cap and TTL it holds them under. Absent under the
 	// three policies that consult no index, which is not the same as an index
@@ -281,7 +281,7 @@ func (rt *Router) Stats() Stats {
 		s := tuned.Tunables()
 		spill = &s
 	}
-	var hashPoint *policy.Hash
+	var hashPoint *policy.HashPoint
 	if tuned, ok := rt.policy.(policy.HashTuned); ok {
 		h := tuned.HashTunables()
 		hashPoint = &h
@@ -298,7 +298,7 @@ func (rt *Router) Stats() Stats {
 	return Stats{
 		Policy:         rt.policy.Name(),
 		Spill:          spill,
-		Hash:           hashPoint,
+		HashPoint:      hashPoint,
 		Replicas:       replicas,
 		Requests:       rt.requests.Load(),
 		RouterOverhead: rt.overhead.Summary(),

@@ -22,8 +22,8 @@ const testWindow = 4
 
 // hashPoint is the grid point the tests route at, with the weight named at each
 // call because the weight is the policy.
-func hashPoint(weight float64) policy.Hash {
-	return policy.Hash{LeadingBlocks: testWindow, HashWeight: weight}
+func hashPoint(weight float64) policy.HashPoint {
+	return policy.HashPoint{LeadingBlocks: testWindow, HashWeight: weight}
 }
 
 // openingOf renders a chat body that opens with one conversation's own text and
@@ -239,7 +239,7 @@ func TestAPromptShorterThanTheWindowIsRoutedOnLoadAndSaysSo(t *testing.T) {
 		seen[choice.Replica.ID]++
 	}
 	if len(seen) < 2 {
-		t.Errorf("every unhashable prompt landed on one replica: %v", seen)
+		t.Errorf("every prompt below the window landed on one replica: %v", seen)
 	}
 }
 
@@ -385,7 +385,7 @@ func TestPrefixHashIsSafeUnderConcurrentUse(t *testing.T) {
 // The walk of the ring is on the request path, so it is held to the same budget
 // the index lookup is.
 func TestTheRingWalkStaysInsideTheRouterOverheadBudget(t *testing.T) {
-	p := policy.NewPrefixHash(policy.Hash{LeadingBlocks: 16, HashWeight: 4})
+	p := policy.NewPrefixHash(policy.HashPoint{LeadingBlocks: 16, HashWeight: 4})
 	state := sixReplicas()
 	bodies := make([][]byte, 0, 200)
 	for _, opening := range openings(200) {
@@ -412,13 +412,13 @@ func TestByNameNeedsAStatedWindowForPrefixHash(t *testing.T) {
 	if _, err := policy.ByName(policy.PrefixHashName, policy.Options{}); err == nil {
 		t.Error("the stateless hash was built with no window, so its cells would state a number nothing set")
 	}
-	if _, err := policy.ByName(policy.PrefixHashName, policy.Options{Hash: policy.Hash{LeadingBlocks: -1}}); err == nil {
+	if _, err := policy.ByName(policy.PrefixHashName, policy.Options{HashPoint: policy.HashPoint{LeadingBlocks: -1}}); err == nil {
 		t.Error("a negative window was accepted")
 	}
-	if _, err := policy.ByName(policy.PrefixHashName, policy.Options{Hash: policy.Hash{LeadingBlocks: 16, HashWeight: -1}}); err == nil {
+	if _, err := policy.ByName(policy.PrefixHashName, policy.Options{HashPoint: policy.HashPoint{LeadingBlocks: 16, HashWeight: -1}}); err == nil {
 		t.Error("a negative weight was accepted, which would prefer the replicas the hash ranked last")
 	}
-	p, err := policy.ByName(policy.PrefixHashName, policy.Options{Hash: policy.Hash{LeadingBlocks: 16, HashWeight: 4}})
+	p, err := policy.ByName(policy.PrefixHashName, policy.Options{HashPoint: policy.HashPoint{LeadingBlocks: 16, HashWeight: 4}})
 	if err != nil {
 		t.Fatalf("ByName: %v", err)
 	}

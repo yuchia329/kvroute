@@ -54,34 +54,34 @@ var HashWeightGrid = []float64{0, 1, 4, 12, 32}
 // Here rather than in each command, for the reason ParseSpill is here: two
 // parsers for one format are two places for a stray space or a negative to be
 // accepted by one and rejected by the other.
-func ParseHash(spec string) (policy.Hash, error) {
+func ParseHash(spec string) (policy.HashPoint, error) {
 	blocks, weight, found := strings.Cut(strings.TrimSpace(spec), "/")
 	if !found {
-		return policy.Hash{}, fmt.Errorf("bench: a hash grid point is written as <leading-blocks>/<weight>, got %q", spec)
+		return policy.HashPoint{}, fmt.Errorf("bench: a hash grid point is written as <leading-blocks>/<weight>, got %q", spec)
 	}
 	leading, err := strconv.Atoi(strings.TrimSpace(blocks))
 	if err != nil {
-		return policy.Hash{}, fmt.Errorf("bench: %q is not a count of leading prefix blocks: %w", blocks, err)
+		return policy.HashPoint{}, fmt.Errorf("bench: %q is not a count of leading prefix blocks: %w", blocks, err)
 	}
 	w, err := strconv.ParseFloat(strings.TrimSpace(weight), 64)
 	if err != nil {
-		return policy.Hash{}, fmt.Errorf("bench: %q is not a hash weight: %w", weight, err)
+		return policy.HashPoint{}, fmt.Errorf("bench: %q is not a hash weight: %w", weight, err)
 	}
-	point := policy.Hash{LeadingBlocks: leading, HashWeight: w}
+	point := policy.HashPoint{LeadingBlocks: leading, HashWeight: w}
 	if err := point.Validate(); err != nil {
-		return policy.Hash{}, err
+		return policy.HashPoint{}, err
 	}
 	if !point.Stated() {
 		// Zero is how a cell records that it ran a policy with no hash at all, so
 		// a point deliberately written as zero would be indistinguishable from
 		// every round-robin cell ever recorded.
-		return policy.Hash{}, fmt.Errorf("bench: a window of %d blocks is not a point on the axis: it is how a cell records that its policy hashed nothing", point.LeadingBlocks)
+		return policy.HashPoint{}, fmt.Errorf("bench: a window of %d blocks is not a point on the axis: it is how a cell records that its policy hashed nothing", point.LeadingBlocks)
 	}
 	return point, nil
 }
 
 // FormatHash renders a point into the spec the commands take, so a flag's
 // default can be the package's own value rather than a second copy that drifts.
-func FormatHash(p policy.Hash) string {
+func FormatHash(p policy.HashPoint) string {
 	return strconv.Itoa(p.LeadingBlocks) + "/" + strconv.FormatFloat(p.HashWeight, 'g', -1, 64)
 }

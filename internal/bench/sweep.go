@@ -571,11 +571,11 @@ type SweepConfig struct {
 	// is why checkRouter verifies it against what the router reports, and why
 	// this cannot be left to be inferred.
 	Spill policy.Spill
-	// Hash is the stateless prefix hash's grid point, told to the sweep for the
-	// reason Spill is: the router is a separate process started with its own
+	// HashPoint is the stateless prefix hash's grid point, told to the sweep for
+	// the reason Spill is: the router is a separate process started with its own
 	// flags, and checkRouter verifies this against what it reports. Its zero
 	// value is a router that hashes nothing, which is every policy but that one.
-	Hash          policy.Hash
+	HashPoint     policy.HashPoint
 	Contamination ContaminationConfig
 	// FleetKVEvents is whether the fleet is publishing its KV cache events, and
 	// what every cell is labelled with. Told rather than probed, like the model
@@ -925,13 +925,13 @@ func checkCachedWorkload(cfg SweepConfig) error {
 		// hashes nothing carries a zero window and never compares against one
 		// that does, because the two differ in their policy and so in their id.
 		if cached.HashLeadingBlocks != 0 &&
-			(cached.HashLeadingBlocks != cfg.Hash.LeadingBlocks || cached.HashWeight != cfg.Hash.HashWeight) {
+			(cached.HashLeadingBlocks != cfg.HashPoint.LeadingBlocks || cached.HashWeight != cfg.HashPoint.HashWeight) {
 			return fmt.Errorf("bench: %s already holds cells run at a different hash grid point, and the point is not in the workload's name, so these cells would be resumed as though they were this sweep's own (cell %s).\n"+
 				"  cell ran:          %v\n"+
 				"  this sweep offers: %v\n"+
 				"Sweep each point into its own -dir. The weighting between the hash and the load term is the whole of that policy, so two weights are two measurements and not two repetitions of one",
 				cfg.Dir, cached.ID,
-				policy.Hash{LeadingBlocks: cached.HashLeadingBlocks, HashWeight: cached.HashWeight}, cfg.Hash)
+				policy.HashPoint{LeadingBlocks: cached.HashLeadingBlocks, HashWeight: cached.HashWeight}, cfg.HashPoint)
 		}
 		// And the cell's length and warm-up, which no byte of the workload shows
 		// either. A cell's measured window is its length less its warm-up, so a
@@ -1031,7 +1031,7 @@ func checkRouter(ctx context.Context, cfg SweepConfig) error {
 		}
 	}
 	cfg.Log.Info("router is up and running the policy these cells will name",
-		"router", cfg.Target, "policy", stats.Policy, "spill", cfg.Spill, "hash", cfg.Hash, "replicas", len(stats.Replicas))
+		"router", cfg.Target, "policy", stats.Policy, "spill", cfg.Spill, "hash", cfg.HashPoint, "replicas", len(stats.Replicas))
 	return nil
 }
 
@@ -1070,20 +1070,20 @@ func checkGridPoint(cfg SweepConfig, stats router.Stats) error {
 // would turn the axis this policy exists to sweep into one point measured five
 // times, in numbers that are all real.
 func checkHashPoint(cfg SweepConfig, stats router.Stats) error {
-	running := policy.Hash{}
-	if stats.Hash != nil {
-		running = *stats.Hash
+	running := policy.HashPoint{}
+	if stats.HashPoint != nil {
+		running = *stats.HashPoint
 	}
-	if running == cfg.Hash {
+	if running == cfg.HashPoint {
 		return nil
 	}
-	if stats.Hash == nil {
+	if stats.HashPoint == nil {
 		return fmt.Errorf("bench: the router at %s reports no hash point, because %s hashes nothing, but this sweep would label its cells %v",
-			cfg.Target, stats.Policy, cfg.Hash)
+			cfg.Target, stats.Policy, cfg.HashPoint)
 	}
 	return fmt.Errorf("bench: the router at %s is hashing at %v, but this sweep would label its cells %v. "+
 		"The window and the weight reach the router as its own flags and the sweep is only told what they were, so one of the two is wrong — and a weight axis whose cells all ran at one point is that point measured five times",
-		cfg.Target, running, cfg.Hash)
+		cfg.Target, running, cfg.HashPoint)
 }
 
 // readRouterStats asks the router what it can say about a cell from its own
@@ -1288,8 +1288,8 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		KVHighWater:         cfg.Spill.KVHighWater,
 		LoadImbalanceFactor: cfg.Spill.LoadImbalanceFactor,
 
-		HashLeadingBlocks: cfg.Hash.LeadingBlocks,
-		HashWeight:        cfg.Hash.HashWeight,
+		HashLeadingBlocks: cfg.HashPoint.LeadingBlocks,
+		HashWeight:        cfg.HashPoint.HashWeight,
 
 		ArrivalPlan:    arrivalPlanFor(load),
 		ThinkTimeNs:    thinkTimeFor(load, cfg.ThinkTime).Nanoseconds(),

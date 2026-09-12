@@ -113,7 +113,7 @@ func run() error {
 
 	// Parsed before anything runs, so an unreadable grid point fails here rather
 	// than after the sweep has written cells labelled with it.
-	var hashPoint policy.Hash
+	var hashPoint policy.HashPoint
 	if *hashSpec != "" {
 		if hashPoint, err = bench.ParseHash(*hashSpec); err != nil {
 			return err
@@ -264,7 +264,7 @@ func run() error {
 		Target:               *target,
 		Policy:               *policyName,
 		Spill:                spill,
-		Hash:                 hashPoint,
+		HashPoint:            hashPoint,
 		FleetKVEvents:        *fleetEvents,
 		Replicas:             bases,
 		Concurrencies:        concurrencies,

@@ -95,7 +95,7 @@ func run() error {
 		return err
 	}
 	options.Spill = policy.Spill{KVHighWater: *kvHighWater, LoadImbalanceFactor: *loadImbalanceFactor}
-	options.Hash = policy.Hash{LeadingBlocks: *hashLeadingBlocks, HashWeight: *hashWeight}
+	options.HashPoint = policy.HashPoint{LeadingBlocks: *hashLeadingBlocks, HashWeight: *hashWeight}
 
 	// Exact residency's index is fed by every engine's event stream, and it is
 	// started — and connected — before the policy routes anything on it.
@@ -149,7 +149,7 @@ func run() error {
 	// And the same for the hash point, one policy over. A weight set on a policy
 	// that hashes nothing is a run whose cells would name a grid point no
 	// decision was made at.
-	if _, tuned := chosen.(policy.HashTuned); (options.Hash.Stated() || options.Hash.HashWeight != 0) && !tuned {
+	if _, tuned := chosen.(policy.HashTuned); (options.HashPoint.Stated() || options.HashPoint.HashWeight != 0) && !tuned {
 		return fmt.Errorf("-hash-leading-blocks and -hash-weight configure %s, and %s hashes nothing: it would ignore them and its cells would be labelled with a grid point nothing applied", policy.PrefixHashName, *policyName)
 	}
 	records, err := record.Open[record.Request](*recordsPath)
@@ -210,7 +210,7 @@ func run() error {
 		"addr", *listen,
 		"policy", chosen.Name(),
 		"spill", options.Spill,
-		"hash", options.Hash,
+		"hash", options.HashPoint,
 		"replicas", len(replicas),
 		"records", *recordsPath,
 	)
