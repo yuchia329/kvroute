@@ -3,6 +3,24 @@
 
 GO      ?= go
 BIN     := bin
+
+# Which machine's binaries the run targets invoke.
+#
+# A workstation has a Go toolchain and a checkout, so `build` compiles $(BIN)/bench
+# and `make bench` runs it. The fleet host has neither: ~/kvroute there is scp'd
+# files rather than a clone, and the only binaries on it are the
+# $(BIN)/*$(LINUX_EXE) that `make linux` cross-compiled and someone copied across.
+# So every run target names $(BIN)/<command>$(EXE), and on the box that resolves to
+# the cross-compiled one.
+#
+# The switch is the toolchain rather than the operating system, because the box's
+# mark is that it cannot build: a Linux workstation with Go should behave like
+# this Mac, and does. Override it either way when the guess is wrong —
+# `make chaos BOX=1 ...` to force the cross-compiled binaries, BOX=0 to force
+# this machine's.
+LINUX_EXE := -linux-amd64
+BOX ?= $(if $(shell command -v $(GO) 2>/dev/null),0,1)
+EXE := $(if $(filter 1,$(BOX)),$(LINUX_EXE),)
 INDEX   ?= 0
 LISTEN  ?= :8080
 REPLICAS ?= replica-0=http://127.0.0.1:8000
@@ -161,27 +179,62 @@ CONTENTION_ARGS ?=
 help: ## List targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
+# Every run target depends on this, so on the box it has to step aside rather
+# than fail: there is nothing to build there and nothing that needs building.
+# It still refuses when the cross-compiled binaries are absent, because the
+# alternative is each target failing separately with "no such file".
 .PHONY: build
-build: ## Build the router and the fake replica for this machine
+build: ## Build every command for this machine, or on the box check the cross-compiled ones are there
+ifeq ($(BOX),1)
+	@ls $(BIN)/*$(EXE) >/dev/null 2>&1 || { echo "build: no Go toolchain here and no $(BIN)/*$(EXE) to run. Run 'make box-sync' from a machine with Go and a checkout." >&2; exit 1; }
+	@echo "build: no Go toolchain here, so running the $(BIN)/*$(EXE) that 'make linux' cross-compiled"
+else
 	$(GO) build -o $(BIN)/ ./cmd/...
+endif
 
 .PHONY: router-linux
 router-linux: ## Cross-compile a static router for the GPU box
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/router-linux-amd64 ./cmd/router
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/router$(LINUX_EXE) ./cmd/router
+
+# Read from cmd/ rather than listed. A target that names $(BIN)/x$(EXE) and finds
+# nothing there is the same failure #32 was, and the list this target used to
+# carry had already fallen four commands behind cmd/ — disagg, overhead,
+# spillsignal and fakereplica were all missing, so four targets could never have
+# run on the box however they were spelled.
+LINUX_CMDS = $(notdir $(wildcard cmd/*))
 
 .PHONY: linux
 linux: ## Cross-compile every command for the GPU box, which has no Go toolchain
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/router-linux-amd64 ./cmd/router
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/bench-linux-amd64 ./cmd/bench
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/preflight-linux-amd64 ./cmd/preflight
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/characterize-linux-amd64 ./cmd/characterize
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/compare-linux-amd64 ./cmd/compare
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/calibrate-linux-amd64 ./cmd/calibrate
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/divergence-linux-amd64 ./cmd/divergence
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/pressuremap-linux-amd64 ./cmd/pressuremap
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/chaos-linux-amd64 ./cmd/chaos
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/recovery-linux-amd64 ./cmd/recovery
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/roofline-linux-amd64 ./cmd/roofline
+	@for cmd in $(LINUX_CMDS); do \
+	  echo "CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/$$cmd$(LINUX_EXE) ./cmd/$$cmd"; \
+	  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -o $(BIN)/$$cmd$(LINUX_EXE) ./cmd/$$cmd || exit 1; \
+	done
+
+# Putting the repo on the fleet host. ~/kvroute there is not a checkout and never
+# becomes one: it is the Makefile, ops/ and the cross-compiled binaries, beside
+# the run directories and logs the sweeps have written. This copies exactly the
+# first three.
+#
+# The Makefile is one of them because without it none of the run targets exist
+# there, which is what #32 was: every run on the box was driven by a hand-written
+# script because `make bench` was not a thing you could type on it.
+#
+# No --delete, ever. The box's runs/ and its logs sit in the same directory and
+# are the only copy of hours of measurement. Nothing at the box's top level is
+# touched either, which is where its own drivers run from — bash reads a script
+# as it executes it, so overwriting a running one corrupts it mid-run. Copy those
+# across by hand, one at a time, when nothing is running: see ops/box/README.md.
+BOX_HOST ?= nlp
+BOX_DIR  ?= kvroute
+
+.PHONY: box-sync
+box-sync: linux ## Cross-compile, then copy the Makefile, ops/ and the box's binaries to BOX_HOST
+	rsync -az --info=stats1 --relative Makefile ops $(BIN)/*$(LINUX_EXE) $(BOX_HOST):$(BOX_DIR)/
+	@echo ""
+	@echo "== on $(BOX_HOST), from ~/$(BOX_DIR), the run targets now work as they do here:"
+	@echo "     make bench SLO_FROM=... POLICY=..."
+	@echo "     ops/pressure-grid.sh <policy>"
+	@echo "     ops/chaos.sh <policy> kill SLO_FROM=..."
 
 .PHONY: test
 test: ## Run the full suite under the race detector
@@ -260,16 +313,16 @@ dashboards-status: ## Show the tunnel, Prometheus and Grafana
 # two disagree. That refusal is the whole reason it is spelled twice rather than
 # inferred once — see checkGridPoint.
 #
-#	make run-router POLICY=prefix_affinity KV_HIGH_WATER=0.80 LOAD_IMBALANCE=2.0
-#	make tunables   KV_HIGH_WATER=0.80 LOAD_IMBALANCE=2.0
-KV_HIGH_WATER ?=
+#	make run-router POLICY=prefix_affinity HONOURED_LOW_WATER=0.40 LOAD_IMBALANCE=2.0
+#	make tunables   HONOURED_LOW_WATER=0.40 LOAD_IMBALANCE=2.0
+HONOURED_LOW_WATER ?=
 LOAD_IMBALANCE ?=
-SPILL_ARGS = $(if $(KV_HIGH_WATER),-kv-high-water $(KV_HIGH_WATER),) $(if $(LOAD_IMBALANCE),-load-imbalance-factor $(LOAD_IMBALANCE),)
+SPILL_ARGS = $(if $(HONOURED_LOW_WATER),-honoured-low-water $(HONOURED_LOW_WATER),) $(if $(LOAD_IMBALANCE),-load-imbalance-factor $(LOAD_IMBALANCE),)
 # Each half defaults to 0 — the value that disables that condition — so a
 # one-sided grid point reaches the sweep as it reaches the router. Interpolating
 # an empty half would emit "-spill 0.80/" and fail in ParseSpill, leaving a rule
 # the router will happily run unreachable from the harness.
-SPILL_LABEL = $(if $(KV_HIGH_WATER)$(LOAD_IMBALANCE),-spill $(if $(KV_HIGH_WATER),$(KV_HIGH_WATER),0)/$(if $(LOAD_IMBALANCE),$(LOAD_IMBALANCE),0),)
+SPILL_LABEL = $(if $(HONOURED_LOW_WATER)$(LOAD_IMBALANCE),-spill $(if $(HONOURED_LOW_WATER),$(HONOURED_LOW_WATER),0)/$(if $(LOAD_IMBALANCE),$(LOAD_IMBALANCE),0),)
 
 # The stateless prefix hash's own grid point (#26): how many leading 64-byte
 # prefix blocks it hashes, and what that hash is worth against load in inflight
@@ -323,28 +376,33 @@ TUNABLES_CONCURRENCY ?= 32
 TUNABLES_GEOMETRY = -workload multiturn -turns-per-session 4 -prompt-tokens 448 \
 	-output-tokens 64 -branching 0.3 -shared-system-prompt 0.3 -seed 1 \
 	-kv-capacity $(KV_CAPACITY)
-TUNABLES_KV_WORKLOAD   = $(TUNABLES_GEOMETRY) -working-set 3 -skew 0
+TUNABLES_RESIDENCY_WORKLOAD = $(TUNABLES_GEOMETRY) -working-set 3 -skew 0
 TUNABLES_LOAD_WORKLOAD = $(TUNABLES_GEOMETRY) -working-set 1 -skew 1.4
 
-.PHONY: tunables-kv
-tunables-kv: build ## Run one point of the KV high-water sweep (WS 3, skew 0)
-	@test -n "$(KV_HIGH_WATER)" || { echo "tunables-kv: set KV_HIGH_WATER to a level from bench.KVHighWaterGrid, or to 0 for the spill-off reference cell" >&2; exit 1; }
-	@test -z "$(LOAD_IMBALANCE)" || { echo "tunables-kv: LOAD_IMBALANCE must stay unset; this point measures the high-water mark alone" >&2; exit 1; }
-	$(BIN)/bench -router $(ROUTER) -dir $(TUNABLES_DIR)/kv -policy prefix_affinity $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
+# The residency sweep's own point. Its levels are not chosen yet: #16's were cut
+# against a gauge nobody had seen the range of and two of the three could not
+# fire, so bench.HonouredLowWaterGrid is empty until a run says where the
+# honoured rate sits. Run this at HONOURED_LOW_WATER=0 first — that is the
+# observing pass — then read the range off it with `make spill-signal`.
+.PHONY: tunables-residency
+tunables-residency: build ## Run one point of the residency sweep (WS 3, skew 0)
+	@test -n "$(HONOURED_LOW_WATER)" || { echo "tunables-residency: set HONOURED_LOW_WATER to a level from bench.HonouredLowWaterGrid, or to 0 for the spill-off reference cell that the grid is cut from" >&2; exit 1; }
+	@test -z "$(LOAD_IMBALANCE)" || { echo "tunables-residency: LOAD_IMBALANCE must stay unset; this point measures the low-water mark alone" >&2; exit 1; }
+	$(BIN)/bench$(EXE) -router $(ROUTER) -dir $(TUNABLES_DIR)/residency -policy prefix_affinity $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		-concurrency $(TUNABLES_CONCURRENCY) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
 		-repetitions $(REPS) \
-		$(TUNABLES_KV_WORKLOAD) \
+		$(TUNABLES_RESIDENCY_WORKLOAD) \
 		$(if $(SLO_FROM),-slo-from $(SLO_FROM),) \
 		$(BENCH_ARGS)
 
 .PHONY: tunables-load
 tunables-load: build ## Run one point of the load imbalance sweep (WS 1, skew 1.4)
 	@test -n "$(LOAD_IMBALANCE)" || { echo "tunables-load: set LOAD_IMBALANCE to a level from bench.LoadImbalanceGrid, or to 0 for the spill-off reference cell" >&2; exit 1; }
-	@test -z "$(KV_HIGH_WATER)" || { echo "tunables-load: KV_HIGH_WATER must stay unset; this point measures the imbalance factor alone" >&2; exit 1; }
-	$(BIN)/bench -router $(ROUTER) -dir $(TUNABLES_DIR)/load -policy prefix_affinity $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
+	@test -z "$(HONOURED_LOW_WATER)" || { echo "tunables-load: HONOURED_LOW_WATER must stay unset; this point measures the imbalance factor alone" >&2; exit 1; }
+	$(BIN)/bench$(EXE) -router $(ROUTER) -dir $(TUNABLES_DIR)/load -policy prefix_affinity $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		-concurrency $(TUNABLES_CONCURRENCY) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
@@ -373,7 +431,7 @@ HASH_DIR ?= runs/hash-weight
 hash-weight: build ## Run one point of the stateless hash's weight sweep (WS 1, skew 1.4)
 	@test -n "$(HASH_BLOCKS)" || { echo "hash-weight: set HASH_BLOCKS to the window the run states, bench.HashLeadingBlocks" >&2; exit 1; }
 	@test -n "$(HASH_WEIGHT)" || { echo "hash-weight: set HASH_WEIGHT to a level from bench.HashWeightGrid; 0 is the least-outstanding end of the axis and is a point, not an unset flag" >&2; exit 1; }
-	$(BIN)/bench -router $(ROUTER) -dir $(HASH_DIR)/w$(HASH_WEIGHT) -policy prefix_hash $(HASH_LABEL) $(FLEET_KV_EVENTS_LABEL) \
+	$(BIN)/bench$(EXE) -router $(ROUTER) -dir $(HASH_DIR)/w$(HASH_WEIGHT) -policy prefix_hash $(HASH_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		-concurrency $(TUNABLES_CONCURRENCY) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
@@ -491,7 +549,7 @@ pressure-grid: build ## Run one point of the pressure grid: PRESSURE_WS x PRESSU
 	@test -n "$(PRESSURE_WS)" || { echo "pressure-grid: set PRESSURE_WS to a point of bench.PressureWorkingSets (0.25, 1, 3 or 8)" >&2; exit 1; }
 	@test -n "$(PRESSURE_SKEW)" || { echo "pressure-grid: set PRESSURE_SKEW to a point of bench.PressureSkews (0, 1 or 1.4)" >&2; exit 1; }
 	@test -n "$(KV_CAPACITY)" || { echo "pressure-grid: KV_CAPACITY is required, or the cells state no working set and the map has no axis" >&2; exit 1; }
-	$(BIN)/bench -router $(ROUTER) -dir $(PRESSURE_DIR)/ws$(PRESSURE_WS)-skew$(PRESSURE_SKEW) \
+	$(BIN)/bench$(EXE) -router $(ROUTER) -dir $(PRESSURE_DIR)/ws$(PRESSURE_WS)-skew$(PRESSURE_SKEW) \
 		-policy $(POLICY) $(PRESSURE_SPILL_LABEL) $(PRESSURE_HASH_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		-concurrency $(PRESSURE_CONCURRENCY) \
 		-model "$$(ops/fleet.sh env MODEL)" \
@@ -524,7 +582,7 @@ PRESSURE_MAP_ARGS ?=
 .PHONY: pressure-map
 pressure-map: build ## Draw the pressure map across every point of the grid that has been run
 	@test -n "$(PRESSURE_MAP_DIRS)" || { echo "pressure-map: no grid points under $(PRESSURE_DIR); run pressure-grid first" >&2; exit 1; }
-	$(BIN)/pressuremap -out $(PRESSURE_MAP_OUT) $(PRESSURE_MAP_ARGS) $(PRESSURE_MAP_DIRS)
+	$(BIN)/pressuremap$(EXE) -out $(PRESSURE_MAP_OUT) $(PRESSURE_MAP_ARGS) $(PRESSURE_MAP_DIRS)
 
 # The chaos test (#19, idea.md §7): one replica taken away under steady
 # open-loop load and brought back, once per policy, and the recovery curves
@@ -558,7 +616,7 @@ CHAOS_STOP   = $(if $(filter drain,$(CHAOS_FAULT)),ops/replica.sh down $(CHAOS_G
 .PHONY: chaos
 chaos: build ## Take one replica away under load and record its recovery: CHAOS_FAULT=kill|drain
 	@test -n "$(SLO_FROM)" || { echo "chaos: SLO_FROM is required: goodput is defined by the SLO, and a recovery curve without one has nothing to plot" >&2; exit 1; }
-	$(BIN)/chaos -router $(ROUTER) -dir $(CHAOS_DIR)/$(CHAOS_FAULT)-$(POLICY) -policy $(POLICY) \
+	$(BIN)/chaos$(EXE) -router $(ROUTER) -dir $(CHAOS_DIR)/$(CHAOS_FAULT)-$(POLICY) -policy $(POLICY) \
 		-replica replica-$(CHAOS_GPU) -fault $(CHAOS_FAULT) \
 		-stop-cmd "$(CHAOS_STOP)" -start-cmd "ops/replica.sh up $(CHAOS_GPU)" \
 		-arrival-rate $(CHAOS_RATE) $(CHAOS_RUN) \
@@ -572,7 +630,7 @@ chaos: build ## Take one replica away under load and record its recovery: CHAOS_
 .PHONY: recovery
 recovery: build ## Compare the recovery curves of every policy that ran CHAOS_FAULT
 	@test -n "$(wildcard $(CHAOS_DIR)/$(CHAOS_FAULT)-*)" || { echo "recovery: no $(CHAOS_FAULT) runs under $(CHAOS_DIR); run ops/chaos.sh first" >&2; exit 1; }
-	$(BIN)/recovery -out runs/recovery-$(CHAOS_FAULT).md $(wildcard $(CHAOS_DIR)/$(CHAOS_FAULT)-*)
+	$(BIN)/recovery$(EXE) -out runs/recovery-$(CHAOS_FAULT).md $(wildcard $(CHAOS_DIR)/$(CHAOS_FAULT)-*)
 
 # idea.md §8's arithmetic (#22): what moving a request's KV from one card of
 # this host to another costs, next to the prefill before it. Like compare it
@@ -584,11 +642,11 @@ DISAGG_DIR ?= docs/measurements/2026-09-11-pcie-arithmetic
 .PHONY: disagg
 disagg: build ## Set a request's KV transfer against its prefill, from DISAGG_DIR's measured bandwidth and prefill
 	@test -d "$(DISAGG_DIR)" || { echo "disagg: no measurement in $(DISAGG_DIR); run ops/pcie/measure.sh on the box first" >&2; exit 1; }
-	$(BIN)/disagg -out $(DISAGG_DIR)/report.md $(DISAGG_DIR)
+	$(BIN)/disagg$(EXE) -out $(DISAGG_DIR)/report.md $(DISAGG_DIR)
 
 .PHONY: bench
 bench: build ## Sweep concurrency against the running fleet, resuming from RUN_DIR
-	$(BIN)/bench -router $(ROUTER) -dir $(RUN_DIR) -policy $(POLICY) $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
+	$(BIN)/bench$(EXE) -router $(ROUTER) -dir $(RUN_DIR) -policy $(POLICY) $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
@@ -599,7 +657,7 @@ bench: build ## Sweep concurrency against the running fleet, resuming from RUN_D
 
 .PHONY: goodput
 goodput: build ## Offer a ladder of arrival rates open-loop and record goodput at each, resuming from GOODPUT_DIR
-	$(BIN)/bench -router $(ROUTER) -dir $(GOODPUT_DIR) -policy $(POLICY) -driver open_loop $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
+	$(BIN)/bench$(EXE) -router $(ROUTER) -dir $(GOODPUT_DIR) -policy $(POLICY) -driver open_loop $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		$(if $(GOODPUT_RATES),-arrival-rates $(GOODPUT_RATES),) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
@@ -641,11 +699,11 @@ DIVERGENCE_JSON ?= runs/divergence.json
 
 .PHONY: compare
 compare: build ## Put the swept policies' goodput in one comparison table
-	$(BIN)/compare -out $(COMPARE_OUT) $(COMPARE_DIRS)
+	$(BIN)/compare$(EXE) -out $(COMPARE_OUT) $(COMPARE_DIRS)
 
 .PHONY: characterize
 characterize: build ## Measure KV capacity, the latency floor, the SLO and replica symmetry
-	$(BIN)/characterize -dir $(CHAR_DIR) \
+	$(BIN)/characterize$(EXE) -dir $(CHAR_DIR) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
@@ -653,7 +711,7 @@ characterize: build ## Measure KV capacity, the latency floor, the SLO and repli
 
 .PHONY: contention
 contention: build ## Drive all six replicas at once and compare NUMA nodes
-	$(BIN)/characterize -dir $(CONTENTION_DIR) -schedule together \
+	$(BIN)/characterize$(EXE) -dir $(CONTENTION_DIR) -schedule together \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
@@ -673,14 +731,29 @@ replica-status: ## Show which replicas are running
 
 .PHONY: calibrate
 calibrate: build ## Measure the prefix index's node cap and TTL off the fleet and a sweep
-	$(BIN)/calibrate -replicas "$$(ops/fleet.sh replicas)" \
+	$(BIN)/calibrate$(EXE) -replicas "$$(ops/fleet.sh replicas)" \
 		-from $(CALIBRATE_FROM) \
 		$(if $(wildcard $(DIVERGENCE_JSON)),-divergence $(DIVERGENCE_JSON),) \
 		-out $(PREFIX_CALIBRATION)
 
 .PHONY: divergence
 divergence: build ## Measure how far the router's index was from what the engines held
-	$(BIN)/divergence -out $(DIVERGENCE_OUT) -calibration-out $(DIVERGENCE_JSON) $(DIVERGENCE_DIRS)
+	$(BIN)/divergence$(EXE) -out $(DIVERGENCE_OUT) -calibration-out $(DIVERGENCE_JSON) $(DIVERGENCE_DIRS)
+
+# Where the residency grid's levels come from, and the check that the spill
+# rule's two branches read two signals rather than one in two units.
+#
+# SPILL_SIGNAL_ROWS names the router rows to read: the observing pass at WS 3,
+# skew 0 with the condition off. Start the router for that pass with
+# -scrape-batch-kv, so the gauge the branch used to read is on the same rows as
+# the signal that replaced it and the two correlations are measured against the
+# same decisions.
+SPILL_SIGNAL_ROWS ?= $(TUNABLES_DIR)/residency/router.jsonl
+SPILL_SIGNAL_OUT  ?= $(TUNABLES_DIR)/residency/spill-signal.md
+
+.PHONY: spill-signal
+spill-signal: build ## Report what the spill rule's two branches were reading, and the range its grid is cut from
+	$(BIN)/spillsignal$(EXE) -out $(SPILL_SIGNAL_OUT) $(SPILL_SIGNAL_ROWS)
 
 # Every published figure, regenerated from the committed measurements with one
 # command — no fleet and no GPU, only a checkout, Go and uv. The Go commands
@@ -712,6 +785,9 @@ FIGURES_CHAOS_ROUTER_ROWS ?= docs/measurements/2026-09-11-chaos-recovery/evidenc
 FIGURES_RECOVERY ?= docs/measurements/2026-09-11-chaos-recovery/kill-session_affinity docs/measurements/2026-09-11-chaos-recovery/kill-prefix_affinity-spilloff
 FIGURES_PYTHON ?= 3.12
 
+# Workstation only, and the one target that stays that way: it compiles the four
+# commands it needs for this machine rather than naming $(EXE), because a figure
+# is drawn from committed records on a checkout and never on the box.
 .PHONY: figures
 figures: ## Regenerate every published figure from the committed measurements, into FIGURES_DIR
 	@command -v uv >/dev/null || { echo "figures: needs uv, which runs analysis/figures.py with its own pinned matplotlib" >&2; exit 1; }
@@ -732,7 +808,7 @@ figures-test: ## Test the plotting script
 .PHONY: run-router
 run-router: build ## Run the router against REPLICAS, keeping its own rows in RECORDS
 	@mkdir -p $(dir $(RECORDS))
-	$(BIN)/router -listen $(LISTEN) -replicas $(REPLICAS) -policy $(POLICY) -records $(RECORDS) \
+	$(BIN)/router$(EXE) -listen $(LISTEN) -replicas $(REPLICAS) -policy $(POLICY) -records $(RECORDS) \
 		$(if $(wildcard $(PREFIX_CALIBRATION)),-prefix-calibration $(PREFIX_CALIBRATION),) \
 		$(if $(filter exact_residency,$(POLICY)),$(KV_EVENTS_ARGS),) \
 		$(SPILL_ARGS) $(HASH_ARGS)
@@ -748,7 +824,7 @@ KV_EVENTS_ARGS = -kv-events "$$(ops/fleet.sh kv-events)" \
 
 .PHONY: run-fake
 run-fake: build ## Run one fake replica on :8000, for driving the router without a GPU
-	$(BIN)/fakereplica -listen :8000 -id replica-0 -ttft 200ms -inter-token 20ms -output-tokens 64
+	$(BIN)/fakereplica$(EXE) -listen :8000 -id replica-0 -ttft 200ms -inter-token 20ms -output-tokens 64
 
 .PHONY: clean
 clean: ## Remove build output

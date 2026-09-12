@@ -218,7 +218,7 @@ type Cell struct {
 	ArrivalRate float64 `json:"arrival_rate" parquet:"arrival_rate"`
 	Repetition  int     `json:"repetition" parquet:"repetition"`
 	Workload    string  `json:"workload" parquet:"workload"`
-	// KVHighWater and LoadImbalanceFactor are the spill grid point this cell
+	// HonouredLowWater and LoadImbalanceFactor are the spill grid point this cell
 	// ran at, flattened for the reason the load axis is. Both zero under a
 	// policy with no spill rule, and under prefix affinity run without one.
 	//
@@ -226,7 +226,7 @@ type Cell struct {
 	// tunable sweep is a table whose rows are these two numbers: a directory of
 	// cells that did not each carry the point they ran at could not be read as
 	// a grid at all, and two grid points' cells would differ in nothing.
-	KVHighWater         float64 `json:"kv_high_water" parquet:"kv_high_water"`
+	HonouredLowWater    float64 `json:"honoured_low_water" parquet:"honoured_low_water"`
 	LoadImbalanceFactor float64 `json:"load_imbalance_factor" parquet:"load_imbalance_factor"`
 	// HashLeadingBlocks and HashWeight are the stateless prefix hash's grid
 	// point: how many leading prefix blocks it hashed, and what that hash was
@@ -389,6 +389,11 @@ type Cell struct {
 
 	Summary       `json:"summary"`
 	Contamination `json:"contamination"`
+	// Throttle is what the fleet's cards said about their own clocks while this
+	// cell ran. Beside the cleanliness evidence rather than inside it: a cell can
+	// be clean and thermally throttled at the same time, and each is its own
+	// reason not to average the cell in (#25).
+	Throttle `json:"throttle"`
 }
 
 // PrefixCache is what the fleet's prefix caches served over this cell,
@@ -575,7 +580,7 @@ type SweepConfig struct {
 	// the reason Spill is: the router is a separate process started with its own
 	// flags, and checkRouter verifies this against what it reports. Its zero
 	// value is a router that hashes nothing, which is every policy but that one.
-	HashPoint     policy.HashPoint
+	HashPoint          policy.HashPoint
 	Contamination ContaminationConfig
 	// FleetKVEvents is whether the fleet is publishing its KV cache events, and
 	// what every cell is labelled with. Told rather than probed, like the model
@@ -1239,7 +1244,7 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 	} else {
 		results, runErr = RunClosedLoop(ctx, driver)
 	}
-	contamination := watcher.Stop()
+	contamination, throttle := watcher.Stop()
 	served := prefixCache.Stop(ctx)
 	// The index is read after the cell rather than before it, because the
 	// question is how much belief the run built up and not how much it started
@@ -1285,7 +1290,7 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		WorkingSet:  OfferedWorkingSet(cfg.Workload),
 		Skew:        OfferedSkew(cfg.Workload),
 
-		KVHighWater:         cfg.Spill.KVHighWater,
+		HonouredLowWater:    cfg.Spill.HonouredLowWater,
 		LoadImbalanceFactor: cfg.Spill.LoadImbalanceFactor,
 
 		HashLeadingBlocks: cfg.HashPoint.LeadingBlocks,
@@ -1323,8 +1328,10 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 
 		Summary:       Summarize(results, cfg.summaryOptions()),
 		Contamination: contamination,
+		Throttle:      throttle,
 	}
 	flagContamination(&cell)
+	flagThrottle(&cell)
 	flagFleetChanges(&cell)
 	flagResidency(&cell)
 
@@ -1334,7 +1341,7 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 	cfg.Log.Info("cell complete", "cell", id, "driver", cell.Driver,
 		"requests", cell.Requests, "successes", cell.Successes,
 		"dropped", cell.Dropped, "failed", cell.Failed, "slo_violations", cell.SLOViolations,
-		"goodput_rps", cell.GoodputRPS, "clean", cell.Clean, "flagged", cell.Flagged)
+		"goodput_rps", cell.GoodputRPS, "clean", cell.Clean, "throttled", cell.Throttled, "flagged", cell.Flagged)
 	return cell, nil
 }
 
@@ -1343,6 +1350,16 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 // cards said.
 func flagContamination(cell *Cell) {
 	for _, reason := range cell.Contamination.Reasons() {
+		cell.Flag(reason)
+	}
+}
+
+// flagThrottle adds the reasons the cards' own clocks give for not averaging
+// this cell in. Separate from flagContamination because the two are separate
+// defects: one is somebody else on the box, the other is a card that cannot
+// keep up with its siblings.
+func flagThrottle(cell *Cell) {
+	for _, reason := range cell.Throttle.Reasons() {
 		cell.Flag(reason)
 	}
 }
@@ -1483,6 +1500,7 @@ func resummarize(cellDir string, cached Cell, cfg SweepConfig) (Cell, error) {
 	}
 	cached.Summary = Summarize(rows, cfg.summaryOptions())
 	flagContamination(&cached)
+	flagThrottle(&cached)
 	flagFleetChanges(&cached)
 	flagResidency(&cached)
 	if err := writeCell(cellDir, cached); err != nil {

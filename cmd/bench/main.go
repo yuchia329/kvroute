@@ -59,7 +59,7 @@ func run() error {
 		replicaSpecs = flag.String("replicas", "", "the same -replicas spec the router was given; each is asked for /health before the sweep starts, and scraped for its prefix-cache counters around every cell")
 		dir          = flag.String("dir", "runs/concurrency", "where cells are written and resumed from")
 		policyName   = flag.String("policy", "round_robin", "the policy the router is running; recorded as the cell's label")
-		spillSpec    = flag.String("spill", "", "the spill grid point the router is running, written <kv-high-water>/<load-imbalance-factor>; recorded as the cell's label and checked against the router before the first cell. Empty means a router with no spill rule")
+		spillSpec    = flag.String("spill", "", "the spill grid point the router is running, written <honoured-low-water>/<load-imbalance-factor>; recorded as the cell's label and checked against the router before the first cell. Empty means a router with no spill rule")
 		hashSpec     = flag.String("hash", "", "the hash grid point the router is running, written <leading-blocks>/<weight>; recorded as the cell's label and checked against the router before the first cell. Empty means a router that hashes nothing, which is every policy but "+policy.PrefixHashName+". Sweep each point into its own -dir")
 		driver       = flag.String("driver", string(bench.ClosedLoopDriver), "which axis to run: closed_loop holds virtual users at each -concurrency level, open_loop fires at each -arrival-rates level, both runs the two in one directory")
 		levels       = flag.String("concurrency", bench.FormatLevels(bench.ConcurrencySweep), "closed-loop axis: concurrency levels to sweep, holding that many virtual users")
@@ -77,6 +77,7 @@ func run() error {
 		failureAt = flag.Float64("failure-threshold", bench.DefaultFailureThreshold, "failure rate above which a cell is flagged")
 		driftAt   = flag.Float64("warmup-drift-threshold", bench.DefaultWarmupDriftThreshold, "how much slower a cell's first measured half may be than its second before it is flagged as under-warmed; negative disables the check")
 		lagAt     = flag.Duration("schedule-lag-threshold", bench.DefaultScheduleLagThreshold, "how late an open-loop cell's requests may be sent against the schedule that asked for them, at p99, before the cell is flagged as not having offered the rate it reports; negative disables the check")
+		thermalAt = flag.Float64("thermal-share-threshold", bench.DefaultThermalShareThreshold, "share of its busy samples a GPU may spend thermally throttled before the cell is flagged as having run on a card slower than its siblings")
 
 		model        = flag.String("model", "", "the model the replicas serve; no default, it is pinned in ops/versions.env")
 		fleetEvents  = flag.Bool("fleet-kv-events", false, "whether the fleet is publishing its KV cache events: KV_EVENTS in ops/versions.env. Recorded on every cell, because it is an engine setting — a sweep refuses to resume, and compare to mix, cells recorded under the other value")
@@ -210,7 +211,7 @@ func run() error {
 		log.Warn("no -replicas given: the sweep will not check the fleet is up before it starts")
 	}
 
-	contamination := bench.ContaminationConfig{Interval: *interval}
+	contamination := bench.ContaminationConfig{Interval: *interval, ThermalShareThreshold: *thermalAt}
 	if *sampleGPUs {
 		if *gpus == "" {
 			return fmt.Errorf("bench: -gpu-indexes is required when sampling: pass \"$(ops/fleet.sh env REPLICA_GPUS)\", or run via make bench which does it for you")
@@ -230,7 +231,8 @@ func run() error {
 			// than not sampling: it looks like evidence.
 			return fmt.Errorf("bench: no replica pid files matched %q. Start the fleet with ops/fleet.sh up, or pass -sample-gpus=false to run without contamination evidence", *pidGlob)
 		}
-		log.Info("sampling GPUs for contamination", "gpus", gpu.FormatIndexes(contamination.GPUs), "replica_pids", contamination.OwnPIDs, "interval", *interval)
+		log.Info("sampling GPUs for contamination and throttling", "gpus", gpu.FormatIndexes(contamination.GPUs),
+			"replica_pids", contamination.OwnPIDs, "interval", *interval, "thermal_share_threshold", *thermalAt)
 	} else {
 		log.Warn("GPU sampling is off: every cell will record that its cleanliness is unproven")
 	}
@@ -264,7 +266,7 @@ func run() error {
 		Target:               *target,
 		Policy:               *policyName,
 		Spill:                spill,
-		HashPoint:            hashPoint,
+		HashPoint:                 hashPoint,
 		FleetKVEvents:        *fleetEvents,
 		Replicas:             bases,
 		Concurrencies:        concurrencies,

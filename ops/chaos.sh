@@ -26,7 +26,10 @@
 # at all. Run as one they would hide each other's numbers.
 #
 # It kills and restarts a replica of the fleet through ops/replica.sh, so it runs
-# on the fleet host, beside the router.
+# on the fleet host, beside the router. The box has no Go toolchain, so `make
+# chaos` there runs the cross-compiled bin/chaos-linux-amd64 rather than building
+# one; `make box-sync` from a checkout is what puts that binary, this script and
+# the Makefile on it (#32).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

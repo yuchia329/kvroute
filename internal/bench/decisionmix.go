@@ -43,14 +43,14 @@ type DecisionMix struct {
 	// these offered prompts the window never fitted, which is a fact about the
 	// workload rather than a hash that preferred nothing.
 	PromptUnhashed int `json:"prompt_unhashed" parquet:"prompt_unhashed"`
-	// SpillKV and SpillLoad are the two spill conditions, and they stay two
+	// SpillUnhonoured and SpillLoad are the two spill conditions, and they stay two
 	// columns all the way to the table. Collapsing them here would undo in the
 	// summary what the policy took two reasons to keep apart: the pressure grid
 	// crosses working set ratio with skew precisely because memory pressure and
 	// load imbalance are physically different and fire these two branches
 	// separately.
-	SpillKV   int `json:"spill_kv" parquet:"spill_kv"`
-	SpillLoad int `json:"spill_load" parquet:"spill_load"`
+	SpillUnhonoured int `json:"spill_unhonoured" parquet:"spill_unhonoured"`
+	SpillLoad       int `json:"spill_load" parquet:"spill_load"`
 	// PromptUntokenized is a request exact residency could not look up, because
 	// the engine did not tokenize its prompt in time. Its own column rather than
 	// cold, which says the index found nothing: a cell full of these had an index
@@ -83,8 +83,8 @@ func (m *DecisionMix) count(reason string) {
 		m.HashDeflected++
 	case policy.ReasonPromptUnhashed:
 		m.PromptUnhashed++
-	case policy.ReasonSpillKV:
-		m.SpillKV++
+	case policy.ReasonSpillUnhonoured:
+		m.SpillUnhonoured++
 	case policy.ReasonSpillLoad:
 		m.SpillLoad++
 	case policy.ReasonPromptUntokenized:
@@ -102,13 +102,13 @@ func (m *DecisionMix) count(reason string) {
 // Spilled is how many requests had a real prefix match declined, under either
 // condition. Derived rather than stored, so it cannot disagree with the two
 // counts it is the sum of.
-func (m DecisionMix) Spilled() int { return m.SpillKV + m.SpillLoad }
+func (m DecisionMix) Spilled() int { return m.SpillUnhonoured + m.SpillLoad }
 
 // Total is every request in the mix, which is every measured request of the
 // cell.
 func (m DecisionMix) Total() int {
 	return m.RoundRobin + m.LeastOutstanding + m.SessionAffinity + m.SessionUnidentified +
-		m.PrefixAffinity + m.Cold + m.SpillKV + m.SpillLoad + m.PromptUntokenized +
+		m.PrefixAffinity + m.Cold + m.SpillUnhonoured + m.SpillLoad + m.PromptUntokenized +
 		m.PrefixHash + m.HashDeflected + m.PromptUnhashed + m.Undecided
 }
 
@@ -130,8 +130,7 @@ func (m DecisionMix) SpillRate() float64 {
 }
 
 // String renders only the reasons that actually fired, so a policy's mix reads
-// as its own decisions rather than as a row of zeros belonging to other
-// policies.
+// as its own decisions rather than as six zeros belonging to other policies.
 func (m DecisionMix) String() string {
 	parts := make([]string, 0, 12)
 	for _, named := range []struct {
@@ -144,7 +143,7 @@ func (m DecisionMix) String() string {
 		{policy.ReasonSessionUnidentified, m.SessionUnidentified},
 		{policy.ReasonPrefixAffinity, m.PrefixAffinity},
 		{policy.ReasonCold, m.Cold},
-		{policy.ReasonSpillKV, m.SpillKV},
+		{policy.ReasonSpillUnhonoured, m.SpillUnhonoured},
 		{policy.ReasonSpillLoad, m.SpillLoad},
 		{policy.ReasonPromptUntokenized, m.PromptUntokenized},
 		{policy.ReasonPrefixHash, m.PrefixHash},

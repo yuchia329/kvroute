@@ -198,7 +198,7 @@ PY
     say "$POLICY: all 12 points done in $((elapsed/3600))h$(( (elapsed%3600)/60 ))m"
     say "=== grid arm complete ==="
     # The ladder, drawn as the pair it is about: what tracking belief buys over a
-    # stateless prefix hash that tracks nothing.
+    # content hash that tracks nothing.
     ./bin/pressuremap-linux-amd64 -out runs/pressuremap-hash.md \
       -baseline "$POLICY" -challenger prefix_affinity "$RUN"/ws*-skew* >> "$LOG" 2>&1 \
       || say "pressuremap exited non-zero (see $LOG): read the map's validity section before anything else"

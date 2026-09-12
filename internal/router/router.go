@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/yuchia329/kvroute/internal/belief"
 	"github.com/yuchia329/kvroute/internal/fleet"
 	"github.com/yuchia329/kvroute/internal/policy"
 	"github.com/yuchia329/kvroute/internal/prefix"
@@ -116,10 +117,10 @@ type Stats struct {
 	// Published for the reason Spill is, and it is the whole configuration of
 	// that policy: its cells are a table indexed by these two numbers, and they
 	// reach the router as flags on a separate process.
-	HashPoint      *policy.HashPoint `json:"hash,omitempty"`
-	Replicas       []ReplicaStats    `json:"replicas"`
-	Requests       int64             `json:"requests"`
-	RouterOverhead stats.Summary     `json:"router_overhead"`
+	HashPoint           *policy.HashPoint   `json:"hash,omitempty"`
+	Replicas       []ReplicaStats `json:"replicas"`
+	Requests       int64          `json:"requests"`
+	RouterOverhead stats.Summary  `json:"router_overhead"`
 	// PrefixIndex is the belief the running policy routes on: how many blocks it
 	// currently holds, and the cap and TTL it holds them under. Absent under the
 	// three policies that consult no index, which is not the same as an index
@@ -160,13 +161,23 @@ type IndexReporter interface {
 type ReplicaStats struct {
 	ID       string `json:"id"`
 	Inflight int    `json:"inflight"`
-	// KVUtilization is the replica's last scraped cache utilization, and
-	// KVUtilizationRead whether any scrape has answered for it. Reported here as
-	// well as on the rows so that a fleet whose scrapes have stopped answering
-	// is visible while a run is happening rather than only afterwards: the spill
-	// rule degrades silently by design, and this is where that shows.
-	KVUtilization     float64 `json:"kv_utilization"`
-	KVUtilizationRead bool    `json:"kv_utilization_read"`
+	// BatchKVOccupancy is the replica's last scraped batch KV occupancy, and
+	// BatchKVRead whether any scrape has answered for it. A load signal nothing
+	// routes on; see ADR-0011.
+	BatchKVOccupancy float64 `json:"batch_kv_occupancy"`
+	BatchKVRead      bool    `json:"batch_kv_read"`
+	// HonouredRate is how much of what the router has recently claimed of this
+	// replica the replica turned out to be holding, HonouredRead whether it has
+	// answered enough scoring requests to say, and HonouredClaims how many.
+	//
+	// Reported here as well as on the rows so that a fleet the signal has gone
+	// quiet on is visible while a run is happening rather than only afterwards.
+	// The spill rule degrades silently by design — an unread rate declines
+	// nothing — and this is the only place that shows before the rows are read
+	// back.
+	HonouredRate   float64 `json:"honoured_rate"`
+	HonouredRead   bool    `json:"honoured_read"`
+	HonouredClaims int     `json:"honoured_claims"`
 	// Draining and Ejected say whether the router is sending this replica new
 	// requests, and if not, why: an operator drained it, or it stopped answering.
 	// Both false is a replica in rotation. Two negative flags rather than one
@@ -298,7 +309,7 @@ func (rt *Router) Stats() Stats {
 	return Stats{
 		Policy:         rt.policy.Name(),
 		Spill:          spill,
-		HashPoint:      hashPoint,
+		HashPoint:           hashPoint,
 		Replicas:       replicas,
 		Requests:       rt.requests.Load(),
 		RouterOverhead: rt.overhead.Summary(),
@@ -315,13 +326,16 @@ func (rt *Router) handleStats(w http.ResponseWriter, _ *http.Request) {
 // statsOf is one member of the fleet as the router reports it.
 func statsOf(m fleet.Member) ReplicaStats {
 	return ReplicaStats{
-		ID:                m.ID,
-		Inflight:          m.Inflight,
-		KVUtilization:     m.KV.Fraction,
-		KVUtilizationRead: m.KV.Read,
-		Draining:          m.Draining,
-		Ejected:           m.Ejected,
-		Ejections:         m.Ejections,
+		ID:               m.ID,
+		Inflight:         m.Inflight,
+		BatchKVOccupancy: m.BatchKV.Fraction,
+		BatchKVRead:      m.BatchKV.Read,
+		HonouredRate:     m.Honoured.Fraction,
+		HonouredRead:     m.Honoured.Read,
+		HonouredClaims:   m.Honoured.Claims,
+		Draining:         m.Draining,
+		Ejected:          m.Ejected,
+		Ejections:        m.Ejections,
 	}
 }
 
@@ -401,6 +415,11 @@ func (rt *Router) handleChatCompletions(w http.ResponseWriter, req *http.Request
 	// valid is the replica's job, and its error is what the client should see.
 	_ = json.Unmarshal(body, &shape)
 	row.Model, row.Stream = shape.Model, shape.Stream
+	// The prompt's own length, which is what a byte-denominated prefix match has
+	// to be read through: the index counts in bytes and the engine answers in
+	// tokens, and this row is the only place the two can be joined for this one
+	// request. See belief.PredictedTokens.
+	row.PromptBytes = len(body)
 
 	// Resolved once, here, and then both recorded and handed to the policy. A
 	// policy that worked its own identity out could route on a session the row
@@ -571,9 +590,11 @@ func recordChoice(row *record.Request, choice policy.Choice) {
 	row.DecisionReason = string(choice.Reason)
 	row.Inflight = choice.Inflight
 	row.PrefixMatchBytes = choice.PrefixMatchBytes
-	row.KVUtilization, row.KVUtilizationRead = choice.KV.Fraction, choice.KV.Read
+	row.BatchKVOccupancy, row.BatchKVRead = choice.BatchKV.Fraction, choice.BatchKV.Read
+	row.HonouredRate, row.HonouredRead, row.HonouredClaims = choice.Honoured.Fraction, choice.Honoured.Read, choice.Honoured.Claims
 	row.DeclinedMatchBytes = choice.DeclinedMatchBytes
-	row.DeclinedKVUtilization, row.DeclinedKVRead = choice.DeclinedKV.Fraction, choice.DeclinedKV.Read
+	row.DeclinedBatchKVOccupancy, row.DeclinedBatchKVRead = choice.DeclinedBatchKV.Fraction, choice.DeclinedBatchKV.Read
+	row.DeclinedHonouredRate, row.DeclinedHonouredRead = choice.DeclinedHonoured.Fraction, choice.DeclinedHonoured.Read
 	row.DeclinedInflight = choice.DeclinedInflight
 	row.PrefixMatchTokens, row.DeclinedMatchTokens = choice.PrefixMatchTokens, choice.DeclinedMatchTokens
 	row.TokenizeNs = choice.Tokenize.Nanoseconds()
@@ -616,13 +637,15 @@ func (rt *Router) relay(w http.ResponseWriter, req *http.Request, row *record.Re
 		"replica", choice.Replica.ID,
 		"reason", choice.Reason,
 		"inflight", choice.Inflight,
-		"kv", choice.KV,
+		"honoured", choice.Honoured,
+		"batch_kv", choice.BatchKV,
 		"prefix_match_b", choice.PrefixMatchBytes,
 		"declined_match_b", choice.DeclinedMatchBytes,
 		"prefix_match_tok", choice.PrefixMatchTokens,
 		"declined_match_tok", choice.DeclinedMatchTokens,
 		"tokenize_us", float64(choice.Tokenize.Nanoseconds())/1000,
-		"declined_kv", choice.DeclinedKV,
+		"declined_honoured", choice.DeclinedHonoured,
+		"declined_batch_kv", choice.DeclinedBatchKV,
 		"declined_inflight", choice.DeclinedInflight,
 		"reroutes", row.Reroutes,
 		"stream", row.Stream,
@@ -638,7 +661,9 @@ func (rt *Router) relay(w http.ResponseWriter, req *http.Request, row *record.Re
 	w.Header().Set(ReroutesHeader, strconv.Itoa(row.Reroutes))
 	w.WriteHeader(resp.StatusCode)
 
-	written, firstByte, upstreamErr, clientErr := streamBody(w, p.body)
+	var tail usageTail
+	written, firstByte, upstreamErr, clientErr := streamBody(w, p.body, &tail)
+	rt.score(row, choice, &tail)
 	row.ResponseBytes = written
 	if !firstByte.IsZero() {
 		row.TTFTNs = firstByte.Sub(row.StartedAt).Nanoseconds()
@@ -681,6 +706,36 @@ func (rt *Router) relay(w http.ResponseWriter, req *http.Request, row *record.Re
 	}
 }
 
+// score folds this request's answer back into what the router believes about
+// the replica that served it: what the index claimed that replica was holding,
+// against what the engine's usage block says it actually had.
+//
+// This is the residency signal's whole feed. It rides responses the router
+// already proxies, so it costs no scrape and asks the engines for nothing they
+// are not already sending; what it costs is the tail buffer and one parse per
+// request, after the last byte has gone to the client.
+//
+// Silence at every step rather than an error. A response with no usage block, a
+// replica without --enable-prompt-tokens-details, a policy that claimed nothing
+// for this request, a prompt the row cannot convert: each of them means this
+// request has nothing to say about what its replica was holding, and the rate
+// hears nothing rather than a zero. That is the degradation the spill rule rests
+// on, and it is the same shape at every layer — an unfed rate goes unread, and
+// an unread rate declines nothing.
+func (rt *Router) score(row *record.Request, choice policy.Choice, tail *usageTail) {
+	usage, ok := readUsage(tail.buf)
+	if !ok {
+		return
+	}
+	claimed, converts := belief.PredictedTokens(choice.PrefixMatchBytes, choice.PrefixMatchTokens, row.PromptBytes, usage.PromptTokens)
+	if !converts {
+		return
+	}
+	if err := rt.fleet.ObserveHonoured(choice.Replica.ID, time.Now(), claimed, float64(usage.CachedTokens)); err != nil {
+		rt.log.Warn("could not record what a replica honoured", "replica", choice.Replica.ID, "request_id", row.RequestID, "err", err)
+	}
+}
+
 // drop answers a request the router could never place. The client sees the
 // router's own error because there is no upstream error to surface.
 func (rt *Router) drop(w http.ResponseWriter, row *record.Request, status int, err error) {
@@ -710,8 +765,14 @@ const streamBufferSize = 32 * 1024
 //
 // It reports the bytes written, when the first one left, and separately which
 // side broke if either did: an upstream error is the replica failing, a client
-// error is the client going away, and those are different outcomes.
-func streamBody(w http.ResponseWriter, body io.Reader) (written int64, firstByte time.Time, upstreamErr, clientErr error) {
+// error is the client going away, and those are different outcomes. It also
+// fills the tail the request's usage block is read back out of.
+// The tail is filled after the client's copy has gone out and been flushed, so
+// that reading the engine's own account of the request back off the stream
+// costs the client nothing in time to first token. The bytes the client
+// receives are the replica's, unchanged: nothing here rewrites, buffers or
+// reorders them.
+func streamBody(w http.ResponseWriter, body io.Reader, tail *usageTail) (written int64, firstByte time.Time, upstreamErr, clientErr error) {
 	flusher := http.NewResponseController(w)
 	buf := make([]byte, streamBufferSize)
 	for {
@@ -728,6 +789,7 @@ func streamBody(w http.ResponseWriter, body io.Reader) (written int64, firstByte
 			if flushErr := flusher.Flush(); flushErr != nil {
 				return written, firstByte, nil, flushErr
 			}
+			tail.Write(buf[:n])
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {

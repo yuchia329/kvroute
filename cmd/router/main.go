@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yuchia329/kvroute/internal/belief"
 	"github.com/yuchia329/kvroute/internal/fleet"
 	"github.com/yuchia329/kvroute/internal/httpserve"
 	"github.com/yuchia329/kvroute/internal/kvevents"
@@ -43,9 +44,17 @@ func run() error {
 		calibration = flag.String("prefix-calibration", "",
 			"path to the prefix index's calibration, as written by cmd/calibrate. Required by "+policy.PrefixAffinityName+
 				", which will not run on an index whose bounds were guessed")
-		kvHighWater = flag.Float64("kv-high-water", 0,
-			"KV utilization above which "+policy.PrefixAffinityName+" and "+policy.ExactResidencyName+" decline the best prefix match and route on load, as a fraction. "+
+		honouredLowWater = flag.Float64("honoured-low-water", 0,
+			"share of its recently claimed tokens a replica has to be honouring for "+policy.PrefixAffinityName+" and "+policy.ExactResidencyName+" to keep the best prefix match there; below it the match is declined and the request routed on load. "+
+				"A replica that has stopped honouring the index's beliefs is a replica that is evicting them (ADR-0011). "+
 				"0 disables the condition, which is the policy as it was measured before the spill rule existed")
+		honouredWindow = flag.Int("honoured-window", belief.DefaultWindow.Requests,
+			"how many of each replica's most recent scoring requests its honoured rate is taken over")
+		honouredTTL = flag.Duration("honoured-ttl", belief.DefaultWindow.TTL,
+			"how old a scoring request may be and still count towards a replica's honoured rate. "+
+				"It is what lets a replica the rule has spilled away from be believed again: it stops being sent matches, so nothing refreshes its rate, and the evidence has to age out on the clock")
+		honouredQuorum = flag.Int("honoured-quorum", belief.DefaultWindow.Quorum,
+			"the fewest scoring requests a replica's honoured rate may rest on. Below it the rate is unread, and an unread rate declines nothing")
 		loadImbalanceFactor = flag.Float64("load-imbalance-factor", 0,
 			"multiple of the fleet's minimum inflight above which "+policy.PrefixAffinityName+" and "+policy.ExactResidencyName+" decline the best prefix match and route on load. "+
 				"0 disables the condition")
@@ -66,8 +75,11 @@ func run() error {
 				"Required by that policy and not defaulted, because a size that disagreed with the engines' would refuse every event they sent")
 		kvEventsWait = flag.Duration("kv-events-wait", 30*time.Second,
 			"how long to wait at startup for every replica's event stream to connect before refusing to start")
-		kvScrapeInterval = flag.Duration("kv-scrape-interval", fleet.DefaultKVScrapeInterval,
-			"how often each replica's KV utilization is re-read. Only -kv-high-water reads it")
+		scrapeBatchKV = flag.Bool("scrape-batch-kv", false,
+			"scrape vllm:kv_cache_usage_perc onto every row. No policy routes on it — it counts the blocks held by the running batch, which the router already counts itself as inflight (ADR-0011) — so it is off unless a run wants the column, "+
+				"and the run that checks the two spill signals against each other is the one that does")
+		batchKVScrapeInterval = flag.Duration("batch-kv-scrape-interval", fleet.DefaultBatchKVScrapeInterval,
+			"how often each replica's batch KV occupancy is re-read. Only -scrape-batch-kv reads it")
 		healthInterval = flag.Duration("health-interval", fleet.DefaultHealthInterval,
 			"how often every replica's /health is checked. Two failed checks in a row eject a replica and two passed ones readmit it; a request that cannot reach a replica ejects it at once")
 		recordsPath  = flag.String("records", "", "path to append per-request JSONL rows to; empty discards them")
@@ -86,7 +98,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	f, err := fleet.New(replicas)
+	// The window the honoured rate is taken over is fixed here, at the fleet,
+	// because it is a property of the signal rather than of the rule that reads
+	// it: every row records the rate whether or not a threshold consults it, and
+	// two runs whose rates were averaged over different windows are not
+	// comparable even if neither spilled.
+	window := belief.Window{Requests: *honouredWindow, TTL: *honouredTTL, Quorum: *honouredQuorum}
+	f, err := fleet.New(replicas, fleet.WithHonouredWindow(window))
 	if err != nil {
 		return err
 	}
@@ -94,7 +112,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	options.Spill = policy.Spill{KVHighWater: *kvHighWater, LoadImbalanceFactor: *loadImbalanceFactor}
+	options.Spill = policy.Spill{HonouredLowWater: *honouredLowWater, LoadImbalanceFactor: *loadImbalanceFactor}
 	options.HashPoint = policy.HashPoint{LeadingBlocks: *hashLeadingBlocks, HashWeight: *hashWeight}
 
 	// Exact residency's index is fed by every engine's event stream, and it is
@@ -144,7 +162,7 @@ func run() error {
 	// one layer earlier. Asked of the policy itself, which is the one party that
 	// knows whether it has a rule to tune.
 	if _, tuned := chosen.(policy.Tuned); options.Spill.Enabled() && !tuned {
-		return fmt.Errorf("-kv-high-water and -load-imbalance-factor configure the spill rule, which %s does not have: it would ignore them and its cells would be labelled with thresholds nothing applied", *policyName)
+		return fmt.Errorf("-honoured-low-water and -load-imbalance-factor configure the spill rule, which %s does not have: it would ignore them and its cells would be labelled with thresholds nothing applied", *policyName)
 	}
 	// And the same for the hash point, one policy over. A weight set on a policy
 	// that hashes nothing is a run whose cells would name a grid point no
@@ -175,19 +193,22 @@ func run() error {
 	log.Info("checking replica health", "interval", *healthInterval,
 		"eject_after", fleet.EjectAfter, "readmit_after", fleet.ReadmitAfter)
 
-	// The KV signal is scraped only when something reads it. A fleet polled for a
-	// gauge no policy consults is six extra HTTP round trips per interval against
-	// the same engines the measurement comes off, which is a cost the run should
-	// not pay to populate a column nothing decides on.
-	if options.Spill.KVHighWater > 0 {
+	// The batch gauge is scraped only when a run asks for it. No policy routes on
+	// it, and a fleet polled for a gauge nothing decides on is six extra HTTP
+	// round trips per interval against the same engines the measurement comes
+	// off. It is worth that cost for exactly one thing — reading it beside the
+	// inflight on the same row, which is what ADR-0011's correlation is derived
+	// from and what any later re-derivation of it needs — so the run that checks
+	// the spill rule's signals turns it on and the rest do not.
+	if *scrapeBatchKV {
 		ctx, stopScraping := context.WithCancel(context.Background())
 		defer stopScraping()
-		go fleet.ScrapeKVUtilization(ctx, fleet.KVScrapeConfig{
+		go fleet.ScrapeBatchOccupancy(ctx, fleet.BatchKVScrapeConfig{
 			Fleet:    f,
-			Interval: *kvScrapeInterval,
+			Interval: *batchKVScrapeInterval,
 			Log:      log,
 		})
-		log.Info("scraping KV utilization", "interval", *kvScrapeInterval, "replicas", len(replicas))
+		log.Info("scraping batch KV occupancy", "interval", *batchKVScrapeInterval, "replicas", len(replicas))
 	}
 
 	rt, err := router.New(router.Config{
@@ -210,6 +231,7 @@ func run() error {
 		"addr", *listen,
 		"policy", chosen.Name(),
 		"spill", options.Spill,
+		"honoured_window", window,
 		"hash", options.HashPoint,
 		"replicas", len(replicas),
 		"records", *recordsPath,

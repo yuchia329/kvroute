@@ -229,8 +229,8 @@ far larger than either arm's run-to-run spread.
 - **Redundant prefill** there is now recomputed tokens **per request**, with the token total
   printed beside it ([#30](https://github.com/yuchia329/kvroute/issues/30)). It used to be the
   absolute total, and under this closed loop that credited the slower policy: prefix affinity
-  served 1.2–2.3× the requests at 11 of the 12 points, so its absolute recomputed prefill rose
-  with its own throughput.
+  served 1.2–2.3× the requests at 11 of the 12 points, so its absolute recompute rose with its
+  own throughput.
 
 ### Redundant prefill per request, re-read
 
@@ -239,7 +239,7 @@ policies. Every figure is recomputed from the cell records in `grid/` — reques
 `summary.requests`, recomputed from `prompt_tokens − prompt_tokens_cached`, usable repetitions
 pooled — so this is arithmetic over the existing run, not a re-measurement.
 
-| point | session requests | prefix requests | session / req | prefix / req | lower per request |
+| point | session requests | prefix requests | session / req | prefix / req | wastes less per request |
 |---|---:|---:|---:|---:|---|
 | WS 0.25, skew 0 | 25,735 | 24,922 | 10.2 | 78.7 | session |
 | WS 0.25, skew 1 | 11,602 | 26,061 | 37.6 | 52.8 | session |
@@ -254,7 +254,7 @@ pooled — so this is arithmetic over the existing run, not a re-measurement.
 | WS 8, skew 1 | 11,534 | 13,379 | 555.4 | 564.9 | session |
 | WS 8, skew 1.4 | 12,809 | 21,169 | 186.9 | 179.3 | **prefix** |
 
-Session affinity had the lower absolute recomputed prefill at **all 12** points. Per request it is lower at
+Session affinity had the lower absolute recompute at **all 12** points. Per request it is lower at
 **6**, and at WS ≥ 1 the two are within about 5% of each other everywhere. So the old column's
 claim — that session affinity wasted less prefill everywhere — was false, and the honest reading is
 that the two policies leave the fleet almost the same prefill work per request while prefix

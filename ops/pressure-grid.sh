@@ -20,8 +20,8 @@
 #      conversations.
 #
 #   1b. THE ROUTER RUNS THE SPILL CONFIGURATION bench.Chosen NAMES. Only prefix
-#      affinity has one: start it with -load-imbalance-factor 2 and no KV
-#      high-water mark. bench checks the label against what the router reports
+#      affinity has one: start it with -load-imbalance-factor 2 and no honoured
+#      low-water mark. bench checks the label against what the router reports
 #      before the first cell, so a mismatch fails loudly rather than recording
 #      36 cells under the wrong name.
 #
@@ -37,6 +37,11 @@
 # It resumes. Cells already complete are loaded rather than re-run, so an
 # interruption costs only the cell in flight, and re-running this after a crash
 # is the way to continue.
+#
+# It runs on the fleet host, where there is no Go toolchain: `make pressure-grid`
+# there runs the cross-compiled bin/bench-linux-amd64 rather than building one,
+# and `make box-sync` from a checkout is what puts that binary, this script and
+# the Makefile on the box (#32).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

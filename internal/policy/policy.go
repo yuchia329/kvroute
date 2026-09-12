@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/yuchia329/kvroute/internal/belief"
 	"github.com/yuchia329/kvroute/internal/fleet"
 	"github.com/yuchia329/kvroute/internal/prefix"
 	"github.com/yuchia329/kvroute/internal/residency"
@@ -72,9 +73,16 @@ const (
 	// nothing but cold decisions has an index that is not working, which no
 	// goodput figure beside it would reveal.
 	ReasonCold Reason = "COLD"
-	// ReasonSpillKV is an affinity declined because the best match's KV cache
-	// was over its high-water mark, and the request placed on load instead.
-	ReasonSpillKV Reason = "SPILL_KV"
+	// ReasonSpillUnhonoured is an affinity declined because the best match's
+	// replica had stopped honouring what the index believed about it — it is
+	// evicting — and the request placed on load instead.
+	//
+	// Named for the signal rather than for the pressure. The pressure is memory,
+	// but this reason's predecessor was called SPILL_KV and read a gauge that
+	// turned out to measure the batch (ADR-0011), so a name that says which
+	// measurement fired is worth more here than one that says what it was
+	// believed to mean.
+	ReasonSpillUnhonoured Reason = "SPILL_UNHONOURED"
 	// ReasonSpillLoad is an affinity declined because the best match was buried
 	// under inflight relative to the fleet, and the request placed on load
 	// instead.
@@ -82,8 +90,10 @@ const (
 	// Two reasons rather than one SPILL, because the two conditions are
 	// physically different pressures and the pressure grid crosses two axes to
 	// fire them separately. A single reason would leave a grid cell unable to
-	// say whether it spilled because the fleet was out of cache or because the
-	// traffic was skewed, which is the one thing that grid exists to answer.
+	// say whether it spilled because the fleet was evicting or because the
+	// traffic was skewed, which is the one thing that grid exists to answer —
+	// and until #28 the two reasons were being told apart by two readings of the
+	// same pressure, which is worse than one reason would have been.
 	ReasonSpillLoad Reason = "SPILL_LOAD"
 	// ReasonPromptUntokenized is a request whose prompt the engine could not
 	// tokenize in time, placed on load because there was nothing to match it
@@ -99,7 +109,7 @@ const (
 // Spilled reports whether this reason is a declined affinity, so that callers
 // counting the decision mix do not each carry their own list of which reasons
 // are spills.
-func (r Reason) Spilled() bool { return r == ReasonSpillKV || r == ReasonSpillLoad }
+func (r Reason) Spilled() bool { return r == ReasonSpillUnhonoured || r == ReasonSpillLoad }
 
 // Order is the order the policies are compared in: the naive baseline first, then
 // each policy that claims to improve on it, as idea.md §5 numbers them. Exact
@@ -177,17 +187,28 @@ type Choice struct {
 	// made on. Without it, a table showing that one policy balanced better than
 	// another would rest on nothing the rows can show.
 	Inflight int
-	// KV is the chosen replica's scraped KV utilization when the decision was
-	// made, or an unread reading when no scrape had answered for it.
+	// BatchKV is the chosen replica's scraped batch KV occupancy when the
+	// decision was made, or an unread reading when no scrape had answered for
+	// it.
 	//
-	// It travels on the decision for the same reason Inflight does, and it is
-	// the pressure the spill rule was weighed against: a grid table claiming one
-	// high-water mark spilled more than another would otherwise rest on nothing
-	// the rows can show. Unread is kept distinct from zero here as everywhere,
-	// because a run whose scrapes were failing routed with the KV condition
-	// silently disabled, and a column of zeros would look like a fleet with
-	// empty caches instead.
-	KV vllmmetrics.KVUtilization
+	// It travels on the decision for the same reason Inflight does. Nothing
+	// routes on it since ADR-0011, and it is kept precisely so that the claim in
+	// that ADR stays checkable from the rows of every later run: the gauge and
+	// the router's own inflight sit on the same row, taken at the same moment,
+	// and anyone can re-derive the correlation between them. Unread is kept
+	// distinct from zero here as everywhere.
+	BatchKV vllmmetrics.BatchOccupancy
+	// Honoured is the chosen replica's honoured rate when the decision was made,
+	// or an unread reading when it had answered too few scoring requests to say.
+	//
+	// This is the pressure the spill rule's residency branch was weighed
+	// against: a grid table claiming one low-water mark spilled more than
+	// another would otherwise rest on nothing the rows can show. It is on every
+	// decision, not only the spilling ones and not only under the two policies
+	// that consult it, because the run that chooses the grid has to see the
+	// signal's whole range — including on the policies whose cells the range is
+	// not cut from.
+	Honoured belief.Honoured
 	// DeclinedMatchBytes is the prefix match the spill rule gave up, in bytes.
 	// Zero unless this decision was a spill.
 	//
@@ -198,17 +219,19 @@ type Choice struct {
 	// not what its spills were worth, and those are the two halves of choosing a
 	// threshold.
 	DeclinedMatchBytes int
-	// DeclinedKV and DeclinedInflight are the pressure on the replica the spill
-	// rule turned down. Zero and unread on every decision that declined nothing.
+	// DeclinedHonoured, DeclinedBatchKV and DeclinedInflight are the pressure on
+	// the replica the spill rule turned down. Zero and unread on every decision
+	// that declined nothing.
 	//
 	// They are the figures the rule actually fired on, and without them a run
-	// cannot explain its own spills. KV and Inflight above describe the replica
-	// that was chosen, which on a spill is by construction a replica *under* the
+	// cannot explain its own spills. The columns above describe the replica that
+	// was chosen, which on a spill is by construction a replica *under* the
 	// threshold — so a column of them has the declining figure missing exactly
 	// where it matters. The run of 2026-09-10 hit this: its KV column peaked at
 	// 0.697 while a high-water mark of 0.70 was demonstrably declining matches,
 	// because every row reported the target rather than the replica turned down.
-	DeclinedKV       vllmmetrics.KVUtilization
+	DeclinedHonoured belief.Honoured
+	DeclinedBatchKV  vllmmetrics.BatchOccupancy
 	DeclinedInflight int
 	// PrefixMatchTokens and DeclinedMatchTokens are PrefixMatchBytes and
 	// DeclinedMatchBytes for the policy that knows what a replica holds in the

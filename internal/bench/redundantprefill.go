@@ -47,15 +47,32 @@ func (p PolicyPrefill) RecomputedPerRequest() (float64, bool) {
 	return p.Recomputed() / float64(p.Requests), true
 }
 
+// RedundantAgainst is the redundant prefill this policy carries over a baseline:
+// the extra prompt tokens it computed per request, on the same bytes.
+//
+// The comparison is what makes it redundant rather than merely computed. Both
+// policies sent the identical workload, so prompt tokens one fleet computed per
+// request and another did not are tokens some replica was already holding — the
+// physical work routing can remove, measured rather than inferred from the
+// router's own beliefs.
+//
+// Per request rather than in total: see the type's own comment for why a
+// difference of totals measures throughput instead.
+func (p PolicyPrefill) RedundantAgainst(baseline PolicyPrefill) (float64, bool) {
+	mine, ok := p.RecomputedPerRequest()
+	if !ok {
+		return 0, false
+	}
+	theirs, ok := baseline.RecomputedPerRequest()
+	if !ok {
+		return 0, false
+	}
+	return mine - theirs, true
+}
+
 // RedundantPerRequest is a policy's redundant prefill at this load point: the
 // prompt tokens it left the fleet computing per request, over and above the
 // policy that computed fewest per request on identical bytes.
-//
-// The comparison is what makes the work redundant rather than merely computed.
-// Every policy in the row sent the same prompts, so prompt tokens one fleet
-// computed per request and another did not are tokens some replica was already
-// holding — the physical work routing can remove, measured rather than inferred
-// from the router's own beliefs.
 //
 // It reports false unless every policy the comparison covers was measured here,
 // with a denominator to divide by. A row where one policy's counters are missing
@@ -67,27 +84,28 @@ func (p PolicyPrefill) RecomputedPerRequest() (float64, bool) {
 // readings present, because those are the same set only when nothing went
 // missing, and the case this guards is exactly the one where something did.
 func (r ComparisonRow) RedundantPerRequest(name string) (float64, bool) {
-	mine, measured := r.Prefill[name]
-	if !measured {
-		return 0, false
-	}
-	rate, ok := mine.RecomputedPerRequest()
+	mine, ok := r.Prefill[name]
 	if !ok {
 		return 0, false
 	}
-	floor := rate
+	if _, ok := mine.RecomputedPerRequest(); !ok {
+		return 0, false
+	}
+	best := mine
 	for _, policy := range r.policies {
 		other, measured := r.Prefill[policy]
 		if !measured {
 			return 0, false
 		}
-		theirs, ok := other.RecomputedPerRequest()
+		rate, ok := other.RecomputedPerRequest()
 		if !ok {
 			return 0, false
 		}
-		floor = min(floor, theirs)
+		if floor, _ := best.RecomputedPerRequest(); rate < floor {
+			best = other
+		}
 	}
-	return rate - floor, true
+	return mine.RedundantAgainst(best)
 }
 
 // RedundantTokens is the same excess expressed as prompt tokens: this policy's

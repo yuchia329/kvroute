@@ -115,7 +115,7 @@ func (m PressureMap) reportValidity(b *strings.Builder) {
 			rate = fmt.Sprintf("%.3f%%", v.SpillRate*100)
 		}
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %d | %d | %s | %s |\n",
-			point.At, prefill, prefillTokens, hitRate, v.SpillKV, v.SpillLoad, rate, exercised)
+			point.At, prefill, prefillTokens, hitRate, v.SpillUnhonoured, v.SpillLoad, rate, exercised)
 	}
 	fmt.Fprintln(b)
 
@@ -318,7 +318,7 @@ func (m PressureMap) reportSeparability(b *strings.Builder) {
 	fmt.Fprintf(b, "load imbalance piles conversations up and trips the imbalance factor. Each axis is\n")
 	fmt.Fprintf(b, "pooled over the other, so each row isolates one of them.\n\n")
 
-	if !m.SpillVaried && m.Spill.KVHighWater == 0 {
+	if !m.SpillVaried && m.Spill.HonouredLowWater == 0 {
 		// The criterion cannot be answered, and the tables below cannot answer it
 		// either. Said here, above them, because a column of zeros read without
 		// this reads as a finding about the axis rather than as a condition that
@@ -354,7 +354,7 @@ func (m PressureMap) reportSeparability(b *strings.Builder) {
 				continue
 			}
 			v := point.Validity(m.Challenger)
-			kv, load = kv+v.SpillKV, load+v.SpillLoad
+			kv, load = kv+v.SpillUnhonoured, load+v.SpillLoad
 		}
 		fmt.Fprintf(b, "| %s | %d | %d |\n", formatAxis(ws), kv, load)
 	}
@@ -369,7 +369,7 @@ func (m PressureMap) reportSeparability(b *strings.Builder) {
 				continue
 			}
 			v := point.Validity(m.Challenger)
-			kv, load = kv+v.SpillKV, load+v.SpillLoad
+			kv, load = kv+v.SpillUnhonoured, load+v.SpillLoad
 		}
 		fmt.Fprintf(b, "| %s | %d | %d |\n", formatAxis(skew), kv, load)
 	}

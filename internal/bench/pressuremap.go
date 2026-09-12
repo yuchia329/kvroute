@@ -163,7 +163,7 @@ func BuildPressureMapBetween(cells []Cell, baseline, challenger string) (Pressur
 			// the same rule at the same point, and one of them running at another
 			// would otherwise pass unnoticed.
 			if policy.HasSpillRule(cell.Policy) {
-				spills[policy.Spill{KVHighWater: cell.KVHighWater, LoadImbalanceFactor: cell.LoadImbalanceFactor}] = true
+				spills[policy.Spill{HonouredLowWater: cell.HonouredLowWater, LoadImbalanceFactor: cell.LoadImbalanceFactor}] = true
 			}
 		}
 		for _, name := range comparison.Policies {
@@ -235,7 +235,7 @@ func addDecisions(a, b DecisionMix) DecisionMix {
 		SessionUnidentified: a.SessionUnidentified + b.SessionUnidentified,
 		PrefixAffinity:      a.PrefixAffinity + b.PrefixAffinity,
 		Cold:                a.Cold + b.Cold,
-		SpillKV:             a.SpillKV + b.SpillKV,
+		SpillUnhonoured:     a.SpillUnhonoured + b.SpillUnhonoured,
 		SpillLoad:           a.SpillLoad + b.SpillLoad,
 		PromptUntokenized:   a.PromptUntokenized + b.PromptUntokenized,
 		PrefixHash:          a.PrefixHash + b.PrefixHash,
@@ -479,12 +479,12 @@ type Validity struct {
 	// alike.
 	HitRateSpread   float64
 	HitRateMeasured bool
-	// SpillKV and SpillLoad are the two spill conditions, counted over every
+	// SpillUnhonoured and SpillLoad are the two spill conditions, counted over every
 	// policy that has them at this point. They stay apart here for the reason
 	// they stay apart everywhere else: they answer to different axes of this
 	// grid, and a single "spilled" count could not show that.
-	SpillKV   int
-	SpillLoad int
+	SpillUnhonoured int
+	SpillLoad       int
 	// SpillRate is the share of the challenger's decisions that declined a
 	// prefix match, and Decisions how many decisions that is out of.
 	//
@@ -503,14 +503,14 @@ type Validity struct {
 // all. A point where this is false ran the grid without exercising the
 // mechanism the grid is about.
 func (v Validity) Fired() bool {
-	return v.RedundantPerRequest > 0 || v.HitRateSpread > 0 || v.SpillKV > 0 || v.SpillLoad > 0
+	return v.RedundantPerRequest > 0 || v.HitRateSpread > 0 || v.SpillUnhonoured > 0 || v.SpillLoad > 0
 }
 
 // Validity is the evidence at this grid point.
 func (g GridComparison) Validity(challenger string) Validity {
 	var v Validity
 	for _, mix := range g.Decisions {
-		v.SpillKV += mix.SpillKV
+		v.SpillUnhonoured += mix.SpillUnhonoured
 		v.SpillLoad += mix.SpillLoad
 	}
 	// The rate is the challenger's own: it is the only policy with a valve, and
