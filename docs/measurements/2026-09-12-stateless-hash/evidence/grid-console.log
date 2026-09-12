@@ -1,0 +1,23 @@
+[11:15:13] === stateless prefix hash (#26): grid ===
+[11:20:24] fleet is up on GPUs 0 1 2 4 5
+[11:20:25] usage probe passed: the engines report cached prompt tokens
+[11:20:25] restarting the fleet before the next policy (ADR-0004)
+[11:25:53] fleet is back up
+[11:25:56] prefix_hash: router up
+[11:25:56] prefix_hash at 16/4: WS 0.25 skew 0 (3 reps, 300s cells)
+[11:41:26] prefix_hash at 16/4: WS 0.25 skew 1 (3 reps, 300s cells)
+[11:56:55] prefix_hash at 16/4: WS 0.25 skew 1.4 (3 reps, 300s cells)
+[12:12:24] prefix_hash at 16/4: WS 1 skew 0 (3 reps, 300s cells)
+[12:27:52] prefix_hash at 16/4: WS 1 skew 1 (3 reps, 300s cells)
+[12:43:21] prefix_hash at 16/4: WS 1 skew 1.4 (3 reps, 300s cells)
+[12:58:49] prefix_hash at 16/4: WS 3 skew 0 (3 reps, 300s cells)
+[13:14:19] prefix_hash at 16/4: WS 3 skew 1 (3 reps, 300s cells)
+[13:29:48] prefix_hash at 16/4: WS 3 skew 1.4 (3 reps, 300s cells)
+[13:45:17] prefix_hash at 16/4: WS 8 skew 0 (3 reps, 300s cells)
+[14:00:46] prefix_hash at 16/4: WS 8 skew 1 (3 reps, 300s cells)
+[14:16:15] prefix_hash at 16/4: WS 8 skew 1.4 (3 reps, 300s cells)
+[14:31:43] router drained
+[14:31:43] prefix_hash: all 12 points done in 3h11m
+[14:31:43] === grid arm complete ===
+[14:31:43] map: runs/pressuremap-hash.md
+[14:31:49] fleet down; GPUs released
