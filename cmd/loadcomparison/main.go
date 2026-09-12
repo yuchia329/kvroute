@@ -8,8 +8,8 @@
 // than a factor times the fleet's minimum inflight. That is a ratio, and a ratio
 // is what lets a factor settled at one rung describe the rule at another. #31
 // found that at 6 requests per second over five replicas it is not one: the
-// fleet holds about twelve requests, the quietest replica holds nothing or one,
-// and "twice the minimum" becomes "more than two requests". The rule declined
+// fleet holds six requests at the median, the quietest replica holds nothing or
+// one, and "twice the minimum" becomes "more than two requests". The rule declined
 // 19–20% of later turns against 0.674% at the 32-user rung the factor was
 // settled at, and 42% of the declined turns missed the SLO.
 //

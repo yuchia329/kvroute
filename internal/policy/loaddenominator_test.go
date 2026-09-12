@@ -23,7 +23,8 @@ func inflight(counts ...int) fleet.State {
 var busy = inflight(3, 5, 6, 8, 10)
 
 // #19's rung: 6 requests per second open-loop over five replicas, where the
-// fleet holds about twelve requests and one replica is idle between arrivals.
+// fleet holds six requests at the median and one replica is idle between
+// arrivals. Twelve is the busy end of what that rung reaches.
 var quiet = inflight(0, 1, 2, 4, 5)
 
 // The degeneracy #31 found. Against the minimum, a factor of 2 on this fleet

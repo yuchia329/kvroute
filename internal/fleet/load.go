@@ -8,9 +8,11 @@ package fleet
 // when the fleet is busy and diverge when it is not. The minimum is the quietest
 // replica; the mean is the fleet's own average. At 32 concurrent users over five
 // replicas they are close enough that the choice barely shows. At 6 requests per
-// second the fleet holds around twelve requests, the minimum is 0 or 1 on most
-// decisions and the mean is 2.4, and a multiple of the first is an absolute
-// inflight threshold wearing a ratio's clothes (#31).
+// second the fleet holds six requests at the median, the minimum is 0 on 96% of
+// decisions and never above 1, and the mean runs from 0.6 to 2.8 — so a multiple
+// of the first is an absolute inflight threshold wearing a ratio's clothes, and
+// a multiple of the second is at least a number that moves (#31, measured
+// 2026-09-12).
 //
 // Both live here, on the snapshot, rather than in the policy that compares
 // against one of them: what the fleet as a whole is carrying is a fact about the

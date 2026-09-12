@@ -15,8 +15,9 @@ import (
 // is carrying more than a factor times the fleet's minimum inflight — and a
 // ratio is what lets one factor settled at one rung describe the rule at
 // another. #31 found that it is not always a ratio. At 6 requests per second
-// over five replicas the fleet holds about twelve requests, the quietest replica
-// holds nothing or one, and a factor of 2 becomes "more than two requests":
+// over five replicas the fleet holds six requests at the median and fourteen at
+// its busiest, the quietest replica holds nothing or one, and a factor of 2
+// becomes "more than two requests":
 // 19–20% of later turns were declined, against 0.674% at the 32-user rung the
 // factor was settled at, and the declined turns found 11.9% of their prompt
 // cached where the turns that stayed found 73.9%.

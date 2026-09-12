@@ -12,13 +12,13 @@ package policy
 // is an absolute number of requests, and the rule stops being the rule it is
 // written as.
 //
-// #31 measured what that costs. Driven open-loop at 6 requests per second over
-// five replicas, the fleet holds around twelve requests and the load condition
-// declined 19–20% of later turns, against 0.674% at the closed-loop 32-user rung
-// the factor was settled at. Those spilled turns found 11.9% of their prompt
-// cached where the turns that stayed found 73.9%, and 42% of them missed the
-// SLO. The rule was not doing what the factor says it does; it was declining any
-// replica holding more than two requests.
+// #31 measured what that costs, and then measured the denominator itself. Driven
+// open-loop at 6 requests per second over five replicas the fleet holds six
+// requests at the median, and across 2,361 decisions the minimum was 0 on 96.4%
+// of them and never once above 1: the comparison was the constant 2 for a whole
+// run, not a ratio that sometimes degenerates. It cost 8.8% of goodput and
+// tripled TTFT p99 against the same policy with the rule off
+// (docs/measurements/2026-09-12-load-denominator).
 //
 // So the denominator is a grid axis. Two candidates, and a cell records which
 // one it ran at:

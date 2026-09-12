@@ -12,9 +12,10 @@
 # virtual users and #18 settled it at 2, and both are sound at that rung. This
 # one is different in kind: the open-loop driver fires on a schedule whether or
 # not earlier requests have finished, so the fleet empties between arrivals. At 6
-# requests per second over five replicas it holds about twelve requests and the
-# quietest replica holds nothing or one, which makes "twice the minimum" mean
-# "more than two requests" — an absolute inflight threshold wearing a ratio's
+# requests per second over five replicas it holds six requests at the median and
+# the quietest replica holds nothing or one — measured 2026-09-12, the minimum was
+# never above 1 across 2,361 decisions — which makes "twice the minimum" mean
+# "more than two requests": an absolute inflight threshold wearing a ratio's
 # clothes.
 #
 # #19's chaos runs measured what that cost: the rule declined 19-20% of later
@@ -38,10 +39,14 @@
 #   3. POINT. One invocation per point, into the same directory, read against the
 #      spill-off cell the observing pass left there.
 #
-# Its own directory, runs/load-denominator, because a cell id is
-# policy-load-repetition and carries no spill point: running these into a
-# directory that already holds prefix_affinity cells at a32 would find them
-# cached and run nothing at all.
+# Every point gets its own directory under runs/load-denominator, and that is
+# load-bearing rather than tidy. A cell id is policy-load-repetition and carries
+# no spill point, so all of these cells are prefix_affinity-a6-r0 to r2 whatever
+# they were run at. A sweep resumes from the cells already in its directory, so
+# pointing the second point at the first one's directory would find every cell
+# cached, run nothing, and report the first point's numbers under the second
+# point's label. The same reason keeps the whole run out of runs/goodput, which
+# already holds prefix_affinity cells at this rate.
 #
 # It brings the fleet down when it finishes, however it finishes: the box is
 # shared.
@@ -95,6 +100,10 @@ run_cell() {
     name="${spec//\//-}"
   fi
 
+  # Every point gets its own cell directory: see the note at the top.
+  local dir="$RUN/$name"
+  mkdir -p "$dir"
+
   fleet_up
   require_events_off
   # The +-expansion, not a bare "${array[@]}": under `set -u` an empty array is
@@ -105,7 +114,7 @@ run_cell() {
 
   ./bin/bench-linux-amd64 \
     -router http://127.0.0.1:8080 \
-    -dir "$RUN" \
+    -dir "$dir" \
     -policy "$POLICY" \
     -driver open_loop -arrival-rates "$RATE" \
     ${spill_label[@]+"${spill_label[@]}"} \

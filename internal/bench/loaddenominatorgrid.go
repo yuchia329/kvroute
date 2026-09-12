@@ -58,20 +58,33 @@ const (
 	SettledRungMinimumWasZero = 0.16
 )
 
-// LoadDenominatorGrid is the points the denominator axis is swept at, and it is
-// deliberately empty until an observing pass has been taken to cut it against.
+// LoadDenominatorGrid is the points the denominator axis was swept at, cut
+// against the observing pass of 2026-09-12 and measured immediately after it.
 //
-// The candidates are not a mystery — the factor is settled at 2, and the two
-// denominators are min and mean — but which of them can produce a decision at
-// this rung is a question about a fleet nobody has recorded the load of. The
-// observing pass answers it in one cell: every row carries what the comparison
-// would have been made against, so ProjectedPoint.Reaches says which points fire
-// before a run is spent on one that cannot. #16 spent two cells of three
-// discovering that the other way round.
+// docs/measurements/2026-09-12-load-denominator has the run. The observing cell
+// reported the fleet minimum at 0 on 96.4% of decisions and 1 on the rest —
+// never above 1 in 2,361 decisions — so the settled point's "twice the fleet
+// minimum" was the constant 2 for the entire run. The projection over those rows
+// then cut this grid: 8x against the mean could not fire at all and was dropped,
+// 4x against the mean would have declined 0.4% and was dropped with it, and what
+// was left is the settled point, the mean denominator at the same factor, and a
+// raised factor against the minimum to separate the two axes.
 //
-// When it is written, the run it was cut from is named here, as the load axis's
-// second pass named its own.
-var LoadDenominatorGrid []policy.Spill
+//	point      spills   goodput/s   SLO misses   TTFT p99
+//	off         0.0%      5.99        0.7/601     662-752 ms
+//	4x min      1.6%      5.92        8.3/601     756-1347 ms
+//	2x mean     7.2%      5.64       35.7/601    1560-1639 ms
+//	2x min     11.7%      5.46       54.0/601    1614-2165 ms
+//
+// Goodput falls monotonically with the rate the condition fires at, and every
+// point that declines anything is worse than declining nothing. That is the
+// finding, and it is the opposite of the c32 rung's, where the same rule at the
+// same factor is worth +80%. See Chosen.
+var LoadDenominatorGrid = []policy.Spill{
+	{LoadImbalanceFactor: 2},
+	{LoadImbalanceFactor: 2, MeanInflightDenominator: true},
+	{LoadImbalanceFactor: 4},
+}
 
 // LoadDenominatorSweep is the points the denominator is measured at, led by the
 // spill-off reference.

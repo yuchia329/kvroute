@@ -31,8 +31,9 @@ func spilled(declinedInflight, servedInflight, minimum int, mean float64) record
 	return row
 }
 
-// The rung #31 found the degeneracy at: twelve requests over five replicas, so
-// the quietest replica holds nothing or one and the average holds 2.4.
+// The busy end of the rung #31 found the degeneracy at: twelve requests over five
+// replicas, against the six the median decision saw, so the quietest replica
+// holds nothing or one and the average holds 2.4.
 func quietRung() []record.Request {
 	return []record.Request{
 		kept(3, 0, 2.4), kept(2, 0, 2.4), kept(4, 1, 2.4),

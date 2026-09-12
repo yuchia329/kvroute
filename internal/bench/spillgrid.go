@@ -178,6 +178,27 @@ var HitRateObserved = Range{
 // minimum was genuinely 0 in 16% of decisions, and there factor × 1 is an
 // absolute inflight threshold rather than the ratio it is written as.
 //
+// THIS POINT IS BOUNDED BELOW, and #31 measured where. Everything above is a
+// closed-loop result at 32 users. Driven open-loop at 6 requests per second on
+// the same five replicas, the fleet minimum was 0 on 96.4% of decisions and
+// never once above 1 across 2,361 of them, so the comparison was not a ratio at
+// any point in the run — and there the rule is pure cost:
+//
+//	off        5.99 goodput/s     0.7 SLO misses per 601
+//	2x min     5.46               54.0
+//
+// Goodput falls monotonically with how often the condition fires, at every
+// setting measured (LoadDenominatorGrid), so no point on that axis recovers it:
+// what is worth +80% at c32 costs 8.8% here. The mechanism is the fleet's own
+// utilisation rather than the driver — at 32 users the replicas are saturated
+// and moving work off a buried one pays for the prefill it costs, and at 6
+// req/s they are holding 1.2 requests each, nothing is queueing, and declining a
+// match buys a prefill that nothing was waiting for.
+//
+// So this value describes policy 4 at a loaded fleet. A run whose fleet is not
+// loaded should carry the spill-off point instead, as #19's re-run does, and
+// RunSweep warns when an open-loop sweep runs this rule against the minimum.
+//
 // HitRateLowWater is zero — the residency condition is OFF, and that is a
 // finding about the signal it used to read rather than about the condition.
 // Through #16 that branch read vllm:kv_cache_usage_perc, which counts blocks
