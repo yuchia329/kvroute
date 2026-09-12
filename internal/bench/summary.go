@@ -179,6 +179,17 @@ type Summary struct {
 	// the policy gave. It is a reported result: see DecisionMix.
 	Decisions DecisionMix `json:"decisions" parquet:"decisions"`
 
+	// Placement is where those requests landed, counted per replica. It is the
+	// other reported result beside the decision mix, and the pair says what a
+	// policy did from both ends: the reasons it gave, and the fleet it left
+	// behind.
+	//
+	// Counted from the rows rather than read off the router's per-decision
+	// inflight column, which recorded zero on every session-affinity row ever
+	// written before 9311e68 — the column idea.md §5's imbalance claim had been
+	// resting on. See Placement.
+	Placement Placement `json:"placement" parquet:"placement"`
+
 	// FailureRate is dropped plus failed over every measured request.
 	FailureRate      float64 `json:"failure_rate" parquet:"failure_rate"`
 	FailureThreshold float64 `json:"failure_threshold" parquet:"failure_threshold"`
@@ -204,6 +215,7 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 	var ttft, total, itl, lag []time.Duration
 	var first, last time.Time
 	var firstDue, lastDue time.Time
+	var placements placementCounter
 	rate := 0.0
 	met := 0
 
@@ -215,6 +227,10 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 		s.Requests++
 		s.PromptBytes += r.PromptBytes
 		s.Decisions.count(r.Decision)
+		// Where it went, beside why it went there. Every measured row is
+		// counted, whatever its outcome: a request a replica accepted and then
+		// failed still occupied that replica.
+		placements.count(r.Replica)
 		if r.Reroutes > 0 {
 			s.Rerouted++
 		}
@@ -271,6 +287,11 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 			s.Cancelled++
 		}
 	}
+
+	// Unconditionally, including for a cell that placed nothing: the flag is
+	// what separates a fleet that served nothing from a cell nobody counted, and
+	// setting it only when there was something to count would collapse the two.
+	s.Placement = placements.placement()
 
 	if s.Requests > 0 {
 		s.FailureRate = float64(s.Failed+s.Dropped) / float64(s.Requests)

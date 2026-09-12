@@ -70,9 +70,9 @@ func (c Comparison) PromptBytesPerToken() (float64, bool) {
 
 // ComparisonRow is one point of the load axis, across policies.
 //
-// The three maps are the three things the comparison reports, all keyed by
-// policy name. A policy with no usable cell at this load point is absent from
-// them rather than zero: it did not score nothing, it did not run.
+// The maps are the things the comparison reports, all keyed by policy name. A
+// policy with no usable cell at this load point is absent from them rather than
+// zero: it did not score nothing, it did not run.
 type ComparisonRow struct {
 	Load Load
 	// Goodput is the primary metric: requests per second that met the SLO.
@@ -103,6 +103,16 @@ type ComparisonRow struct {
 	// under a closed loop that comparison is meaningless without one. See
 	// PolicyPrefill.
 	Prefill map[string]PolicyPrefill
+	// Imbalance is how evenly each policy left the fleet loaded, counted from
+	// the rows.
+	//
+	// It is the other half of idea.md §5, and it is in the same table as the
+	// outcome for the reason PrefixCache is. A consistent hash trades balance
+	// for locality by construction: PrefixCache says what it bought and this
+	// says what it paid, and a comparison carrying only the first could report
+	// that sticky routing took the highest hit rate without being able to say
+	// why it still lost.
+	Imbalance map[string]PolicyImbalance
 	// policies is every policy the comparison covers, which is not the same as
 	// the keys of the maps above: a policy with no usable cell at this load
 	// point is absent from them. RedundantPerRequest needs the difference,
@@ -246,6 +256,7 @@ func Compare(cells []Cell) (Comparison, error) {
 			Latency:     map[string]PolicyLatency{},
 			PrefixCache: map[string]vllmmetrics.PrefixCache{},
 			Prefill:     map[string]PolicyPrefill{},
+			Imbalance:   map[string]PolicyImbalance{},
 			policies:    c.Policies,
 		}
 		for _, name := range c.Policies {
@@ -255,6 +266,9 @@ func Compare(cells []Cell) (Comparison, error) {
 			}
 			if pooled, ok := poolLatency(name, load, cells); ok {
 				row.Latency[name] = pooled
+			}
+			if pooled, ok := poolImbalance(name, load, cells); ok {
+				row.Imbalance[name] = pooled
 			}
 			if len(cells) > 0 {
 				row.PrefixCache[name] = poolPrefixCache(cells)
@@ -693,6 +707,7 @@ func (c Comparison) Report() string {
 	}
 
 	c.reportMechanism(&b)
+	c.reportImbalance(&b)
 
 	reportSurfaced(&b, c.Surfaced)
 

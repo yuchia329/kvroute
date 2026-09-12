@@ -134,6 +134,44 @@ renders to while the plan says which pair each arrival took.
 "least-outstanding is mysteriously terrible on one axis", with nothing to say round-robin was
 cheating.
 
+## The inflight column is dead here, and the imbalance was counted instead
+
+⚠️ **Every `session_affinity` row in this directory records `inflight` 0.** Over the three 64-user
+cells that is 2,457 requests, mean 0.00, p99 0, max 0, against a fleet that was plainly not idle.
+The ring stored candidates rather than replicas and is rebuilt only when the replica *set* changes,
+so the load it reported was frozen at whichever request first built it — an idle fleet — and stayed
+frozen for the life of the policy. Fixed in 9311e68, after every cell here was recorded
+([#27](https://github.com/yuchia329/kvroute/issues/27)).
+
+**Nothing routed differently.** The hash weighs no load by design, so every figure above stands.
+What was lost is the evidence for the other half of idea.md §5: how badly a load-blind policy
+leaves the fleet imbalanced. A zero in that column here means *not recorded*, never *idle*, and
+any write-up quoting one is quoting an absence.
+
+It is recoverable, because the per-request rows are the system of record and they name the replica
+that served each request. Counting those — busiest replica's share of the cell's measured requests,
+against the 20% fair share of five replicas, and the spread between busiest and quietest:
+
+| concurrency 64 | busiest replica's share | busiest ÷ quietest | usable repetitions |
+|---|---:|---:|---:|
+| round robin | 20.0–20.2% | 1.00–1.01× | 2 |
+| least outstanding | 20.7–21.6% | 1.09–1.18× | 3 |
+| session affinity | **24.6–26.6%** | **1.50–2.16×** | 3 |
+
+That is the finding the column was supposed to supply directly, and it is the stronger measurement
+anyway: it asks the router for nothing but the replica it named, so no staleness in its own
+bookkeeping can corrupt it. From 2026-09-11 every cell carries it as a recorded figure
+(`summary.placement`), and `compare` publishes it as its own section. Cells in this directory carry
+no such block, which is the truth about them — nobody counted their placements — and the report
+prints an em dash rather than a balanced-looking zero.
+
+⚠️ One caveat on the numbers above: they are per repetition, and the busiest replica is not the same
+card in each. Pooling the three 64-user repetitions into one count instead gives session affinity
+605 requests on the busiest replica against 358 on the quietest — a 1.69× spread, lower than any
+per-repetition figure, because a run that piled onto replica-2 and a run that piled onto replica-5
+cancel. Per repetition is what is published, because each repetition is a separate run on a fleet
+that was restarted, and the union of three runs is not a fleet that ever existed.
+
 ## Known gaps, stated rather than smoothed
 
 - **14 of 153 closed-loop cells and the open-loop rates 2 and 4 are flagged as still warming up.**

@@ -142,7 +142,10 @@ _Avoid_: dropped events (a dropped request is something else), missed events, de
 **Inflight**:
 The count of requests the router has dispatched to a replica and not yet seen complete. Counted
 locally and exactly, never scraped. Includes both requests vLLM is running and requests vLLM has
-queued.
+queued. Recorded on every row as the chosen replica's inflight at the moment it was chosen — but
+it is the router's own bookkeeping, so how balanced a policy left the fleet is read from placement
+below and not from this column. Every session-affinity row written before 9311e68 carries zero
+here, meaning "not recorded" rather than "idle" (#27).
 _Avoid_: queue depth, outstanding, load, concurrency
 
 **KV utilization**:

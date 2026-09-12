@@ -205,6 +205,17 @@ These are findings, in the same voice as the positive ones.
   thermally throttles whenever all six cards draw power at once, so round robin was feeding a
   sacrificial queue that passed nothing while the others passed everything. On five symmetric cards
   the same pair inverts and least outstanding wins by 100–120%.
+- **The column that was supposed to show imbalance recorded nothing, for the life of the policy.**
+  Every row carries the chosen replica's inflight at the moment it was chosen, and every
+  `session_affinity` row written before 9311e68 carries zero — the hash ring stored candidates
+  rather than replicas and is rebuilt only when the replica *set* changes, so the load it reported
+  was frozen at whichever request first built it, on an idle fleet. Nothing routed differently,
+  because the hash weighs no load by design, so every comparison published here stands. What was
+  lost is the evidence for the balance half of idea.md §5, and it could only be recovered because
+  the per-request rows name the replica that served each request: counting those at 64 users gives
+  session affinity a busiest replica on 24.6–26.6% of requests against a 20% fair share, where
+  round robin sits at 20.0–20.2%. Imbalance is now counted from the rows on every cell rather than
+  read off the router's own bookkeeping ([#27](https://github.com/yuchia329/kvroute/issues/27)).
 - **Policy 5 is built and unmeasured.** Exact residency follows the engines' own KV cache events, so
   it knows what a replica holds rather than believing it. It has no fleet run yet, so it appears in
   no table here.
