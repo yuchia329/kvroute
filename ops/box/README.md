@@ -70,6 +70,21 @@ committed.
 | `run-pressure-spilloff.sh` | Prefix affinity with the spill rule off, across the same grid and the same bytes, into its own directory. |
 | `run-exact-grid.sh` | #24's grid: exact residency against the approximate index, on a fleet publishing KV cache events, with session affinity as the baseline. |
 | `run-hash-grid.sh` | #26's two arms: the stateless hash's weight axis, then the grid at the weight that axis settled on. |
+| `run-recency-rerun.sh` | #29's two halves: the recency axis re-run at whole visit periods, and the WS 3 rung the working-set axis is missing. **Not yet run** — see below. |
+
+`run-recency-rerun.sh` is committed before its run rather than after it, which is the
+opposite of every other row here. What it encodes is a design that was settled off the GPU:
+the cell lengths come from `internal/bench/recencywindow_test.go`, which derives them from
+the workload's visit period and re-asserts that the longer cells still spread the axis the
+run exists to plot. Committing it first is what lets that design be reviewed before the
+fleet time is spent rather than after.
+
+Its flag set was rehearsed end to end against `cmd/fakereplica` with
+`-cached-prompt-fraction` — replica, router, both drivers and `cmd/divergence` — so what is
+unproven when it first meets the cards is the fleet, not the wiring. That rehearsal also
+pinned the two settings a spill-off cell depends on now that #28 has added a second spill
+condition: `hit_rate_low_water` and `load_imbalance_factor` both default to 0, so a router
+started with neither flag is the spill-off policy #17 measured.
 
 Launch a long run detached, with the `cd` separated by a semicolon so only the job is
 backgrounded — `cd ~/kvroute && job &` backgrounds the whole chain, and its subshell holds
