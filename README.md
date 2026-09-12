@@ -216,9 +216,6 @@ These are findings, in the same voice as the positive ones.
   session affinity a busiest replica on 24.6–26.6% of requests against a 20% fair share, where
   round robin sits at 20.0–20.2%. Imbalance is now counted from the rows on every cell rather than
   read off the router's own bookkeeping ([#27](https://github.com/yuchia329/kvroute/issues/27)).
-- **Policy 5 is built and unmeasured.** Exact residency follows the engines' own KV cache events, so
-  it knows what a replica holds rather than believing it. It has no fleet run yet, so it appears in
-  no table here.
 - **The prefix index buys about a tenth of what cache-aware routing is worth.** `prefix_hash`
   holds no index and no session state: it hashes the prompt's leading blocks — the prefix index's
   own blocks — onto session affinity's own ring and weighs that ranking against inflight. Measured
@@ -228,11 +225,21 @@ These are findings, in the same voice as the positive ones.
   hash are exactly its three largest goodput margins, and at WS 0.25, where nothing is evicted and
   a hash's assumption that a replica still holds a prefix is simply true, it buys nothing
   ([measurement](docs/measurements/2026-09-12-stateless-hash/)).
-- **Exact residency costs more than knowing exactly returns.** It sits *below* the believed index at
-  every point of that grid, with complete streams — zero lost batches, 0.26% orphaned of 885,071
-  applied events — and 52–339 ms more p90 TTFT, which is the per-request tokenize round-trip it
-  needs before it can route. The ladder therefore reads **none < exact < believed**, not
-  none < believed < exact.
+- **Exact residency costs more than knowing exactly returns, and it also places worse.** It sits
+  *below* the believed index at every point of that grid — 4.6–13.5% of goodput — with complete
+  streams: zero lost batches, zero resets, 0.26% orphaned of 885,071 applied events, and not one
+  prompt that missed its tokenize budget. So the ladder reads **none < exact < believed**, not
+  none < believed < exact. Two separate things put it there. Asking an engine to tokenize every
+  prompt costs **26.0 ms p50**, against the index's 0.38 ms of total router overhead, which is a
+  quarter of this fleet's TTFT budget spent before anything is routed. But that round-trip does not
+  explain the p90 gap, which is four to seven times larger: exact residency also reaches a **lower**
+  hit rate than the index (0.8973 against 0.9088) and makes the engines compute **12.7% more new
+  tokens per request**. Its predictions were near-exact, so this is placement, not accuracy — a
+  belief is predictive and a fact is not. The index records what it *sent*, herding concurrent
+  requests that share a new prefix onto one replica; exact residency knows only what has been
+  reported, so they scatter while the first one prefills. The deficit is twice as large on first
+  turns, which arrive concurrently, as on later ones, which do not
+  ([measurement](docs/measurements/2026-09-12-exact-residency/)).
 - **Neither is a reproduction of OpenAI's router.** `prefix_hash` is a mechanism inferred from their
   public documentation of a hash of "the initial tokens" plus machine load: the window, the
   weighting and the placement are all choices made here, and no number for any of them has been
