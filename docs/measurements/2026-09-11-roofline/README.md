@@ -110,11 +110,29 @@ huge.
 
 ## Caveats
 
-🚩 **Another user's job appeared on GPU 3 for the last ~18 seconds of the run** — 14.8 GiB from
-16:06:00, 41 telemetry samples, on a card this run does not use. It cannot touch GPU 1's memory
-bandwidth, but it shares the host and the power envelope, and it overlaps the **~2,048-token decode
-batches of 16 and 48**, the two points the headline leans on hardest. Their neighbours at ×1 and ×4
-ran clean and sit on the same line. A clean re-run wants the box idle, which it has not been since.
+✅ **A foreign job overlapped the first run's tail, and the repeat shows it cost nothing.** Another
+user's job appeared on GPU 3 — a card this run does not use — for the last ~18 seconds of the first
+run, overlapping the ~2,048-token decode batches of 16 and 48, the two points the result leans on
+hardest. The whole plan was therefore driven again on **2026-09-12 at 02:11**, on the same card,
+with the fleet's five cards idle and the engine back on the committed configuration. The two runs
+agree:
+
+| | ×16 at ~2,048 | ×48 at ~2,048 | ×1 at ~256 | prefill 2,048 | bandwidth roof |
+|---|---:|---:|---:|---:|---:|
+| first run, tail overlapped | 671 GB/s | 551 GB/s | 780 GB/s | 62.1 TFLOP/s | 844.3 GB/s |
+| repeat, fleet idle | 667 GB/s | 549 GB/s | 779 GB/s | 61.8 TFLOP/s | 844.2 GB/s |
+
+Every point lands within 0.6%, the two formerly-flagged points included, and the memory roof measured
+on the card repeated to 0.01%. The repeat's own records are in
+[`repeat-2026-09-12/`](repeat-2026-09-12/); the figures above are still the first run's, because the
+repeat gives no reason to replace them.
+
+Two notes on the repeat, for completeness. Its compute roof measured 1% higher (62.6 TFLOP/s), which
+is the same half-percent-scale disagreement discussed above from the other side — the standalone
+2,048-token prefill reads 99% of it rather than 100.2%. And **one** of its ~330 telemetry samples on
+card 1 reports a thermal slowdown alongside the power cap, against none in the first run; with GPU 3
+loaded next door that is the coupling this measurement is exposed to, and at one sample in 330 it is
+visible in the evidence and not in the numbers.
 
 ⚠️ **The trace costs something.** Per-node CUDA graph tracing was kept because it names the kernels,
 and it inflates step times a little — which lowers every point rather than moving it sideways. The
@@ -122,9 +140,10 @@ one cross-check available: a 2,048-token prefill step took **485 ms traced** her
 untraced** for the same prompt length on the same engine in [#22's prefill
 measurement](../2026-09-11-pcie/) — 1.3% apart.
 
-⚠️ **The card was power-capped, as it always is under load.** 219 of card 1's telemetry samples
-report the software power cap and none report a thermal limit, at a median SM clock of 1,605 MHz
-against a 1,935 MHz maximum. The roofs were measured on the same card under the same cap, so roofs
+⚠️ **The card was power-capped, as it always is under load.** In the first run, 219 of card 1's
+telemetry samples report the software power cap and none report a thermal limit, at a median SM
+clock of 1,605 MHz against a 1,935 MHz maximum; the repeat matches it, median for median, with the
+one thermal sample noted above. The roofs were measured on the same card under the same cap, so roofs
 and points are comparable; neither is a datasheet number.
 
 ⚠️ **Prompts longer than 2,048 tokens arrive as chunks**, because chunked prefill is on and the
@@ -142,6 +161,7 @@ standalone 2,048.
 | [`ceilings.json`](ceilings.json) | the measured roofs, with every trial |
 | [`model-config.json`](model-config.json) | the model's shapes, which the work is counted from |
 | [`evidence/`](evidence/) | the engine's argv and log, the drive log, the run's environment, and GPU telemetry every 500 ms |
+| [`repeat-2026-09-12/`](repeat-2026-09-12/) | the whole plan driven again on an idle fleet: its steps, its own measured ceilings, its table and its telemetry |
 
 nsys's own exports — 147 MB of GPU operations and 55 MB of trace — stay on the box. Everything above
 is redrawn from `steps.jsonl` with `roofline report`, which needs no GPU:

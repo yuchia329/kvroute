@@ -5,12 +5,16 @@
 #
 #   ops/roofline.sh [out dir]     # default runs/roofline; about ten minutes
 #
-# Runs on the GPU box from ~/kvroute, like the fleet scripts, and needs every
-# card idle: it
+# Runs on the GPU box from ~/kvroute, like the fleet scripts, and wants the
+# fleet's cards to itself: it
 #
-#   1. refuses to start unless all six cards are idle. A roofline taken beside
-#      someone else's load measures the share of the card it was given, and the
-#      host's other five cards are what that load would be on;
+#   1. refuses to start unless every card the fleet runs on is idle — the same
+#      cards a cell is judged clean over. A roofline taken beside someone else's
+#      load on those cards would measure the share of the host it was left. A
+#      card outside the fleet is a weaker matter: it cannot touch this card's
+#      memory bandwidth, only its heat, its power budget and the host's cores,
+#      so the telemetry below records it and the run says so rather than
+#      refusing to start;
 #   2. measures the card's two ceilings with library calls — a large fp16 GEMM
 #      and a large device-to-device copy — so the roofs are this card's under
 #      its own clocks and power cap, with the datasheet's beside them;
@@ -42,7 +46,6 @@ out="${1:-runs/roofline}"
 # throttles thermally (#25), nor GPU 0, the slowest of the five the fleet keeps.
 gpu="${ROOFLINE_GPU:-1}"
 nsys="${NSYS:-/usr/local/bin/nsys}"
-all_gpus="0 1 2 3 4 5"
 port=$(( BASE_PORT + gpu ))
 
 # Every step annotated with its composition — the per-request sums the work is
@@ -58,9 +61,9 @@ say() { echo "[$(date +%T)] $*"; }
 [[ -x bin/roofline-linux-amd64 ]] || die "no bin/roofline-linux-amd64. Build it with 'make linux' and copy bin/ across."
 mkdir -p "$out"
 
-say "preflight: all six cards must be idle"
-bin/preflight-linux-amd64 -gpu-indexes "$all_gpus" -threshold-mib "$GPU_DIRTY_THRESHOLD_MIB" \
-  || die "preflight refused. The roofline wants the whole box; wait for it to clear."
+say "preflight: every card the fleet runs on must be idle ($REPLICA_GPUS)"
+bin/preflight-linux-amd64 -gpu-indexes "$REPLICA_GPUS" -threshold-mib "$GPU_DIRTY_THRESHOLD_MIB" \
+  || die "preflight refused. The roofline wants the fleet's cards to itself; wait for them to clear."
 
 app_pid() { pgrep -u "$USER" -f "^$VENV/bin/python $VENV/bin/vllm serve .*--port $port( |$)" || true; }
 telemetry_pid=""
