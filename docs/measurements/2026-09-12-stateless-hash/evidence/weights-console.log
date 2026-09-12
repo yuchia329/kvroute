@@ -1,0 +1,41 @@
+[09:23:12] === stateless prefix hash (#26): weights ===
+[09:28:21] fleet is up on GPUs 0 1 2 4 5
+[09:28:21] usage probe passed: the engines report cached prompt tokens
+[09:28:21] restarting the fleet before the next policy (ADR-0004)
+[09:33:52] fleet is back up
+[09:33:55] prefix_hash: router up
+[09:33:55] prefix_hash at 16/0: WS 1 skew 1.4 (3 reps, 300s cells)
+[09:49:23] router drained
+  decisions: prefix_hash 1011 (18.5%)  hash_deflected 4465 (81.5%)  prompt_unhashed 0  undecided 0
+  goodput 21.07/s  p90 TTFT 567 ms  flagged False  
+[09:49:23] restarting the fleet before the next policy (ADR-0004)
+[09:54:55] fleet is back up
+[09:54:58] prefix_hash: router up
+[09:54:58] prefix_hash at 16/1: WS 1 skew 1.4 (3 reps, 300s cells)
+[10:10:26] router drained
+  decisions: prefix_hash 4441 (65.1%)  hash_deflected 2383 (34.9%)  prompt_unhashed 0  undecided 0
+  goodput 26.80/s  p90 TTFT 421 ms  flagged False  
+[10:10:26] restarting the fleet before the next policy (ADR-0004)
+[10:16:00] fleet is back up
+[10:16:03] prefix_hash: router up
+[10:16:03] prefix_hash at 16/4: WS 1 skew 1.4 (3 reps, 300s cells)
+[10:31:30] router drained
+  decisions: prefix_hash 5623 (79.3%)  hash_deflected 1471 (20.7%)  prompt_unhashed 0  undecided 0
+  goodput 28.09/s  p90 TTFT 390 ms  flagged False  
+[10:31:30] restarting the fleet before the next policy (ADR-0004)
+[10:37:05] fleet is back up
+[10:37:08] prefix_hash: router up
+[10:37:08] prefix_hash at 16/12: WS 1 skew 1.4 (3 reps, 300s cells)
+[10:52:35] router drained
+  decisions: prefix_hash 5589 (94.8%)  hash_deflected 308 (5.2%)  prompt_unhashed 0  undecided 0
+  goodput 19.59/s  p90 TTFT 386 ms  flagged False  
+[10:52:35] restarting the fleet before the next policy (ADR-0004)
+[10:58:16] fleet is back up
+[10:58:19] prefix_hash: router up
+[10:58:19] prefix_hash at 16/32: WS 1 skew 1.4 (3 reps, 300s cells)
+[11:13:46] router drained
+  decisions: prefix_hash 5384 (100.0%)  hash_deflected 0 (0.0%)  prompt_unhashed 0  undecided 0
+  goodput 15.37/s  p90 TTFT 386 ms  flagged False  
+[11:13:47] === weight axis complete: runs/hash-weight ===
+[11:13:47] Read goodput and the deflection rate off the cells, set WEIGHT, then run: ./run-hash-grid.sh grid
+[11:13:55] fleet down; GPUs released

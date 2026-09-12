@@ -1,0 +1,10 @@
+[09:16:09] === stateless prefix hash (#26): smoke ===
+[09:21:20] fleet is up on GPUs 0 1 2 4 5
+[09:21:23] prefix_hash: router up
+[09:21:23] prefix_hash at 16/4: WS 1 skew 1.4 (1 reps, 60s cells)
+[09:22:27] router drained
+  decisions: prefix_hash 851 (80.2%)  hash_deflected 210 (19.8%)  prompt_unhashed 0  undecided 0
+  goodput 25.33/s  p90 TTFT 420 ms  flagged False  
+  SMOKE PASSED
+[09:22:27] === smoke passed ===
+[09:22:33] fleet down; GPUs released
