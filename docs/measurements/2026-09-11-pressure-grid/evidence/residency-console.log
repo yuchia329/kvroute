@@ -1,0 +1,125 @@
+[07:49:23] === residency branch across the grid: 0.55 0.62 0.70 ===
+[07:55:18] fleet is up on GPUs 0 1 2 4 5
+[07:55:18] KV_EVENTS=0, as the grid ran
+[07:55:18] every replica publishes the prefix-cache counters
+[07:55:19] guards passed: events off, counters published, usage broken down
+[07:55:19] --- residency mark 0.55: starting ---
+[07:55:19] restarting the fleet before the next policy (ADR-0004)
+[08:01:41] fleet is back up
+[08:01:41] every replica publishes the prefix-cache counters
+[08:01:45] prefix_affinity: router up
+[08:01:45] prefix_affinity residency 0.55: WS 0.25 skew 0 (3 reps)
+[08:17:11] prefix_affinity residency 0.55: WS 0.25 skew 1 (3 reps)
+[08:32:38] prefix_affinity residency 0.55: WS 0.25 skew 1.4 (3 reps)
+[08:48:05] prefix_affinity residency 0.55: WS 1 skew 0 (3 reps)
+[09:03:48] prefix_affinity residency 0.55: WS 1 skew 1 (3 reps)
+[09:19:15] prefix_affinity residency 0.55: WS 1 skew 1.4 (3 reps)
+[09:34:42] prefix_affinity residency 0.55: WS 3 skew 0 (3 reps)
+[09:50:26] prefix_affinity residency 0.55: WS 3 skew 1 (3 reps)
+[10:05:54] prefix_affinity residency 0.55: WS 3 skew 1.4 (3 reps)
+[10:21:20] prefix_affinity residency 0.55: WS 8 skew 0 (3 reps)
+[10:36:55] prefix_affinity residency 0.55: WS 8 skew 1 (3 reps)
+[10:52:22] prefix_affinity residency 0.55: WS 8 skew 1.4 (3 reps)
+[11:07:49] router drained
+[11:07:49] residency mark 0.55: all 12 points done in 192 min
+[11:07:50] mark 0.55: 5 flagged cell(s): setting aside and re-running once
+[11:07:50]   ws0.25-skew1  prefix_affinity-c32-r2  -- still warming up: the first half of the measured window was 44% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[11:07:50]   ws1-skew1  prefix_affinity-c32-r2  -- still warming up: the first half of the measured window was 140% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[11:07:50]   ws1-skew1  prefix_affinity-c32-r3  -- still warming up: the first half of the measured window was 47% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[11:07:50]   ws8-skew1.4  prefix_affinity-c32-r3  -- still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[11:07:50]   ws8-skew1  prefix_affinity-c32-r3  -- still warming up: the first half of the measured window was 133% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[11:07:50] restarting the fleet before the next policy (ADR-0004)
+[11:13:23] fleet is back up
+[11:13:27] prefix_affinity: router up
+[11:13:27] prefix_affinity residency 0.55: WS 0.25 skew 1 (3 reps)
+[11:18:41] prefix_affinity residency 0.55: WS 1 skew 1 (3 reps)
+[11:29:07] prefix_affinity residency 0.55: WS 8 skew 1.4 (3 reps)
+[11:34:22] prefix_affinity residency 0.55: WS 8 skew 1 (3 reps)
+[11:39:36] router drained
+[11:39:36] mark 0.55: still flagged after re-running -- reported, not retried: 3
+[11:39:36]   ws1-skew1  prefix_affinity-c32-r2  still warming up: the first half of the measured window was 192% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[11:39:36]   ws1-skew1  prefix_affinity-c32-r3  still warming up: the first half of the measured window was 48% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[11:39:36]   ws8-skew1  prefix_affinity-c32-r3  still warming up: the first half of the measured window was 111% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[11:39:36] --- residency mark 0.62: starting ---
+[11:39:36] restarting the fleet before the next policy (ADR-0004)
+[11:45:10] fleet is back up
+[11:45:10] every replica publishes the prefix-cache counters
+[11:45:14] prefix_affinity: router up
+[11:45:14] prefix_affinity residency 0.62: WS 0.25 skew 0 (3 reps)
+[12:00:40] prefix_affinity residency 0.62: WS 0.25 skew 1 (3 reps)
+[12:16:07] prefix_affinity residency 0.62: WS 0.25 skew 1.4 (3 reps)
+[12:31:35] prefix_affinity residency 0.62: WS 1 skew 0 (3 reps)
+[12:47:18] prefix_affinity residency 0.62: WS 1 skew 1 (3 reps)
+[13:02:45] prefix_affinity residency 0.62: WS 1 skew 1.4 (3 reps)
+[13:18:13] prefix_affinity residency 0.62: WS 3 skew 0 (3 reps)
+[13:34:06] prefix_affinity residency 0.62: WS 3 skew 1 (3 reps)
+[13:49:37] prefix_affinity residency 0.62: WS 3 skew 1.4 (3 reps)
+[14:05:05] prefix_affinity residency 0.62: WS 8 skew 0 (3 reps)
+[14:20:47] prefix_affinity residency 0.62: WS 8 skew 1 (3 reps)
+[14:36:23] prefix_affinity residency 0.62: WS 8 skew 1.4 (3 reps)
+[14:51:51] router drained
+[14:51:51] residency mark 0.62: all 12 points done in 192 min
+[14:51:51] mark 0.62: 12 flagged cell(s): setting aside and re-running once
+[14:51:51]   ws0.25-skew0  prefix_affinity-c32-r1  -- still warming up: the first half of the measured window was 1480% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[14:51:51]   ws0.25-skew0  prefix_affinity-c32-r2  -- still warming up: the first half of the measured window was 1046% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[14:51:51]   ws0.25-skew0  prefix_affinity-c32-r3  -- still warming up: the first half of the measured window was 268% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[14:51:51]   ws1-skew1  prefix_affinity-c32-r1  -- still warming up: the first half of the measured window was 41% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[14:51:51]   ws1-skew1  prefix_affinity-c32-r2  -- still warming up: the first half of the measured window was 35% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[14:51:51]   ws1-skew1  prefix_affinity-c32-r3  -- still warming up: the first half of the measured window was 52% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[14:51:51]   ws3-skew0  prefix_affinity-c32-r1  -- still warming up: the first half of the measured window was 29% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[14:51:51]   ws3-skew1  prefix_affinity-c32-r1  -- still warming up: the first half of the measured window was 56% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[14:51:51]   ws3-skew1  prefix_affinity-c32-r3  -- still warming up: the first half of the measured window was 56% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[14:51:51]   ws8-skew0  prefix_affinity-c32-r2  -- still warming up: the first half of the measured window was 30% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[14:51:51]   ws8-skew1  prefix_affinity-c32-r2  -- still warming up: the first half of the measured window was 39% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[14:51:51]   ws8-skew1  prefix_affinity-c32-r3  -- still warming up: the first half of the measured window was 89% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[14:51:51] restarting the fleet before the next policy (ADR-0004)
+[14:57:26] fleet is back up
+[14:57:29] prefix_affinity: router up
+[14:57:29] prefix_affinity residency 0.62: WS 0.25 skew 0 (3 reps)
+[15:12:56] prefix_affinity residency 0.62: WS 1 skew 1 (3 reps)
+[15:28:24] prefix_affinity residency 0.62: WS 3 skew 0 (3 reps)
+[15:33:34] prefix_affinity residency 0.62: WS 3 skew 1 (3 reps)
+[15:43:51] prefix_affinity residency 0.62: WS 8 skew 0 (3 reps)
+[15:49:17] prefix_affinity residency 0.62: WS 8 skew 1 (3 reps)
+[15:59:56] router drained
+[15:59:56] mark 0.62: still flagged after re-running -- reported, not retried: 6
+[15:59:56]   ws0.25-skew0  prefix_affinity-c32-r1  still warming up: the first half of the measured window was 201% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[15:59:56]   ws0.25-skew0  prefix_affinity-c32-r3  still warming up: the first half of the measured window was 374% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[15:59:56]   ws1-skew1  prefix_affinity-c32-r1  still warming up: the first half of the measured window was 55% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[15:59:56]   ws1-skew1  prefix_affinity-c32-r2  still warming up: the first half of the measured window was 132% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[15:59:56]   ws1-skew1  prefix_affinity-c32-r3  still warming up: the first half of the measured window was 202% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[15:59:56]   ws3-skew1  prefix_affinity-c32-r1  still warming up: the first half of the measured window was 109% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[15:59:56] --- residency mark 0.70: starting ---
+[15:59:56] restarting the fleet before the next policy (ADR-0004)
+[16:05:29] fleet is back up
+[16:05:29] every replica publishes the prefix-cache counters
+[16:05:33] prefix_affinity: router up
+[16:05:33] prefix_affinity residency 0.70: WS 0.25 skew 0 (3 reps)
+[16:21:13] prefix_affinity residency 0.70: WS 0.25 skew 1 (3 reps)
+[16:36:40] prefix_affinity residency 0.70: WS 0.25 skew 1.4 (3 reps)
+[16:52:07] prefix_affinity residency 0.70: WS 1 skew 0 (3 reps)
+[17:07:52] prefix_affinity residency 0.70: WS 1 skew 1 (3 reps)
+[17:23:21] prefix_affinity residency 0.70: WS 1 skew 1.4 (3 reps)
+[17:38:48] prefix_affinity residency 0.70: WS 3 skew 0 (3 reps)
+[17:54:22] prefix_affinity residency 0.70: WS 3 skew 1 (3 reps)
+[18:10:02] prefix_affinity residency 0.70: WS 3 skew 1.4 (3 reps)
+[18:25:28] prefix_affinity residency 0.70: WS 8 skew 0 (3 reps)
+[18:40:58] prefix_affinity residency 0.70: WS 8 skew 1 (3 reps)
+[18:56:46] prefix_affinity residency 0.70: WS 8 skew 1.4 (3 reps)
+[19:12:13] router drained
+[19:12:13] residency mark 0.70: all 12 points done in 192 min
+[19:12:13] mark 0.70: 3 flagged cell(s): setting aside and re-running once
+[19:12:13]   ws0.25-skew0  prefix_affinity-c32-r3  -- still warming up: the first half of the measured window was 341% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[19:12:13]   ws1-skew1  prefix_affinity-c32-r1  -- still warming up: the first half of the measured window was 175% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[19:12:13]   ws3-skew1  prefix_affinity-c32-r2  -- still warming up: the first half of the measured window was 53% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[19:12:13] restarting the fleet before the next policy (ADR-0004)
+[19:17:45] fleet is back up
+[19:17:48] prefix_affinity: router up
+[19:17:48] prefix_affinity residency 0.70: WS 0.25 skew 0 (3 reps)
+[19:23:05] prefix_affinity residency 0.70: WS 1 skew 1 (3 reps)
+[19:28:09] prefix_affinity residency 0.70: WS 3 skew 1 (3 reps)
+[19:33:32] router drained
+[19:33:32] mark 0.70: still flagged after re-running -- reported, not retried: 1
+[19:33:32]   ws1-skew1  prefix_affinity-c32-r1  still warming up: the first half of the measured window was 107% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[19:33:38] fleet down: GPUs released
+[19:33:38] === residency branch across the grid: complete ===

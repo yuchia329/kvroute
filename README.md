@@ -183,12 +183,14 @@ These are findings, in the same voice as the positive ones.
   affinity there, inside the run-to-run spread. With the whole working set in cache and no imbalance
   to correct, every spill only moves a turn to a replica that does not hold it: the spill-off arm
   scores 8.9% higher at that one point, with a hit rate 2.3 points better.
-- **The two pressures could not be shown to be separable, and that is a scoping loss.** The spill
-  rule's KV branch was off for every cell, because `vllm:kv_cache_usage_perc` counts blocks held by
-  *running* requests — it reads the active batch, not cache residency, and tracks inflight at
-  r = 0.973 on this fleet. On this host the KV branch *is* the load branch. That waits on
-  [#28](https://github.com/yuchia329/kvroute/issues/28), and the map says so rather than reporting a
-  column of zeros as a result.
+- **The spill rule's residency branch is harmful at every threshold measured, so it stays off.**
+  Armed alone across the pressure grid at each of its three levels, it loses to the load branch at
+  every point — 35 of 35, by 5% to 91% — because declining a match on low residency sends the
+  request to a replica that never held the conversation, which drops the fleet's hit rate and puts
+  more decisions under the mark. `bench.Chosen` keeps `HitRateLowWater: 0` on that evidence
+  (ADR-0011). The signal itself is sound, and the same arm is what shows the two pressures are
+  separable: the residency branch's firing rises three- to tenfold up the working set axis where the
+  load branch's halves.
 - **The spill rule is tuned for one load and misfires at another.** At 6 req/s open-loop it fired on
   19% of later turns, against 0.674% at the 32-user rung it was settled at, because it compares
   inflight counts that are small integers when the fleet holds ~12 requests. 42% of spilled turns

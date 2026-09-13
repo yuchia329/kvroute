@@ -56,11 +56,13 @@ func (m PressureMap) Report() string {
 func (m PressureMap) reportAxisCaveat(b *strings.Builder) {
 	fmt.Fprintf(b, "> ⚠️ **The WS axis is labelled with what each cell was configured for, not what it\n")
 	fmt.Fprintf(b, "> applied.** Skew discounts working set — concentrating the draws touches fewer\n")
-	fmt.Fprintf(b, "> distinct conversations, so at WS 1 a cell realises about 0.97 of its label at\n")
-	fmt.Fprintf(b, "> skew 0 and 0.40 at skew 1.4 — and a cell of finite length cannot touch a pool\n")
-	fmt.Fprintf(b, "> bigger than its visit count, which bites hardest at the top of the axis. So\n")
-	fmt.Fprintf(b, "> the realised pressure rises more slowly than the labels do, especially to the\n")
-	fmt.Fprintf(b, "> right and at the top. Neither discount is corrected here: correcting either\n")
+	fmt.Fprintf(b, "> distinct conversations — and a cell of finite length cannot touch a pool bigger\n")
+	fmt.Fprintf(b, "> than its visit count, which bites hardest at the top of the axis. Counted from\n")
+	fmt.Fprintf(b, "> the session column of #18's 300 s cells rather than modelled: at WS 1 a cell\n")
+	fmt.Fprintf(b, "> realised 0.95 of its label at skew 0 and 0.49 at skew 1.4, and at skew 0 the\n")
+	fmt.Fprintf(b, "> four labels realised 0.25, 0.95, 1.78 and 2.26. A shorter cell realises less.\n")
+	fmt.Fprintf(b, "> So the realised pressure rises more slowly than the labels do, especially to\n")
+	fmt.Fprintf(b, "> the right and at the top. Neither discount is corrected here: correcting either\n")
 	fmt.Fprintf(b, "> would change the workload's name and refuse every cell recorded under the old\n")
 	fmt.Fprintf(b, "> one (ADR-0004, ADR-0007). The realised draw is countable from the session\n")
 	fmt.Fprintf(b, "> column of the rows, and a flat top end should be checked against it before it\n")
@@ -94,7 +96,7 @@ func (m PressureMap) reportValidity(b *strings.Builder) {
 	fmt.Fprintf(b, "uncorrected run would have qualified 55%% of the time. A near-zero rate here is the\n")
 	fmt.Fprintf(b, "mechanism working, not a rule that failed to fire.\n\n")
 
-	fmt.Fprintln(b, "| point | redundant prefill / request | redundant prefill, tokens | hit rate spread | spill: KV | spill: load | spill rate | exercised |")
+	fmt.Fprintln(b, "| point | redundant prefill / request | redundant prefill, tokens | hit rate spread | spill: residency | spill: load | spill rate | exercised |")
 	fmt.Fprintln(b, "|---|---:|---:|---:|---:|---:|---:|---|")
 	for _, point := range m.Points {
 		v := point.Validity(m.Challenger)
@@ -302,15 +304,26 @@ func (m PressureMap) reportDetail(b *strings.Builder) {
 // reportSeparability is the check that the two axes drive different things.
 //
 // The spill rule has two branches and they are counted apart all the way from
-// the router to this table, so this is the direct evidence: if the grid is doing
-// what it was built to do, the residency branch climbs with working set and the
-// load branch climbs with skew. Two marginals rather than the full grid, because
-// the question is whether each axis moves its own branch, and pooling the other
-// axis is what isolates it.
+// the router to this table, so this is the direct evidence. Two marginals rather
+// than the full grid, because the question is which axis moves which branch, and
+// pooling the other axis is what isolates it.
 //
-// It is also the one place a reader can catch the axes having been crossed
-// wrongly. A residency branch that climbs with skew rather than with working set
-// is a grid whose two knobs are not doing what their names say.
+// What the answer turned out to be, measured across the twelve points with one
+// branch armed at a time (#18's residency arm, 2026-09-13): per 1,000 decisions
+// the residency branch climbs with working set — 16 at WS 0.25 against 87 at
+// WS 3, at its gentlest mark — while the load branch falls over the same axis,
+// 12 down to 6. Opposite directions on the axis that drives eviction is the
+// separability this table exists to show, and two conditions reading one
+// pressure in two units could not produce it.
+//
+// Neither branch climbs with skew: 162 / 58 / 18 per 1,000 for residency and
+// 15 / 12 / 4 for load. That is a property of a valve rather than a failure
+// of the axis. A spill relieves the pressure that fired it, and concentrating
+// the draws both raises hit rates — which is the residency signal — and leaves
+// prefix affinity's own spreading with little imbalance for the load condition
+// to find. A reader looking for "each axis moves its own branch upward" will not
+// find it here, and should not: the working set axis is where the two branches
+// part company.
 //
 // It is worth saying what this table cannot catch, because #28 found out the
 // hard way. Two branches that read one pressure in two units would climb with
@@ -321,7 +334,7 @@ func (m PressureMap) reportDetail(b *strings.Builder) {
 func (m PressureMap) reportSeparability(b *strings.Builder) {
 	fmt.Fprintf(b, "## Are the two pressures separable?\n\n")
 	fmt.Fprintf(b, "The spill rule's two branches are counted apart, and the grid exists because they\n")
-	fmt.Fprintf(b, "answer to different axes: memory pressure evicts and trips the honoured low-water mark,\n")
+	fmt.Fprintf(b, "answer to different axes: memory pressure evicts and trips the hit-rate low-water mark,\n")
 	fmt.Fprintf(b, "load imbalance piles conversations up and trips the imbalance factor. Each axis is\n")
 	fmt.Fprintf(b, "pooled over the other, so each row isolates one of them.\n\n")
 
@@ -330,29 +343,34 @@ func (m PressureMap) reportSeparability(b *strings.Builder) {
 		// either. Said here, above them, because a column of zeros read without
 		// this reads as a finding about the axis rather than as a condition that
 		// was never armed.
-		fmt.Fprintf(b, "🚧 **This grid cannot answer that question, and the tables below must not be read\n")
-		fmt.Fprintf(b, "as though it had.** The residency branch was switched off for these cells\n")
-		fmt.Fprintf(b, "(`bench.Chosen`), so its column is zero everywhere by construction rather than by\n")
-		fmt.Fprintf(b, "measurement.\n\n")
-		fmt.Fprintf(b, "The reason is a property of the metric, not of this grid. `vllm:kv_cache_usage_perc`\n")
-		fmt.Fprintf(b, "counts blocks held by *running* requests, so it reads the active batch and not cache\n")
-		fmt.Fprintf(b, "residency: #16 measured kv = 0.02128 + 0.02135 x inflight at r = 0.973 over 13,658\n")
-		fmt.Fprintf(b, "rows, and an idle replica holding a full cache reads 0.021. On this fleet the KV\n")
-		fmt.Fprintf(b, "branch *is* the load branch, so any non-zero mark either cannot fire or fires on\n")
-		fmt.Fprintf(b, "load — which the imbalance factor already covers. Arming it would make this\n")
-		fmt.Fprintf(b, "section report a pass while measuring one pressure twice.\n\n")
-		fmt.Fprintf(b, "So separability is **blocked on #28**, which needs a residency metric the engine\n")
-		fmt.Fprintf(b, "does not currently expose. This is a real scoping loss for the grid rather than a\n")
-		fmt.Fprintf(b, "presentational one: the other six acceptance criteria stand, and this one waits.\n")
-		fmt.Fprintf(b, "The tables are still printed, because the load column remains a measurement and\n")
-		fmt.Fprintf(b, "the KV column is the evidence that it was never armed.\n\n")
+		fmt.Fprintf(b, "⚠️ **These cells ran with the residency branch switched off (`bench.Chosen`), so\n")
+		fmt.Fprintf(b, "its column below is zero by construction rather than by measurement.** The load\n")
+		fmt.Fprintf(b, "column is a measurement, and the answer to the question is in the arm named below\n")
+		fmt.Fprintf(b, "rather than in this table.\n\n")
+		fmt.Fprintf(b, "That the branch was off is a finding rather than an omission. Through #16 it read\n")
+		fmt.Fprintf(b, "`vllm:kv_cache_usage_perc`, which counts blocks held by *running* requests — the\n")
+		fmt.Fprintf(b, "active batch, which the load condition already measures: #16 fitted\n")
+		fmt.Fprintf(b, "kv = 0.02128 + 0.02135 x inflight at r = 0.973 over 13,658 rows, and an idle\n")
+		fmt.Fprintf(b, "replica holding a full cache read 0.021. Arming that mark would have reported a\n")
+		fmt.Fprintf(b, "pass here while measuring one pressure twice.\n\n")
+		fmt.Fprintf(b, "#28 rebuilt the branch on the engines' own per-replica prefix cache hit rate and\n")
+		fmt.Fprintf(b, "measured it separable from load on fresh rows — r = 0.138 against the gauge's\n")
+		fmt.Fprintf(b, "0.979 (ADR-0011) — and #18 then swept it across these same twelve points with the\n")
+		fmt.Fprintf(b, "load condition off, one mark at a time. **The two branches fire in opposite\n")
+		fmt.Fprintf(b, "directions along the working set axis.** Per 1,000 decisions, up the four working\n")
+		fmt.Fprintf(b, "set levels: residency 16 → 95 → 87 → 88 at its gentlest mark, where load runs\n")
+		fmt.Fprintf(b, "12 → 10 → 8 → 6. Two conditions that were one pressure in two units could not do\n")
+		fmt.Fprintf(b, "that, so the pressures are separable — and the column below is the evidence that\n")
+		fmt.Fprintf(b, "only one of them was armed for these cells.\n\n")
 	} else {
-		fmt.Fprintf(b, "If the grid is doing its job, KV spills climb down the first table and load spills\n")
-		fmt.Fprintf(b, "climb down the second. A KV branch that climbs with skew instead would mean the two\n")
-		fmt.Fprintf(b, "knobs are not driving what their names say.\n\n")
+		fmt.Fprintf(b, "Both branches were armed here, so read the two columns against each other rather\n")
+		fmt.Fprintf(b, "than each against its own axis: #18 measured them parting company on the working\n")
+		fmt.Fprintf(b, "set axis, the residency branch climbing where the load branch falls. A residency\n")
+		fmt.Fprintf(b, "column that tracks the load column down both axes is the signature of the two\n")
+		fmt.Fprintf(b, "conditions reading one pressure again (ADR-0011).\n\n")
 	}
 
-	fmt.Fprintln(b, "| working set (skew pooled) | spill: KV | spill: load |")
+	fmt.Fprintln(b, "| working set (skew pooled) | spill: residency | spill: load |")
 	fmt.Fprintln(b, "|---|---:|---:|")
 	for _, ws := range m.workingSetAxis() {
 		kv, load := 0, 0
@@ -367,7 +385,7 @@ func (m PressureMap) reportSeparability(b *strings.Builder) {
 	}
 	fmt.Fprintln(b)
 
-	fmt.Fprintln(b, "| skew (working set pooled) | spill: KV | spill: load |")
+	fmt.Fprintln(b, "| skew (working set pooled) | spill: residency | spill: load |")
 	fmt.Fprintln(b, "|---|---:|---:|")
 	for _, skew := range m.skewAxis() {
 		kv, load := 0, 0

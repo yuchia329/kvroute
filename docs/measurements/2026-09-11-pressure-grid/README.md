@@ -221,6 +221,118 @@ The two arms ran at different times — the spill-on grid overnight, the spill-o
 afternoon — on the same binaries and the same bytes, each from a cold fleet. The effects above are
 far larger than either arm's run-to-run spread.
 
+## Are the two pressures separable?
+
+#18's second criterion is that memory pressure and load imbalance are separable in the results,
+*since they drive different branches of the spill rule*. The grid could not answer it. The
+residency branch was off at every cell, because through #16 it read `vllm:kv_cache_usage_perc` —
+a gauge counting the blocks held by a replica's *running* requests, which is the active batch the
+load branch already measures, at r = 0.973 over 13,658 decisions (ADR-0011).
+[#28](https://github.com/yuchia329/kvroute/issues/28) rebuilt the branch on the engines' own
+per-replica prefix cache hit rate and measured that signal separable from load on fresh rows —
+r = 0.138 against the gauge's 0.979 — but cut the axis without sweeping it, which left the
+criterion evaluable and unmeasured.
+
+The **residency arm** sweeps it: prefix affinity with the mark *alone*, the load condition off at
+every cell, at each of `bench.HitRateLowWaterGrid`'s three levels, across the same twelve points
+with three repetitions, the same geometry and the same bytes as the grid and the spill-off arm. It
+ran 2026-09-13 07:49 → 19:34 UTC, from a cold fleet per mark. Five arms then meet at every point:
+no spill rule, load only (`bench.Chosen`), and three marks.
+
+### Yes — the branches part company on the working set axis
+
+Spill decisions per 1,000 decisions the policy made, each axis pooled over the other. Rates rather
+than counts, because the arms no longer contribute equal numbers of usable cells and a count would
+read a destabilised arm as less pressure:
+
+| working set (skew pooled) | load branch (0/2) | residency 0.55 | residency 0.62 | residency 0.70 |
+|---|---:|---:|---:|---:|
+| 0.25 | 12 | 16 | 15 | 65 |
+| 1 | 10 | 95 | 115 | 189 |
+| 3 | 8 | 87 | 131 | 141 |
+| 8 | 6 | 88 | 154 | 140 |
+
+| skew (working set pooled) | load branch (0/2) | residency 0.55 | residency 0.62 | residency 0.70 |
+|---|---:|---:|---:|---:|
+| 0 | 15 | 162 | 188 | 225 |
+| 1 | 12 | 58 | 136 | 190 |
+| 1.4 | 4 | 18 | 34 | 50 |
+
+**The load branch halves up the working set axis while the residency branch rises three- to
+tenfold over the same axis, at every one of the three marks.** Two conditions reading one pressure
+in two units — which is what these two were until #28 — cannot run in opposite directions on the
+axis that drives eviction. The criterion is met.
+
+Neither branch climbs with *skew*, and that is a property of a valve rather than a failure of the
+axis. A spill relieves the pressure that fired it; concentrating the draws raises hit rates, which
+is the residency signal itself; and at high skew prefix affinity's own spreading leaves little
+imbalance for the load condition to find. The working set axis is where the two part company, and
+a reader looking for "each axis drives its own branch upward" will not find it.
+
+The unarmed evidence says the same thing. In the spill-off arm, where no rule is firing to
+confound it, the fleet's prefix cache hit rate — the signal the residency branch reads — falls
+99.7 → 78.0 → 68.1 → 65.4% down the working set axis at skew 0, while the load branch's firing
+falls the other way.
+
+### What the marks cost
+
+Goodput, median of the usable repetitions:
+
+| WS / skew | prefix, no spill | prefix, load only | 0.55 | 0.62 | 0.70 |
+|---|---:|---:|---:|---:|---:|
+| 0.25 / 0 | **35.16** | 32.04 | 24.73 | 27.99¹ | 3.01 |
+| 0.25 / 1 | 31.70 | **34.43** | 27.86 | 19.48 | 31.63 |
+| 0.25 / 1.4 | 16.89 | **34.79** | 12.37 | 29.38 | 32.43 |
+| 1 / 0 | 8.13 | **14.94** | 2.28 | 2.75 | 4.44 |
+| 1 / 1 | 20.80 | **23.51** | 12.37¹ | no usable cell | 4.96¹ |
+| 1 / 1.4 | 19.25 | **30.45** | 20.01 | 20.47 | 21.55 |
+| 3 / 0 | 5.97 | **11.61** | 2.60 | 3.37 | 5.94 |
+| 3 / 1 | 16.21 | **18.97** | 9.48 | 6.47¹ | 2.64 |
+| 3 / 1.4 | 21.81 | **28.79** | 24.56 | 14.38 | 23.68 |
+| 8 / 0 | 6.51 | **10.68** | 2.81 | 4.11 | 6.84 |
+| 8 / 1 | 15.98 | **16.91** | 8.29¹ | 2.29 | 2.95 |
+| 8 / 1.4 | 23.66 | **28.04** | 26.56 | 17.69 | 21.36 |
+
+¹ fewer than three usable repetitions; see *Excluded and re-run*.
+
+**The residency branch is harmful at every level of its own grid.** Every mark loses to the load
+branch at every point it has a usable cell for — 35 of 35 — by between 5% and 91%. Mark 0.55 also
+loses to having no spill rule at all at nine of the twelve points.
+
+**The mechanism is a feedback loop the rule creates.** Declining a match because the replica is
+evicting sends the request to a replica that never held the conversation — a guaranteed miss — so
+the fleet's hit rate falls, which pushes more decisions under the mark, which spills more. At
+WS 1 / skew 0 the fleet hit rate falls from 77.5% under the load branch to 45.5% at mark 0.55, and
+44.1% of decisions spill. #28 predicted 5.2% of decisions at this mark from an observing pass, and
+the gap between 5.2% and 44.1% is the loop: the observing pass measured the signal on a run that
+was not spilling on it.
+
+**Tightening the mark does not simply tighten the rule, and the branch acts least where memory
+pressure is worst.** A residency spill excludes every replica that is *also* under the mark, so
+when a fleet is evicting everywhere that target set is empty and the match is kept by design. The
+rule therefore acts hardest where the fleet straddles the mark and barely at all where the whole
+fleet is beneath it. Down the skew-0 column above WS 0.25, tightening the mark from 0.55 to 0.70
+cuts its firing from 44.1 / 39.7 / 35.8% of decisions to 24.2 / 14.0 / 8.4% and recovers goodput
+from 2.28 / 2.60 / 2.81 to 4.44 / 5.94 / 6.84 — still a third of the load branch's. It is not a
+gentler setting, it is a rule that has stopped firing where eviction is heaviest.
+
+The same mark is catastrophic where the fleet sits just above it. At WS 0.25 / skew 0, where the
+load branch reads a 97.4% hit rate, mark 0.70 fires on 51.5% of decisions, drags the fleet's hit
+rate to 63.2% and scores **3.01 against 32.04** — the worst cell in the arm, at the point with the
+least memory pressure in the grid.
+
+**The arm destabilised the fleet, which is a result and not an accident.** Cells failing §6's
+warm-up drift check: 1 of 36 with no spill rule, 5 of 36 at mark 0.55 (3 still flagged after their
+re-run), 12 of 36 at 0.62 (6 still flagged), 3 of 36 at 0.70 (1 still flagged). Drifts reached
+374%. At WS 1 / skew 1, mark 0.62, all three repetitions and all three re-runs failed, so that
+point has **no usable cell** and is left as a hole rather than filled from a survivor. The count
+falls again at 0.70 for the same reason its goodput rises there: the rule is firing less.
+
+**So `bench.Chosen` keeps `HitRateLowWater: 0`.** The condition stays disabled — now on the
+evidence of a sweep rather than for want of one. ADR-0011 records it, and answers the question its
+own consequences left open: *"whether it costs anything is a question for the sweep: the decision
+mix and the goodput at each mark are what price it."*
+
 ## Reading the validity table
 
 - **Hit rate spread** in [`pressuremap.md`](pressuremap.md) is worst against best across all
@@ -229,8 +341,8 @@ far larger than either arm's run-to-run spread.
 - **Redundant prefill** there is now recomputed tokens **per request**, with the token total
   printed beside it ([#30](https://github.com/yuchia329/kvroute/issues/30)). It used to be the
   absolute total, and under this closed loop that credited the slower policy: prefix affinity
-  served 1.2–2.3× the requests at 11 of the 12 points, so its absolute recompute rose with its
-  own throughput.
+  served 1.2–2.3× the requests at 11 of the 12 points, so its absolute recomputed prefill rose
+  with its own throughput.
 
 ### Redundant prefill per request, re-read
 
@@ -239,7 +351,7 @@ policies. Every figure is recomputed from the cell records in `grid/` — reques
 `summary.requests`, recomputed from `prompt_tokens − prompt_tokens_cached`, usable repetitions
 pooled — so this is arithmetic over the existing run, not a re-measurement.
 
-| point | session requests | prefix requests | session / req | prefix / req | wastes less per request |
+| point | session requests | prefix requests | session / req | prefix / req | lower per request |
 |---|---:|---:|---:|---:|---|
 | WS 0.25, skew 0 | 25,735 | 24,922 | 10.2 | 78.7 | session |
 | WS 0.25, skew 1 | 11,602 | 26,061 | 37.6 | 52.8 | session |
@@ -254,7 +366,7 @@ pooled — so this is arithmetic over the existing run, not a re-measurement.
 | WS 8, skew 1 | 11,534 | 13,379 | 555.4 | 564.9 | session |
 | WS 8, skew 1.4 | 12,809 | 21,169 | 186.9 | 179.3 | **prefix** |
 
-Session affinity had the lower absolute recompute at **all 12** points. Per request it is lower at
+Session affinity had the lower absolute recomputed prefill at **all 12** points. Per request it is lower at
 **6**, and at WS ≥ 1 the two are within about 5% of each other everywhere. So the old column's
 claim — that session affinity wasted less prefill everywhere — was false, and the honest reading is
 that the two policies leave the fleet almost the same prefill work per request while prefix
@@ -288,24 +400,36 @@ drift — and it settled on its single re-run.
 
 ## What this grid does not answer
 
-#18 asks that memory pressure and load imbalance be separable, since they drive different
-branches of the spill rule. **It cannot be answered here.** The KV branch was off:
-`vllm:kv_cache_usage_perc` counts blocks held by running requests, so it reads the active batch
-rather than cache residency, and on this fleet tracks inflight at r = 0.973. That waits on
-[#28](https://github.com/yuchia329/kvroute/issues/28). #18's other six criteria are met.
+All seven of #18's criteria are met, five by the grid itself, one by the spill-off arm and one by
+the residency arm. What is left open is narrower than the criteria:
+
+- **Why least-loaded placement unbalances an even draw.** With spill off, prefix affinity's only
+  difference from session affinity is where a *new* conversation starts, and that placement loses
+  to hashing at skew 0 above WS 0.25. The busiest-replica figures say it happens; nothing here
+  says why.
+- **Whether any residency mark is usable.** Three were swept and none is; the axis is not
+  exhausted below 0.55, but #28 measured that region as a cold-start tail firing on almost
+  nothing, so a gentler mark is a rule that does not act rather than one that acts well.
+- **What the marks would do with the load branch also armed.** Every cell here has exactly one
+  branch on, which is what isolates them. The combination is not measured.
+- **The grid's own resolution at two points.** WS 0.25 / skew 1 rests on two repetitions of
+  session affinity, and its +290% is the least resolved figure in the map.
 
 ## Files
 
 | | |
 |---|---|
 | `pressuremap.md` | The final map, all four policies, drawn after the re-run pass |
-| `pressuremap-headline.md` | The same map for session and prefix affinity only, drawn at 02:54 UTC before the context policies ran. Not regenerated for [#30](https://github.com/yuchia329/kvroute/issues/30), so its redundant-prefill column is still the absolute one; it says so at the top |
+| `pressuremap-headline.md` | The same map for session and prefix affinity only, drawn at 02:54 UTC before the context policies ran. Not regenerated since, so its redundant-prefill column is still the absolute one from before [#30](https://github.com/yuchia329/kvroute/issues/30) — it says so at the top — and its separability section still reads as blocked, which the arm above answered |
 | `grid/ws*-skew*/` | One sweep directory per grid point: `cells/*.json` (144 cell records), `cells.parquet`, `requests.parquet` (every request's row), `results.md`, and `discarded/` (the six set-aside cells' records) |
 | `grid/evidence/` | Router startup logs, one per policy, and the re-run pass's |
-| `evidence/` | The console and bench logs of the grid and of the spill-off arm, and the box's `versions.env` |
 | `spilloff/ws*-skew*/` | The spill-off arm, laid out like `grid/`: prefix affinity's 36 cell records, parquet, results, and the one set-aside cell's record; router startup logs in `spilloff/evidence/` |
+| `residency/m0.55/`, `m0.62/`, `m0.70/` | The residency arm, one directory per mark — 36 cell records per mark, `cells.parquet`, `results.md`, `discarded/`, and a `MARK` stamp. `requests.parquet` and the router rows stay on the box: nothing above reads them |
+| `evidence/arm-compare.py` | Draws every cross-arm table above from the committed cell records — goodput, mechanism and the separability marginals. `cmd/pressuremap` cannot: a map compares policies inside one directory, an arm is one policy across directories |
+| `evidence/` | The console and bench logs of the grid, the spill-off arm and the residency arm, and the box's `versions.env` at each. The residency arm's differs from the grid's only by the `KV_EVENTS="0"` block [#24](https://github.com/yuchia329/kvroute/issues/24) documented in between — the same engine configuration, written down |
 
-Kept on the box under `~/kvroute/runs/pressure/` and `runs/pressure-spilloff/`, and not committed: each cell's raw row file
+Kept on the box under `~/kvroute/runs/pressure/`, `runs/pressure-spilloff/` and
+`runs/pressure-residency/`, and not committed: each cell's raw row file
 (485 MB; the same rows are in `requests.parquet`), the set-aside cells' rows, and the router's
 own per-request records (470 MB, 43 MB gzipped), which would double this directory while
 largely duplicating what the harness rows already carry.

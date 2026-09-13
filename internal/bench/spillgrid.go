@@ -211,11 +211,24 @@ var HitRateObserved = Range{
 //
 // The branch now reads the engines' own prefix cache hit rate, per replica over
 // a moving window (ADR-0011), which responds to eviction because it measures
-// what eviction leaves behind. HitRateLowWaterGrid has since been cut against
-// that signal's observed range, but the axis has not been swept yet, so the
-// condition stays off here: a value chosen before the sweep would be the same
-// guess in a new unit. This becomes one of 0.55/0.62/0.70 when the run that
-// prices them says which.
+// what eviction leaves behind. HitRateLowWaterGrid was cut against that signal's
+// observed range, and #18's residency arm then swept it: the mark alone with the
+// load condition off, at all three levels, across the pressure grid's twelve
+// points. Every level costs goodput at every point, and at skew 0 above WS 0.25
+// the gentlest of them loses 74-85% against this factor.
+//
+// So the condition stays off on the evidence of a sweep rather than for want of
+// one. What the sweep found is a loop the rule creates rather than a threshold
+// set wrongly: declining a match because a replica is evicting sends the request
+// to a replica that never held the conversation, which is a certain miss, so the
+// fleet's hit rate falls and more decisions fall under the mark. At WS 1, skew 0
+// the fleet read 77.5% under this factor and 45.5% at mark 0.55, where 44.1% of
+// decisions spilled. Tightening the mark does not tighten the rule either: a
+// residency spill excludes every replica also under the mark, and on a fleet
+// evicting everywhere that set is empty and the match is kept, so the strictest
+// level acts least. The signal is not what failed -- it answers to the working
+// set axis where the load condition answers away from it, which is the
+// separability #18 asked for -- and only the rule built on it is disabled.
 var Chosen = policy.Spill{HitRateLowWater: 0, LoadImbalanceFactor: 2}
 
 // HitRateLowWaterSweep is the residency mark measured alone, at

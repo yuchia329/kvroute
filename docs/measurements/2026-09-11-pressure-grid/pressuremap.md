@@ -15,11 +15,13 @@ repetitions behind it, which is a difference between a policy and itself.
 
 > ⚠️ **The WS axis is labelled with what each cell was configured for, not what it
 > applied.** Skew discounts working set — concentrating the draws touches fewer
-> distinct conversations, so at WS 1 a cell realises about 0.97 of its label at
-> skew 0 and 0.40 at skew 1.4 — and a cell of finite length cannot touch a pool
-> bigger than its visit count, which bites hardest at the top of the axis. So
-> the realised pressure rises more slowly than the labels do, especially to the
-> right and at the top. Neither discount is corrected here: correcting either
+> distinct conversations — and a cell of finite length cannot touch a pool bigger
+> than its visit count, which bites hardest at the top of the axis. Counted from
+> the session column of #18's 300 s cells rather than modelled: at WS 1 a cell
+> realised 0.95 of its label at skew 0 and 0.49 at skew 1.4, and at skew 0 the
+> four labels realised 0.25, 0.95, 1.78 and 2.26. A shorter cell realises less.
+> So the realised pressure rises more slowly than the labels do, especially to
+> the right and at the top. Neither discount is corrected here: correcting either
 > would change the workload's name and refuse every cell recorded under the old
 > one (ADR-0004, ADR-0007). The realised draw is countable from the session
 > column of the rows, and a flat top end should be checked against it before it
@@ -53,7 +55,7 @@ being true. #16 measured 0.674% of decisions declined on a fleet where an
 uncorrected run would have qualified 55% of the time. A near-zero rate here is the
 mechanism working, not a rule that failed to fire.
 
-| point | redundant prefill / request | redundant prefill, tokens | hit rate spread | spill: KV | spill: load | spill rate | exercised |
+| point | redundant prefill / request | redundant prefill, tokens | hit rate spread | spill: residency | spill: load | spill rate | exercised |
 |---|---:|---:|---:|---:|---:|---:|---|
 | WS 0.25, skew 0 | 1394.0 | 8742042 | 45.4 pp | 0 | 626 | 2.512% | yes |
 | WS 0.25, skew 1 | 652.7 | 6521473 | 21.4 pp | 0 | 243 | 0.932% | yes |
@@ -113,37 +115,40 @@ whichever state won most draws, and more repetitions will not make it unimodal.
 ## Are the two pressures separable?
 
 The spill rule's two branches are counted apart, and the grid exists because they
-answer to different axes: memory pressure evicts and trips the KV high-water mark,
+answer to different axes: memory pressure evicts and trips the hit-rate low-water mark,
 load imbalance piles conversations up and trips the imbalance factor. Each axis is
 pooled over the other, so each row isolates one of them.
 
-🚧 **This grid cannot answer that question, and the tables below must not be read
-as though it had.** The KV high-water branch was switched off for these cells
-(`bench.Chosen`), so its column is zero everywhere by construction rather than by
-measurement.
+⚠️ **These cells ran with the residency branch switched off (`bench.Chosen`), so
+its column below is zero by construction rather than by measurement.** The load
+column is a measurement, and the answer to the question is in the arm named below
+rather than in this table.
 
-The reason is a property of the metric, not of this grid. `vllm:kv_cache_usage_perc`
-counts blocks held by *running* requests, so it reads the active batch and not cache
-residency: #16 measured kv = 0.02128 + 0.02135 x inflight at r = 0.973 over 13,658
-rows, and an idle replica holding a full cache reads 0.021. On this fleet the KV
-branch *is* the load branch, so any non-zero mark either cannot fire or fires on
-load — which the imbalance factor already covers. Arming it would make this
-section report a pass while measuring one pressure twice.
+That the branch was off is a finding rather than an omission. Through #16 it read
+`vllm:kv_cache_usage_perc`, which counts blocks held by *running* requests — the
+active batch, which the load condition already measures: #16 fitted
+kv = 0.02128 + 0.02135 x inflight at r = 0.973 over 13,658 rows, and an idle
+replica holding a full cache read 0.021. Arming that mark would have reported a
+pass here while measuring one pressure twice.
 
-So separability is **blocked on #28**, which needs a residency metric the engine
-does not currently expose. This is a real scoping loss for the grid rather than a
-presentational one: the other six acceptance criteria stand, and this one waits.
-The tables are still printed, because the load column remains a measurement and
-the KV column is the evidence that it was never armed.
+#28 rebuilt the branch on the engines' own per-replica prefix cache hit rate and
+measured it separable from load on fresh rows — r = 0.138 against the gauge's
+0.979 (ADR-0011) — and #18 then swept it across these same twelve points with the
+load condition off, one mark at a time. **The two branches fire in opposite
+directions along the working set axis.** Per 1,000 decisions, up the four working
+set levels: residency 16 → 95 → 87 → 88 at its gentlest mark, where load runs
+12 → 10 → 8 → 6. Two conditions that were one pressure in two units could not do
+that, so the pressures are separable — and the column below is the evidence that
+only one of them was armed for these cells.
 
-| working set (skew pooled) | spill: KV | spill: load |
+| working set (skew pooled) | spill: residency | spill: load |
 |---|---:|---:|
 | 0.25 | 0 | 956 |
 | 1 | 0 | 510 |
 | 3 | 0 | 348 |
 | 8 | 0 | 272 |
 
-| skew (working set pooled) | spill: KV | spill: load |
+| skew (working set pooled) | spill: residency | spill: load |
 |---|---:|---:|
 | 0 | 0 | 838 |
 | 1 | 0 | 841 |

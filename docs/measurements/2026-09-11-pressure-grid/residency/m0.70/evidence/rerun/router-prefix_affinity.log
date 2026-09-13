@@ -1,0 +1,6 @@
+time=2026-09-13T12:17:45.700-07:00 level=INFO msg="prefix index calibrated" from=runs/prefix-calibration-derived.json node_cap=16311 ttl=56.970757907s ttl_source="measured from vllm:kv_block_idle_before_evict_seconds" fleet_tokens=629760 prompt_bytes_per_token=1.6576004077495163
+time=2026-09-13T12:17:45.700-07:00 level=INFO msg="checking replica health" interval=1s eject_after=2 readmit_after=2
+time=2026-09-13T12:17:45.700-07:00 level=INFO msg="scraping replicas" interval=250ms replicas=5 hit_rate_span="10s/100 queries" reason="required by the residency threshold"
+time=2026-09-13T12:17:45.700-07:00 level=INFO msg="router listening" addr=127.0.0.1:8080 policy=prefix_affinity spill="hit<0.70 load>off" honoured_window="64 requests/30s, quorum 8" hit_rate_span="10s/100 queries" hash=off replicas=5 records=runs/pressure-residency/m0.70/router-prefix_affinity-rerun.jsonl
+time=2026-09-13T12:33:32.253-07:00 level=INFO msg=draining grace=30s
+time=2026-09-13T12:33:32.255-07:00 level=INFO msg="router overhead" requests=6248 p50_us=461.535 p99_us=1723.458 max_us=8482.266

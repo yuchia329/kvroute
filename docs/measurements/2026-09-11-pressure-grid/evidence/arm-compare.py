@@ -141,18 +141,22 @@ def main(argv):
     # isolates it. One branch per column, counted rather than rated, because the
     # question is which axis a branch answers to and a rate divides by a
     # denominator that moves with the policy's own throughput.
-    print("\nSEPARABILITY, spill decisions counted, one axis pooled over the other\n")
+    print("\nSEPARABILITY, spills counted and per 1,000 decisions, one axis pooled over")
+    print("the other. The rate is what the axes are read from: an arm whose cells did not")
+    print("all survive contributes fewer decisions, and a count would read that as less")
+    print("pressure.\n")
     for axis, index in (("working set", 0), ("skew", 1)):
         print(f"{axis}, other pooled".ljust(24) + "".join(
-            f"{n} resid".ljust(15) + f"{n} load".ljust(15) for n, _ in arms))
+            f"{n} resid".ljust(18) + f"{n} load".ljust(18) for n, _ in arms))
         for value in sorted({point_key(p)[index] for p in points}):
             row = f"{value:g}".ljust(24)
             for _, arm in arms:
-                resid = sum(spilled(c)[0] for p, got in arm.items()
-                            if point_key(p)[index] == value for c in got)
-                load_ = sum(spilled(c)[1] for p, got in arm.items()
-                            if point_key(p)[index] == value for c in got)
-                row += f"{resid}".ljust(15) + f"{load_}".ljust(15)
+                got = [c for p, cs in arm.items() if point_key(p)[index] == value for c in cs]
+                total = sum(routed(c) for c in got)
+                for branch in (0, 1):
+                    n = sum(spilled(c)[branch] for c in got)
+                    rate = f"{1000 * n / total:.0f}" if total else "--"
+                    row += f"{n} ({rate}/1k)".ljust(18)
             print(row)
         print()
 

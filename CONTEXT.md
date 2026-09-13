@@ -534,7 +534,9 @@ _Avoid_: benchmark, experiment (those mean the whole comparison), pressure grid
 **Pressure grid**:
 The two-dimensional set of cells crossing working set ratio with skew at a single fixed
 concurrency. Two-dimensional because memory pressure and load imbalance are physically different
-and fire different branches of the spill rule, so neither stands in for the other.
+and fire different branches of the spill rule, so neither stands in for the other — measured in
+#18, where the residency branch's firing rises three- to tenfold up the working set axis while the
+load branch's halves over the same axis.
 _Avoid_: pressure sweep, the grid, pressure map (that is the figure drawn from it)
 
 **Pressure map**:

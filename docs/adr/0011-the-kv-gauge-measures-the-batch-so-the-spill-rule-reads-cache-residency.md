@@ -1,6 +1,6 @@
 # ADR-0011: The KV gauge measures the batch, so the spill rule reads cache residency
 
-**Status:** Accepted · **Date:** 2026-09-12 · **Amended:** 2026-09-12 (decision 1, on measurement)
+**Status:** Accepted · **Date:** 2026-09-12 · **Amended:** 2026-09-12 (decision 1, on measurement) · **Amended:** 2026-09-13 (decision 6, on the sweep)
 
 ## Context
 
@@ -168,6 +168,55 @@ reports each signal's range and its Pearson correlation with the inflight record
 row, and `cmd/spillsignal` prints them side by side. #18's criterion cannot be evaluated until a
 run has shown the residency signal's correlation with inflight to be materially below 0.973.
 
+**6. The branch is built, and it stays disabled: `bench.Chosen` keeps `HitRateLowWater: 0`.** The
+consequences below left this open — *"whether it costs anything is a question for the sweep: the
+decision mix and the goodput at each mark are what price it"*. #18's residency arm is that sweep,
+run on 2026-09-13: prefix affinity with the mark alone and the load condition off at every cell, at
+all three levels, across the pressure grid's twelve points with three repetitions, the same
+geometry and the same bytes as the grid and its spill-off arm. Full record:
+[`docs/measurements/2026-09-11-pressure-grid`](../measurements/2026-09-11-pressure-grid/), section
+*Are the two pressures separable?*
+
+**Every mark loses to the load condition at every point it has a usable cell for — 35 of 35, by
+5% to 91%.** Goodput down the skew-0 column, where the branch fires hardest:
+
+| WS | no spill rule | load only (0/2) | 0.55 | 0.62 | 0.70 |
+|---|---:|---:|---:|---:|---:|
+| 0.25 | 35.16 | 32.04 | 24.73 | 27.99 | 3.01 |
+| 1 | 8.13 | **14.94** | 2.28 | 2.75 | 4.44 |
+| 3 | 5.97 | **11.61** | 2.60 | 3.37 | 5.94 |
+| 8 | 6.51 | **10.68** | 2.81 | 4.11 | 6.84 |
+
+Three findings, in the order they bear on the decision.
+
+**The rule is self-defeating on this signal.** Declining a match because a replica is evicting
+sends the request to a replica that never held the conversation, which is a certain miss, so the
+fleet's hit rate falls, which puts more decisions under the mark. At WS 1 / skew 0 the fleet reads
+77.5% under the load condition and 45.5% at mark 0.55, where 44.1% of decisions spill — against
+the 5.2% *What the hit rate measured* predicted for that level, because the observing pass
+measured the signal on a run that was not routing on it. A threshold read off an unarmed run
+understates its own firing rate once armed, and that is a general caution for this project, not a
+fact about 0.55.
+
+**The branch acts least where memory pressure is worst.** `Spill.targets` excludes every replica
+also under the mark, so a fleet evicting everywhere leaves an empty target set and the match is
+kept by design — the property that stops a spill relieving nothing. Its consequence is that the
+rule's firing is highest where the fleet *straddles* the mark and lowest where the fleet is
+entirely beneath it. Tightening 0.55 → 0.70 at skew 0 above WS 0.25 cuts firing from 44.1 / 39.7 /
+35.8% of decisions to 24.2 / 14.0 / 8.4% and recovers goodput toward a third of the load
+condition's. A stricter mark is not a stronger rule here; it is a rule that has stopped firing.
+The design fault is in what a declined request is allowed to be sent to, not in where the
+threshold sits, so no level of this grid could have been the answer.
+
+**The signal is not what failed.** Decision 1 stands. Across the twelve points the residency
+branch's firing rises three- to tenfold up the working set axis — 16 → 95 → 87 → 88 per 1,000
+decisions at 0.55, 15 → 115 → 131 → 154 at 0.62, 65 → 189 → 141 → 140 at 0.70 — while the load
+condition's falls by half over the same axis, 12 → 10 → 8 → 6. Two conditions reading one pressure
+in two units, which is what these were before this ADR, cannot run in opposite directions on the
+axis that drives eviction. **That is #18's separability criterion, met.** A signal that answers to
+the right pressure and a rule that acts harmfully on it are different things, and only the rule is
+disabled.
+
 ## What the hit rate measured
 
 The observing pass was re-run against the new signal on 2026-09-12 (WS 3, skew 0, c32, spill off,
@@ -271,6 +320,18 @@ observing pass re-run before these levels mean anything.
   the counters keep moving on whatever traffic the replica still gets rather than depending on the
   router choosing to score it. Whether it costs anything is a question for the sweep: the decision
   mix and the goodput at each mark are what price it.
+- **`bench.Chosen` keeps `HitRateLowWater: 0` on measurement.** `spillgrid.go` no longer promises
+  that the value "becomes one of 0.55/0.62/0.70 when the run that prices them says which": the run
+  says none of them. `HitRateLowWaterGrid` and `HitRateLowWaterSweep` are kept as the axis that was
+  swept, not as candidates.
+- **#18's pressure grid and pressure map stand as measured, at the load-only point.** The arm is
+  reported beside them rather than replacing them, and no policy's cells are invalidated: a cell
+  records the spill point it ran at.
+- **A residency condition worth having would have to change the target rule, not the threshold.**
+  Untested, and recorded as a direction rather than a decision: spilling toward the replica with
+  the *highest* hit rate, rather than excluding every replica under the mark and then taking the
+  least loaded, is the shape that would not degenerate on an evicting fleet. Nothing here measures
+  it.
 - **#16's completed grid stands as measured.** Its load axis is sound and `bench.Chosen` keeps the
   factor of 2 it chose. Its KV axis is evidence for this decision rather than a result: three
   configurations that could not fire, plus one that fired 0.14% of the time, correctly reported as
