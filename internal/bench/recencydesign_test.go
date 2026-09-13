@@ -44,11 +44,22 @@ const (
 	designWarmupShare   = 0.25
 )
 
+// designWarmup is the quarter-of-the-cell warm-up #17's two configurations ran,
+// kept so those designs are still stated in the terms they were chosen under.
+// #29 sizes its warm-up from the visit period instead.
+func designWarmup(cell time.Duration) time.Duration {
+	return time.Duration(designWarmupShare * float64(cell))
+}
+
 // offer walks the arrival schedule a cell would fire and reports how its
 // requests fall across the recency axis, plus the live session tokens that axis
 // costs. Nothing here contacts a fleet: the schedule is arithmetic and the
 // session a request lands on is a pure function of (user, turn).
-func (d recencyDesign) offer(t *testing.T) (buckets map[string]int, measured int, liveTokens int) {
+//
+// warm is the slice at the front of the cell whose arrivals are excluded, which
+// is a parameter rather than a share of the cell because #29 sizes it from the
+// visit period instead — see recencywindow_test.go.
+func (d recencyDesign) offer(t *testing.T, warm time.Duration) (buckets map[string]int, measured int, liveTokens int) {
 	t.Helper()
 	sessions := int(math.Round(d.workingSet * designFleetKV / designSessionTokens))
 	pool, err := conversationPool(d.rate, d.think)
@@ -72,7 +83,6 @@ func (d recencyDesign) offer(t *testing.T) (buckets map[string]int, measured int
 
 	turns := newRotation(pool, 7)
 	interval := time.Duration(float64(time.Second) / d.rate)
-	warmUntil := time.Duration(designWarmupShare * float64(d.cell))
 	lastSeen := map[string]time.Duration{}
 	buckets = map[string]int{}
 
@@ -82,7 +92,7 @@ func (d recencyDesign) offer(t *testing.T) (buckets map[string]int, measured int
 		session := mt.Next(user, turn).Session
 		prior, seen := lastSeen[session]
 		lastSeen[session] = due
-		if due < warmUntil {
+		if due < warm {
 			continue
 		}
 		measured++
@@ -113,7 +123,7 @@ func TestAThinkTimeLadderConfoundsRecencyWithMemoryPressure(t *testing.T) {
 	}
 	var lowest, highest int
 	for i, d := range ladder {
-		_, _, live := d.offer(t)
+		_, _, live := d.offer(t, designWarmup(d.cell))
 		if i == 0 || live < lowest {
 			lowest = live
 		}
@@ -147,7 +157,7 @@ func TestAThinkTimeLadderConfoundsRecencyWithMemoryPressure(t *testing.T) {
 // real point on it, which is what the closed-loop cells already produced.
 func TestTheRecencyCellSpreadsAcrossTheWholeAxis(t *testing.T) {
 	chosen := recencyDesign{rate: 8, think: 30 * time.Second, cell: 300 * time.Second, workingSet: 3, skew: 1.0}
-	buckets, measured, live := chosen.offer(t)
+	buckets, measured, live := chosen.offer(t, designWarmup(chosen.cell))
 
 	t.Logf("pool tokens %d = %.2fx fleet KV over %d measured arrivals", live, float64(live)/designFleetKV, measured)
 	var occupied int
@@ -181,7 +191,7 @@ func TestTheRecencyCellSpreadsAcrossTheWholeAxis(t *testing.T) {
 func TestTheSecondRecencyCellReachesPastTheIndexTTL(t *testing.T) {
 	const derivedTTL = 57 * time.Second
 	past := recencyDesign{rate: 8, think: 75 * time.Second, cell: 420 * time.Second, workingSet: 3, skew: 1.0}
-	buckets, measured, _ := past.offer(t)
+	buckets, measured, _ := past.offer(t, designWarmup(past.cell))
 
 	var beyond int
 	for _, label := range recencyLabels {

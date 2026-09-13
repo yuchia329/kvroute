@@ -149,9 +149,9 @@ this project measures it, and the result stands whichever policy wins.
 Every request carries both sides on one row: the prefix match the router decided on, and the
 engine's own `usage.prompt_tokens_details.cached_tokens` for that same request.
 
-**99.7% of the tokens the index claimed were really there**, over 16,752 requests of the clean
+**99.7% of the tokens the index claimed were really there**, over 19,391 requests of the clean
 working-set run ([measurement](docs/measurements/2026-09-10-belief-divergence/)). The errors run
-overwhelmingly the safe way: 15,375 requests under-predicted against 1,362 that over-predicted.
+overwhelmingly the safe way: 17,845 requests under-predicted against 1,531 that over-predicted.
 Forgetting a block a replica still holds forfeits a match; believing in one it has evicted pays the
 full prefill *and* spends the routing decision on a reason that had stopped being true. The two are
 never netted into one figure.
@@ -160,15 +160,18 @@ never netted into one figure.
 |---|---:|---:|---:|---:|
 | 0.25 | 10,626 | 100.0% | 951 | 4 |
 | 1 | 3,689 | 98.9% | 317 | 314 |
+| 3 | 2,639 | 99.2% | 169 | 246 |
 | 8 | 2,437 | 99.5% | 94 | 241 |
 
 **Memory pressure makes the index wrong in bigger pieces, not more often.** The honoured share
-barely moves while the mean over-prediction climbs eighty-fold. A fleet that cannot hold its working
-set does not produce more stale beliefs; it produces stale beliefs that are worth more when they
-land.
+barely moves and the count of over-predicting requests falls monotonically — 951, 317, 169, 94 —
+while the mean over-prediction jumps eighty-fold between WS 0.25 and WS 1 and is then flat. A fleet
+that cannot hold its working set does not produce more stale beliefs; it produces stale beliefs that
+are worth more when they land, and almost all of that change happens at the point the fleet stops
+holding the set.
 
 That measurement then sizes the index: the node cap is the fleet model scaled by the share of belief
-the engines honoured, which trimmed it by 0.3% (16,311 → 16,266). The modelling decision
+the engines honoured, which trimmed it by 0.3% (16,311 → 16,258). The modelling decision
 [ADR-0006](docs/adr/0006-the-prefix-index-is-bounded-by-measurement.md) could not verify turns out to
 have been very nearly right.
 
@@ -197,9 +200,13 @@ These are findings, in the same voice as the positive ones.
   can reach another directly — the driver reports peer access unsupported on all 30 ordered pairs —
   so every card-to-card copy bounces through host memory. Nothing was built; the arithmetic settled
   it ([measurement](docs/measurements/2026-09-11-pcie-arithmetic/)).
-- **The index's decay curve is not a published result.** Every cell of the recency run is flagged as
-  still warming up, which is precisely the condition that manufactures under-prediction. It needs a
-  re-run ([#29](https://github.com/yuchia329/kvroute/issues/29)).
+- **The index's decay curve was withheld once, and then published.** Every cell of #17's recency run
+  was flagged as still warming up, which is precisely the condition that manufactures
+  under-prediction, so the curve was not published. Re-run at a geometry whose cells do not flag, the
+  decay holds: 99.8% of belief honoured at 1–2 s falling to **86.0% at 30 s – 1 m**, the bucket
+  beneath the measured 57 s TTL, and back to 98.1% past it
+  ([#29](https://github.com/yuchia329/kvroute/issues/29),
+  [measurement](docs/measurements/2026-09-12-recency-rerun/)).
 - **An earlier headline was an artefact and is withdrawn.** The first two-policy comparison, on six
   cards, concluded that balancing load *cost* goodput — least outstanding losing 16–32%. GPU 3
   thermally throttles whenever all six cards draw power at once, so round robin was feeding a

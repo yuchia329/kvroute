@@ -70,6 +70,36 @@ committed.
 | `run-pressure-spilloff.sh` | Prefix affinity with the spill rule off, across the same grid and the same bytes, into its own directory. |
 | `run-exact-grid.sh` | #24's grid: exact residency against the approximate index, on a fleet publishing KV cache events, with session affinity as the baseline. |
 | `run-hash-grid.sh` | #26's two arms: the stateless hash's weight axis, then the grid at the weight that axis settled on. |
+| `run-recency-rerun.sh` | #29's two halves: the recency axis re-run at whole visit periods, and the WS 3 rung the working-set axis is missing. Run 2026-09-12; see below. |
+
+`run-recency-rerun.sh` was committed **before** its run rather than after it, which is the
+opposite of every other row here (the run has since happened — 2026-09-12, in two attempts). What it encodes is a design that was settled off the GPU:
+the cell lengths come from `internal/bench/recencywindow_test.go`, which derives them from
+the workload's visit period and re-asserts that the longer cells still spread the axis the
+run exists to plot. Committing it first is what lets that design be reviewed before the
+fleet time is spent rather than after.
+
+**It also carries a gate the other drivers here do not, and the reason is worth copying.**
+Checking for a live `bench` or `router` before starting is not enough to tell whether
+somebody else is on the cards: a sweep spends minutes between its cells cycling the fleet,
+and in that window it has neither. A driver that looked only for those two would find the
+box idle, and `fleet_up`'s first act is `fleet.sh down` — so it would take the other run's
+fleet down at the one moment that run could not be seen. `run-recency-rerun.sh` therefore
+looks for another *driver script*, which lives for the whole run, and it refuses on that.
+Two more traps in the same family: arm the `trap cleanup EXIT` **after** the gates, or the
+refusal itself tears the other fleet down on the way out; and `/tmp/kvroute-sweep.lock` is
+not a convention you can rely on: **no driver in this repo takes it** except
+`run-recency-rerun.sh` itself, so it currently serialises nothing. Two of the box-only drivers
+(`run-load-knee.sh`, `run-recency.sh`) do take it, but they are not committed here, and
+`run-load-denominator.sh` — which is — does not. All three were found on 2026-09-12 by running the driver against a live `#31` sweep,
+which it correctly declined.
+
+Its flag set was rehearsed end to end against `cmd/fakereplica` with
+`-cached-prompt-fraction` — replica, router, both drivers and `cmd/divergence` — so what is
+unproven when it first meets the cards is the fleet, not the wiring. That rehearsal also
+pinned the two settings a spill-off cell depends on now that #28 has added a second spill
+condition: `hit_rate_low_water` and `load_imbalance_factor` both default to 0, so a router
+started with neither flag is the spill-off policy #17 measured.
 
 Launch a long run detached, with the `cd` separated by a semicolon so only the job is
 backgrounded — `cd ~/kvroute && job &` backgrounds the whole chain, and its subshell holds

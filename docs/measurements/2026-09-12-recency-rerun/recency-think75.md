@@ -14,13 +14,13 @@ and what the engine says it actually served out of cache, per request.
   replica evicted misroutes the request; forgetting blocks it still holds only
   forfeits a match. They are different failures and share no column.
 
-Measured over 12 cells in runs/divergence/ws0.25, runs/divergence/ws1, runs/divergence/ws3, runs/divergence/ws8: 19391 of 19391 measured requests carried an engine
+Measured over 3 cells in runs/recency-rerun/think75: 14400 of 14400 measured requests carried an engine
 account of their prompt.
 
-Overall: 19391 requests, 99.7% of belief honoured; over-predicted on 1531 (167810 tokens), under-predicted on 17845 (702696 tokens)
+Overall: 14400 requests, 97.7% of belief honoured; over-predicted on 1192 (732068 tokens), under-predicted on 13195 (1223383 tokens)
 
-Computed prefill, two ways: 7730857 tokens summed off the per-request rows, against
-7770437 off the fleet's own counters over the same cells' measured windows. They
+Computed prefill, two ways: 11873380 tokens summed off the per-request rows, against
+12207748 off the fleet's own counters over the same cells' measured windows. They
 cover slightly different windows and are printed rather than reconciled; a gross
 disagreement means the per-request account is measuring something else.
 
@@ -28,7 +28,7 @@ disagreement means the per-request account is measuring something else.
 
 | policy | requests | predicted/req | actual/req | honoured | over-predicted | mean tokens over | under-predicted | mean tokens under | exact |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| prefix_affinity | 19391 | 2640 | 2668 | 99.7% | 1531 | 110 | 17845 | 39 | 15 |
+| prefix_affinity | 14400 | 2197 | 2231 | 97.7% | 1192 | 614 | 13195 | 93 | 13 |
 
 ## By working set ratio
 
@@ -50,10 +50,7 @@ changing a byte of what it sends.
 
 | WS | requests | predicted/req | actual/req | honoured | over-predicted | mean tokens over | under-predicted | mean tokens under | exact |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 0.25 (skew 0) | 10626 | 3021 | 3037 | 100.0% | 951 | 4 | 9662 | 18 | 13 |
-| 1 (skew 0) | 3689 | 2385 | 2419 | 98.9% | 317 | 314 | 3370 | 67 | 2 |
-| 3 (skew 0) | 2639 | 2067 | 2114 | 99.2% | 169 | 246 | 2470 | 67 | 0 |
-| 8 (skew 0) | 2437 | 1990 | 2036 | 99.5% | 94 | 241 | 2343 | 57 | 0 |
+| 3 (skew 1) | 14400 | 2197 | 2231 | 97.7% | 1192 | 614 | 13195 | 93 | 13 |
 
 ## By time since the session was last served
 
@@ -66,15 +63,15 @@ a shared system prompt or a branched ancestor instead.
 
 | since last served | requests | predicted/req | actual/req | honoured | over-predicted | mean tokens over | under-predicted | mean tokens under | exact |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| first turn | 1365 | 392 | 398 | 97.7% | 155 | 79 | 1210 | 17 | 0 |
-| <1s | 15718 | 3069 | 3100 | 99.7% | 1192 | 110 | 14511 | 43 | 15 |
-| 1s-2s | 190 | 1164 | 1179 | 100.0% | 20 | 4 | 170 | 17 | 0 |
-| 2s-5s | 448 | 1139 | 1155 | 100.0% | 28 | 4 | 420 | 18 | 0 |
-| 5s-10s | 519 | 1150 | 1166 | 100.0% | 46 | 4 | 473 | 18 | 0 |
-| 10s-30s | 676 | 1156 | 1165 | 99.4% | 55 | 81 | 621 | 17 | 0 |
-| 30s-1m0s | 267 | 903 | 889 | 92.8% | 26 | 670 | 241 | 56 | 0 |
-| 1m0s-2m0s | 195 | 384 | 417 | 97.2% | 8 | 259 | 187 | 46 | 0 |
-| >=2m0s | 13 | 561 | 577 | 99.8% | 1 | 15 | 12 | 19 | 0 |
+| first turn | 699 | 423 | 434 | 98.8% | 78 | 47 | 621 | 18 | 0 |
+| <1s | 4173 | 3185 | 3158 | 98.5% | 222 | 894 | 3949 | 22 | 2 |
+| 1s-2s | 869 | 2613 | 2639 | 99.7% | 12 | 599 | 854 | 35 | 3 |
+| 2s-5s | 1342 | 2744 | 2773 | 99.3% | 42 | 644 | 1298 | 51 | 2 |
+| 5s-10s | 1099 | 2719 | 2752 | 99.0% | 62 | 459 | 1037 | 63 | 0 |
+| 10s-30s | 2035 | 2520 | 2544 | 97.8% | 143 | 792 | 1889 | 86 | 3 |
+| 30s-1m0s | 1799 | 1583 | 1585 | 88.3% | 255 | 1304 | 1543 | 218 | 1 |
+| 1m0s-2m0s | 2074 | 481 | 686 | 98.1% | 335 | 56 | 1737 | 256 | 2 |
+| >=2m0s | 310 | 440 | 496 | 98.0% | 43 | 62 | 267 | 75 | 0 |
 
 ## By spill point
 
@@ -86,7 +83,7 @@ index was worth on the requests the rule left alone, not what it believed.
 
 | spill | requests | predicted/req | actual/req | honoured | over-predicted | mean tokens over | under-predicted | mean tokens under | exact |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| off | 19391 | 2640 | 2668 | 99.7% | 1531 | 110 | 17845 | 39 | 15 |
+| off | 14400 | 2197 | 2231 | 97.7% | 1192 | 614 | 13195 | 93 | 13 |
 
 ## The index's own bounds
 

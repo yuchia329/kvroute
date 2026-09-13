@@ -104,14 +104,14 @@
     "read": true
   },
   "observed_divergence": {
-    "requests": 16752,
-    "predicted_tokens": 45744993.708006255,
-    "actual_tokens": 46154832,
-    "over_predicted": 1362,
-    "under_predicted": 15375,
+    "requests": 19391,
+    "predicted_tokens": 51198889.455462225,
+    "actual_tokens": 51733776,
+    "over_predicted": 1531,
+    "under_predicted": 17845,
     "exact": 15,
-    "over_predicted_tokens": 126227.34305725926,
-    "under_predicted_tokens": 536065.6350508942,
+    "over_predicted_tokens": 167809.53222023475,
+    "under_predicted_tokens": 702696.0767579833,
     "index_nodes": 16311,
     "index_cap": 16311
   }
