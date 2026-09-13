@@ -139,6 +139,16 @@ turns out to have been very nearly right.
 over changed. It moved from 16,266 to 16,258 — eight nodes, 0.05% — so the fourth point does not
 disturb the conclusion, it steadies it.
 
+How, so the figure is reproducible from what is committed here: `divergence.json` is
+`cmd/divergence -calibration-out` over the four rungs, and the cap is
+`prefix.Calibration.NodeCap()` for the reading in `prefix-calibration-observed.json` — the fleet
+model of 16,311 scaled by the honoured share, rounded. `cmd/calibrate` was **not** re-run: it
+scrapes a live fleet for the eviction histograms, and scraping a different fleet than the cells
+were measured against would have replaced the very TTL this measurement is read under. So the
+derived half of that file is the reading the run was driven with, unchanged, and only
+`observed_divergence` was replaced. Running the same function over #17's own reading reproduces
+its published 16,266 exactly, which is what makes the two comparable.
+
 Calibrated from the **clean working-set cells only**, and that is now a choice about mechanism
 rather than about flags. The recency cells are no longer flagged, and folding them in would give
 16,082; they are still left out, because what goes unhonoured in them is overwhelmingly the **TTL

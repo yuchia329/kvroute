@@ -95,9 +95,13 @@ only on a first half that is *slower*. That is worth saying plainly rather than 
 negative drift as a clean bill of health. What the geometry did buy is the schedule: the arrival
 window is two whole visits, which is the half of the problem a cell length can fix.
 
-The warm-up sizing is confirmed by the same rows that set it: think30's p0 came in at 291–309 ms
-and its p1 at 80–82 ms, so two periods of warm-up were both needed and sufficient, and think75's
-p1 was already at steady state, so one was.
+On the warm-up sizing these rows are only half the evidence, and it is the half that says
+*sufficient*. think30's p1 came in at 80–82 ms against a measured-window TTFT p50 of 82.6–83.1 ms,
+so by the second period the cell was already at the level it held throughout — two periods were
+enough, and the second was not doing visible work here. That the second was *needed* rests on
+#17's cells at the old geometry, where p1 was still at 81–254 ms across the three repetitions; it
+is a claim about the old rows, not these. think75's p1 was at steady state in both runs, which is
+why one period was budgeted for it.
 
 ## Result: the belief decays, and it decays at the TTL
 

@@ -81,6 +81,16 @@ func (d recencyDesign) offer(t *testing.T, warm time.Duration) (buckets map[stri
 		t.Fatalf("generator: %v", err)
 	}
 
+	// Parameterising warm dropped the invariant the old designWarmupShare gave
+	// for free: warm < cell, hence a non-empty measured window. It matters
+	// because `measured` is a divisor below, and a NaN share fails BOTH the
+	// `share > 60` and `share < 10` comparisons -- so an empty cell would pass
+	// the axis assertions silently, which is the one thing this file exists to
+	// stop.
+	if warm >= d.cell {
+		t.Fatalf("warm-up %v is not shorter than the %v cell, so nothing would be measured", warm, d.cell)
+	}
+
 	turns := newRotation(pool, 7)
 	interval := time.Duration(float64(time.Second) / d.rate)
 	lastSeen := map[string]time.Duration{}

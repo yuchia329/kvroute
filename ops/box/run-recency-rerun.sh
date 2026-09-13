@@ -71,7 +71,11 @@ LOG=recency-rerun.log
 RECENCY=runs/recency-rerun
 LADDER=runs/divergence
 EVID=$RECENCY/evidence
-mkdir -p "$EVID" "$LADDER"
+# The WS 3 stage files its own logs beside its own cells: its measurement is the
+# working-set axis, not this one, and a rung whose run log sits under another
+# measurement is a rung nobody auditing it will find.
+LADDER_EVID=$LADDER/evidence
+mkdir -p "$EVID" "$LADDER_EVID"
 
 RATE=8
 KV_CAPACITY=629760
@@ -218,10 +222,10 @@ ws3_rung() {
     -replicas "$SPECS" -model "$MODEL" -gpu-indexes "$GPUS" -slo-from "$SLO" \
     $GEOMETRY -working-set 3 -skew 0 \
     -concurrency 32 -cell-duration $CELL -warmup $WARM -settle $SETTLE -repetitions $REPS \
-    >> "$EVID/ladder-ws3.log" 2>&1 || { stop_router; fatal "WS 3's bench failed; see $EVID/ladder-ws3.log"; }
+    >> "$LADDER_EVID/ladder-ws3.log" 2>&1 || { stop_router; fatal "WS 3's bench failed; see $LADDER_EVID/ladder-ws3.log"; }
   stop_router
   RPID=""
-  mv -f "$EVID/router-prefix_affinity.log" "$EVID/router-ws3.log" 2>/dev/null || true
+  mv -f "$EVID/router-prefix_affinity.log" "$LADDER_EVID/router-ws3.log" 2>/dev/null || true
   # Closed loop, so the count is not arithmetic from the geometry; three cells'
   # worth of records is what says every repetition ran.
   local rows cells
@@ -266,8 +270,13 @@ if [[ "$WHAT" != "ws3" ]]; then
   say "=== per configuration, so the two can be read as a robustness check ==="
   for c in think30 think75; do
     say "--- $c ---"
-    ./bin/divergence-linux-amd64 -out "$RECENCY/recency-$c.md" "$RECENCY/$c" 2>&1 \
-      | sed -n '/since the session was last served/,/^$/p;/^| /p' | tail -20
+    ./bin/divergence-linux-amd64 -out "$RECENCY/recency-$c.md" "$RECENCY/$c" > /dev/null 2>&1 \
+      || fatal "divergence failed for $c"
+    # The recency section only, by heading, rather than every table in the report
+    # trimmed to a fixed tail: the tail was one row from cutting the head off the
+    # table it exists to print, and this is the one read that was not in the log.
+    awk '/^## By time since the session was last served/{on=1} on && /^## /&&!/since the session/{exit} on' \
+      "$RECENCY/recency-$c.md" | tee -a "$LOG"
   done
 fi
 
