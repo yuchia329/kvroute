@@ -1,11 +1,11 @@
-
 # Belief divergence
 
 The gap between what the router believed the chosen replica held of a prompt
 and what the engine says it actually served out of cache, per request.
 
 - Prediction: the router's prefix match, in bytes, converted at each request's own
-  prompt bytes per token — both sides of that ratio are on the row.
+  prompt bytes per token — both sides of that ratio are on the row. Exact residency
+  predicts in the engine's own tokens and is read as it stands.
 - Truth: `usage.prompt_tokens_details.cached_tokens`, the engine's own per-request
   account. `vllm:request_prefill_kv_computed_tokens` is the same quantity as a
   histogram and carries no request id, so it cannot be joined to the prediction
@@ -14,13 +14,13 @@ and what the engine says it actually served out of cache, per request.
   replica evicted misroutes the request; forgetting blocks it still holds only
   forfeits a match. They are different failures and share no column.
 
-Measured over 9 cells in working-set/ws0.25, working-set/ws1, working-set/ws8: 16752 of 16752 measured requests carried an engine
+Measured over 12 cells in runs/divergence/ws0.25, runs/divergence/ws1, runs/divergence/ws3, runs/divergence/ws8: 19391 of 19391 measured requests carried an engine
 account of their prompt.
 
-Overall: 16752 requests, 99.7% of belief honoured; over-predicted on 1362 (126227 tokens), under-predicted on 15375 (536066 tokens)
+Overall: 19391 requests, 99.7% of belief honoured; over-predicted on 1531 (167810 tokens), under-predicted on 17845 (702696 tokens)
 
-Computed prefill, two ways: 5158497 tokens summed off the per-request rows, against
-5183567 off the fleet's own counters over the same cells' measured windows. They
+Computed prefill, two ways: 7730857 tokens summed off the per-request rows, against
+7770437 off the fleet's own counters over the same cells' measured windows. They
 cover slightly different windows and are printed rather than reconciled; a gross
 disagreement means the per-request account is measuring something else.
 
@@ -28,7 +28,7 @@ disagreement means the per-request account is measuring something else.
 
 | policy | requests | predicted/req | actual/req | honoured | over-predicted | mean tokens over | under-predicted | mean tokens under | exact |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| prefix_affinity | 16752 | 2731 | 2755 | 99.7% | 1362 | 93 | 15375 | 35 | 15 |
+| prefix_affinity | 19391 | 2640 | 2668 | 99.7% | 1531 | 110 | 17845 | 39 | 15 |
 
 ## By working set ratio
 
@@ -52,6 +52,7 @@ changing a byte of what it sends.
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 0.25 (skew 0) | 10626 | 3021 | 3037 | 100.0% | 951 | 4 | 9662 | 18 | 13 |
 | 1 (skew 0) | 3689 | 2385 | 2419 | 98.9% | 317 | 314 | 3370 | 67 | 2 |
+| 3 (skew 0) | 2639 | 2067 | 2114 | 99.2% | 169 | 246 | 2470 | 67 | 0 |
 | 8 (skew 0) | 2437 | 1990 | 2036 | 99.5% | 94 | 241 | 2343 | 57 | 0 |
 
 ## By time since the session was last served
@@ -65,15 +66,15 @@ a shared system prompt or a branched ancestor instead.
 
 | since last served | requests | predicted/req | actual/req | honoured | over-predicted | mean tokens over | under-predicted | mean tokens under | exact |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| first turn | 874 | 401 | 411 | 98.2% | 65 | 98 | 809 | 18 | 0 |
-| <1s | 13718 | 3141 | 3167 | 99.8% | 1132 | 94 | 12571 | 38 | 15 |
-| 1s-2s | 187 | 1163 | 1179 | 100.0% | 19 | 4 | 168 | 17 | 0 |
-| 2s-5s | 443 | 1139 | 1156 | 100.0% | 28 | 4 | 415 | 18 | 0 |
-| 5s-10s | 506 | 1150 | 1165 | 100.0% | 44 | 4 | 462 | 18 | 0 |
-| 10s-30s | 646 | 1156 | 1168 | 99.7% | 50 | 47 | 596 | 17 | 0 |
-| 30s-1m0s | 228 | 902 | 908 | 95.5% | 17 | 542 | 211 | 50 | 0 |
-| 1m0s-2m0s | 144 | 364 | 403 | 96.1% | 7 | 295 | 137 | 57 | 0 |
-| >=2m0s | 6 | 607 | 627 | 100.0% | 0 | — | 6 | 20 | 0 |
+| first turn | 1365 | 392 | 398 | 97.7% | 155 | 79 | 1210 | 17 | 0 |
+| <1s | 15718 | 3069 | 3100 | 99.7% | 1192 | 110 | 14511 | 43 | 15 |
+| 1s-2s | 190 | 1164 | 1179 | 100.0% | 20 | 4 | 170 | 17 | 0 |
+| 2s-5s | 448 | 1139 | 1155 | 100.0% | 28 | 4 | 420 | 18 | 0 |
+| 5s-10s | 519 | 1150 | 1166 | 100.0% | 46 | 4 | 473 | 18 | 0 |
+| 10s-30s | 676 | 1156 | 1165 | 99.4% | 55 | 81 | 621 | 17 | 0 |
+| 30s-1m0s | 267 | 903 | 889 | 92.8% | 26 | 670 | 241 | 56 | 0 |
+| 1m0s-2m0s | 195 | 384 | 417 | 97.2% | 8 | 259 | 187 | 46 | 0 |
+| >=2m0s | 13 | 561 | 577 | 99.8% | 1 | 15 | 12 | 19 | 0 |
 
 ## By spill point
 
@@ -85,7 +86,7 @@ index was worth on the requests the rule left alone, not what it believed.
 
 | spill | requests | predicted/req | actual/req | honoured | over-predicted | mean tokens over | under-predicted | mean tokens under | exact |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| off | 16752 | 2731 | 2755 | 99.7% | 1362 | 93 | 15375 | 35 | 15 |
+| off | 19391 | 2640 | 2668 | 99.7% | 1531 | 110 | 17845 | 39 | 15 |
 
 ## The index's own bounds
 

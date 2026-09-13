@@ -172,9 +172,20 @@ The driver is [`ops/box/run-recency-rerun.sh`](../../../ops/box/run-recency-reru
 before the run rather than after it, so the geometry could be reviewed before the fleet time was
 spent.
 
-⚠️ **The run did not finish.** Its third stage, the WS 3 rung that completes
-[the working-set axis](../2026-09-10-belief-divergence/working-set.md), was lost: another user
-took all six cards during the twenty seconds `fleet_cycle` releases them for between stages
-(ADR-0004), and the fleet could not come back up. The two recency configurations were already
-recorded and are unaffected — the driver's own `fatal` released our fleet and wrote nothing
-further.
+## The WS 3 rung
+
+The driver's third stage completes the working-set axis rather than this one, so it is written up
+where it belongs: [`../2026-09-10-belief-divergence/`](../2026-09-10-belief-divergence/), whose
+axis now has all four of its points and whose node-cap calibration has been re-derived over the
+population that changed.
+
+It took two attempts. On the first, another user took all six cards during the twenty seconds
+`fleet_cycle` releases them for between stages (ADR-0004) and the fleet could not come back up; the
+driver's own `fatal` released ours and wrote nothing further, and the two recency configurations
+were already recorded and unaffected. It ran on the second attempt about two hours later, clean on
+all three cells.
+
+That release window is worth naming, because no gate closes it: between stages a driver has
+deliberately given the cards up, and on a shared box they may be gone when it asks for them back.
+The cost is bounded — a stage, not a run — precisely because each stage writes its cells before the
+next one cycles.
