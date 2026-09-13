@@ -6,7 +6,9 @@ long it had been since that session was last served. This is #29's re-run of the
 every one of its six cells was flagged as still warming up.
 
 **The curve is published here.** The decay #17 recorded as indicative is real: it survives on
-six cells that carry no flag of any kind.
+six cells that carry no flag of any kind — and, after
+[#33](https://github.com/yuchia329/kvroute/issues/33) rebuilt the check that decides that, on the
+four of the six that still carry none. See [the correction below](#33-two-of-the-six-cells-do-carry-a-flag).
 
 | | |
 |---|---|
@@ -16,7 +18,7 @@ six cells that carry no flag of any kind.
 | policy | prefix affinity, **spill off** |
 | workload | WS 3, skew 1, open-loop at 8 req/s |
 | fleet | GPUs 0 1 2 4 5, KV cache events **off** — #17's engine configuration to the value |
-| status | **clean; no cell carries a flag of any kind** |
+| status | **clean** as run; under the check #33 rebuilt, **two of the six cells flag** — the curve is unchanged on the remaining four, see below |
 
 ## Why this is a new geometry and not just a longer warm-up
 
@@ -74,6 +76,10 @@ record of what a fractional window measures.
 
 ## The flags cleared, and the arithmetic is why
 
+*This section describes the check as it stood on 2026-09-12. It diagnosed that check correctly and
+drew the wrong verdict from it; [#33](https://github.com/yuchia329/kvroute/issues/33) rebuilt the
+check along the lines it names, and the corrected verdicts are in the section after this one.*
+
 | cell | drift on 2026-09-10 | drift here | periods of arrivals measured |
 |---|---:|---:|---:|
 | think30 r1 / r2 / r3 | +0.936 / +2.311 / +1.933 | **−0.079 / −0.115 / −0.145** | 2.00 / 2.00 / 2.00 |
@@ -102,6 +108,46 @@ enough, and the second was not doing visible work here. That the second was *nee
 #17's cells at the old geometry, where p1 was still at 81–254 ms across the three repetitions; it
 is a claim about the old rows, not these. think75's p1 was at steady state in both runs, which is
 why one period was budgeted for it.
+
+## #33: two of the six cells do carry a flag
+
+Everything in the section above was right about the mechanism and wrong about the verdict, which
+is what [#33](https://github.com/yuchia329/kvroute/issues/33) fixed. The check now splits on the
+**arrival** window rather than running to the last response, and compares TTFT **within each turn
+index** rather than pooling the halves. Re-scored from these cells' own rows:
+
+| cell | drift as recorded | drift under the current check | turn indices not compared | verdict |
+|---|---:|---:|---:|---|
+| think30 r1 | −0.079 | −0.233 | 0 | clear |
+| think30 r2 | −0.115 | −0.235 | 0 | clear |
+| think30 r3 | −0.145 | **−0.280** | 0 | **the fleet slowed across the window** |
+| think75 r1 | −0.571 | −0.145 | 0 | clear |
+| think75 r2 | −0.690 | **−0.254** | 0 | **the fleet slowed across the window** |
+| think75 r3 | −0.562 | −0.055 | 0 | clear |
+
+Two things to take from it. The think75 drifts of −0.57 to −0.69 really were mostly the
+drain-shifted split, as this measurement predicted above: split on arrivals they fall to −0.055 to
+−0.254. And the geometry did exactly what it was chosen to do — **no turn index falls on one side
+of the split in any of the six cells**, which the check now reports per cell as `warmup_drift_turns_confined`
+and which is the property [the geometry test](../../../internal/bench/recencywindow_test.go) asserts
+offline.
+
+What is left is a genuine one-sided move in two single repetitions, just past the 25% threshold,
+in the direction the old check could not see. **The curve below is unchanged by it.** Recomputed
+over the four cells that carry no flag — 13,440 requests against 20,160 — the trough is 85.8%
+against the 86.0% published, and every other bucket moves by less than a point:
+
+| since last served | six cells | four unflagged cells |
+|---|---:|---:|
+| 1 s – 2 s | 99.8% | 99.8% |
+| 10 s – 30 s | 97.6% | 97.5% |
+| 30 s – 1 m | **86.0%** | **85.8%** |
+| 1 m – 2 m | 98.1% | 98.1% |
+
+The one claim that narrows is the evidence count in the last section: the 1 m – 2 m bucket holds
+1,371 requests on the four cells rather than 2,082 on six, so it is 1.2× #17's 1,120 rather than
+1.9×. The [re-score of all 216 recorded open-loop cells](../2026-09-13-warmup-drift/) has the
+method and the rest of the corpus.
 
 ## Result: the belief decays, and it decays at the TTL
 

@@ -120,6 +120,22 @@ the rotation advances the whole conversation pool through the same turn together
 measured a fractional number of those periods. think 75s's two halves shared no turn index at all,
 so no warm-up of any length could have cleared it. The re-run measures two whole periods instead.
 
+🔁 **[#33](https://github.com/yuchia329/kvroute/issues/33) rebuilt the check, and these six cells
+now say that themselves.** Re-scored from their own rows, the think 30 s cells still flag as a cold
+opening — a longer warm-up really is their fix — while the think 75 s cells report two of their four
+turn indices confined to one side of the split, and are flagged as a window holding a fractional
+number of visit periods rather than as a fleet that was still warming up:
+
+| cell | periods measured | drift as recorded | drift within each turn index | indices not compared | verdict now |
+|---|---:|---:|---:|---:|---|
+| think30 r1 / r2 / r3 | 1.88 | +0.936 / +2.311 / +1.933 | +1.035 / +1.505 / +1.578 | 0 | cold opening |
+| think75 r1 / r2 / r3 | 1.05 | +3.246 / +4.248 / +0.514 | −0.056 / −0.228 / −0.324 | 2 | fractional visit periods |
+
+So the "51% to 425% slower" above is, at think 75 s, two different workloads being compared rather
+than a fleet three times slower at the start. The verdict on this table does not change — it is
+still superseded by the re-run — but the reason it was withheld is now recorded correctly. See
+[the re-score of all 216 recorded open-loop cells](../2026-09-13-warmup-drift/).
+
 ## The node cap, calibrated
 
 ADR-0006 sized the index's node cap to the fleet and said plainly what that argument could not

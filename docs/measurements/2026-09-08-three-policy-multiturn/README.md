@@ -55,8 +55,8 @@ GPU 3's 12–25%, and steady rather than drifting.
 
 | rate | round-robin | least-outstanding | session affinity |
 |---:|---:|---:|---:|
-| 2 | — | 1.74 / 23% | **2.00 / 63%** |
-| 4 | — | 3.31 / 28% | **4.00 / 67%** |
+| 2 | 1.74 / 25% † | 1.74 / 25% † | **2.00 / 63%** |
+| 4 | 3.45 / 31% † | 3.37 / 29% † | **4.00 / 67%** |
 | 6 | 3.90 / 29% | 3.65 / 29% | **5.98 / 69%** |
 | 8 | 0.06 / 30% | 0.00 / 31% | **7.63 / 72%** |
 | 10 | 0.00 / 31% | 0.00 / 31% | **8.80 / 74%** |
@@ -65,8 +65,19 @@ GPU 3's 12–25%, and steady rather than drifting.
 | 16 | 0.00 / 32% | 0.00 / 32% | 3.96 / 77% |
 | 20 | 0.00 / 29% | 0.00 / 30% | 3.12 / 77% |
 
+† Corrected by [#33](https://github.com/yuchia329/kvroute/issues/33). These four figures read `—`
+and `1.74 / 23%` and `3.31 / 28%` as published, because the drift check had flagged ten of the
+eighteen cells at those two rates as still warming up. They were not: re-scored from their own
+rows, all ten are clear, and the figures above are the medians over all three repetitions
+(round-robin 1.68–1.74 and 3.42–3.55, least-outstanding 1.68–1.75 and 3.31–3.49). See the
+[re-score](../2026-09-13-warmup-drift/) and the known gap below. `comparison.md` and the figures
+still filter on the flag each cell recorded when it ran, so they still print the old values.
+
 Both cache-blind policies are dead by rate 8. Session affinity still serves 9.59 at rate 12.
-The knee moves from about 6–7 to about 12–14: **roughly twice the usable capacity.**
+The knee moves from about 6–7 to about 12–14: **roughly twice the usable capacity.** The
+correction strengthens that rather than moving it: round-robin and least-outstanding do track
+offered load at rates 2 and 4 and then collapse at 8, which is a knee at 6–7 read off four points
+instead of one.
 
 ## The mechanism, not just the outcome
 
@@ -174,11 +185,22 @@ that was restarted, and the union of three runs is not a fleet that ever existed
 
 ## Known gaps, stated rather than smoothed
 
-- **14 of 153 closed-loop cells and the open-loop rates 2 and 4 are flagged as still warming up.**
-  On this workload the replicas' prefix caches fill *during* the measured window, so the first
-  half runs 27–68% slower than the second. It is honest flagging — the cell really is still
-  speeding up — but 25 s of warm-up is not enough at low rates, and it costs round-robin every
-  usable point below its knee except rate 6.
+- ~~**14 of 153 closed-loop cells and the open-loop rates 2 and 4 are flagged as still warming
+  up.**~~ **Corrected by [#33](https://github.com/yuchia329/kvroute/issues/33): the open-loop rates
+  2 and 4 were not warming up.** The check that flagged them pooled the two halves of the measured
+  window, and at rate 2 a visit period is 20 s against a 65 s measured window — 3.25 periods, so
+  each half drew a different mix of turn indices. Compared within each turn index the 43–68%
+  "slowdown" collapses to between −0.14 and +0.22, and all ten of those cells are clear. Their
+  goodput was recorded all along: round-robin **1.74** at rate 2 (1.68–1.74, n=3) and **3.45** at
+  rate 4 (3.42–3.55, n=3), and least-outstanding **1.74** (1.68–1.75) and **3.37** (3.31–3.49),
+  against offered 2.00 and 4.00 — so both cache-blind policies do track offered load below their
+  knee. The open-loop table above is corrected accordingly.
+  The closed-loop half of the claim mostly survives: re-scored from the rows, 7 of the 72 cells in
+  `concurrency/` were flagged and 13 are now, six of them still as a cold opening. The correction is
+  to the cause and the remedy, not to the fleet.
+  The re-score of all 216 recorded open-loop cells is
+  [here](../2026-09-13-warmup-drift/). `comparison.md` and the figures still filter on the flag each
+  cell recorded when it ran, so they still show the old verdicts.
 - **Session affinity has no usable cell at concurrency 256.**
 - **The derived-identity path is not exercised.** The harness always sends `X-Session-Id`, so
   every cell here measures the supplied-key oracle. idea.md §4.2 wants the derived key measured

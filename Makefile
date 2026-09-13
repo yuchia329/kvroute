@@ -782,6 +782,21 @@ calibrate: build ## Measure the prefix index's node cap and TTL off the fleet an
 divergence: build ## Measure how far the router's index was from what the engines held
 	$(BIN)/divergence$(EXE) -out $(DIVERGENCE_OUT) -calibration-out $(DIVERGENCE_JSON) $(DIVERGENCE_DIRS)
 
+# Re-judging recorded cells from their recorded rows. RESCORE_DIRS defaults to
+# every open-loop run this repository holds the rows for; name others to check a
+# run whose rows are still on the box.
+#
+# It writes nothing back into the cell records, so it is safe to run over
+# anything: a recorded cell says what was concluded when it ran, and the report
+# is the account of what the current check would say instead.
+RESCORE_DIRS ?= docs/measurements/2026-09-08-policy-comparison/goodput docs/measurements/2026-09-08-three-policy-multiturn/goodput
+RESCORE_OUT  ?= runs/rescore.md
+
+.PHONY: rescore
+rescore: build ## Re-judge recorded cells from their own rows and report which verdicts move
+	@mkdir -p $(dir $(RESCORE_OUT))
+	$(BIN)/rescore$(EXE) -out $(RESCORE_OUT) $(RESCORE_DIRS)
+
 # Where the residency grid's levels come from, and the check that the spill
 # rule's two branches read two signals rather than one in two units.
 #

@@ -8,21 +8,34 @@ import (
 // Why #29 re-runs the recency axis at a different cell LENGTH and not only a
 // longer warm-up.
 //
-// Every cell of #17's recency run is flagged as still warming up: the first half
-// of the measured window was 51% to 425% slower than the second by TTFT p50,
-// against a 25% threshold. #29's first acceptance criterion reads that as a
-// warm-up that was too short and asks for the same point re-run with a longer
-// one. That is half right, and the other half decides the geometry.
+// REDUCED BY #33. This file was originally a per-configuration derivation whose
+// job was to make the warm-up drift check behave: the check pooled the halves of
+// a cell's window and compared their TTFT medians, so a window that did not hold
+// a whole, even number of visit periods offered its two halves different
+// workloads and flagged however warm the fleet was. The check now compares
+// within each turn index and splits on the ARRIVAL window (warmupdrift.go), so
+// the composition cancels by construction for any cell length, any warm-up and
+// any rate — and no future open-loop run has to repeat the arithmetic below to
+// avoid a false flag.
 //
-// TTFT in those cells is not simply drifting down towards a steady state. It is
-// a SAWTOOTH, and its period is the workload's own. The rotation maps the k-th
-// arrival to turn k/pool, so the turn index is the round: every conversation in
-// the pool advances together, and every TurnsPerSession rounds the whole pool
-// rolls over to freshly drawn sessions at once. One round takes a think time, so
-// the pool walks a whole session every TurnsPerSession x think time — the visit
-// period below — and TTFT climbs across each period as prompts grow with their
-// history, then drops back when the rollover returns every slot to a short first
-// turn.
+// What survives is the part that was never about the flag. A measured window of
+// whole visit periods offers each turn index the same number of times, so the
+// cell's TTFT percentiles are over one complete visit rather than a mix weighted
+// towards whichever turns the window happened to draw twice. That is a property
+// of the schedule, it is what makes two cells of different lengths comparable at
+// all, and the re-run's geometry is the record of what #29 actually ran. The
+// check now reports the same property per cell from the rows, as
+// Summary.WarmupDriftTurnsConfined; these tests are the offline form, checkable before
+// any GPU time is spent.
+//
+// The measured facts the geometry was derived from, which have not changed.
+// TTFT is a SAWTOOTH, and its period is the workload's own: the rotation maps
+// the k-th arrival to turn k/pool, so the turn index is the round, every
+// conversation in the pool advances together, and every TurnsPerSession rounds
+// the whole pool rolls over to freshly drawn sessions at once. One round takes a
+// think time, so the pool walks a whole session every TurnsPerSession x think
+// time — the visit period below — and TTFT climbs across each period as prompts
+// grow with their history, then drops back at the rollover.
 //
 // Measured off the recorded rows of runs/recency on the box, TTFT p50 per visit
 // period, three repetitions each:
@@ -34,46 +47,25 @@ import (
 //	                          p0 292ms  p1  59ms
 //	                          p0 296ms  p1 64ms
 //
-// So there are two defects in the as-run geometry, and each configuration is
-// dominated by a different one — which is why a single blanket fix has to
-// address both:
+// Two defects in the as-run geometry, and each configuration is dominated by a
+// different one:
 //
 //   - think 30s: its window happens to draw every turn index evenly, so the
 //     sawtooth cancels. What flags it is the genuinely cold first period. The
 //     window opens 75s into a 120s period, so 45s of the coldest traffic in the
 //     cell lands in the first half and none of it in the second. A longer
-//     warm-up is the whole fix here, exactly as #29 assumed.
+//     warm-up is the whole fix here. The current check agrees: re-scored from
+//     the rows, all three cells still flag, and still as a cold opening.
 //   - think 75s: one period is 300s and the whole cell is 420s, so the window
 //     cannot hold even one. Its halves share no turn index at all — index 0 is
 //     600 requests to nil across the split, index 2 nil to 600. No warm-up
-//     clears that, because it never decays: the check is comparing two different
-//     workloads and would fire on a fleet that had been running for a week.
+//     clears that, because it never decays. The current check agrees here too,
+//     and now says so in the flag: re-scored, the three cells report two turn
+//     indices confined to one half and a per-index drift of -0.06 to -0.32,
+//     against the +0.51 to +4.25 the pooled comparison recorded.
 //
-// The fix that covers both is a measured window of two whole visit periods that
-// opens on a period boundary, with the warm-up covering the periods the rows
-// show were still settling. The ARRIVAL window is then split into two equal
-// visits, so the schedule offers each half the same turn indices in the same
-// proportions.
-//
-// WHAT THAT DOES NOT BUY, and it is worth being exact about it. warmupDrift does
-// not split the arrival window. It splits first-row-start to last-row-END
-// (summary.go:242 takes r.EndedAt(), the last response, not the last arrival),
-// so its midpoint sits half the cell's drain past the arrival midpoint. Measured
-// on the six cells this geometry produced, the drain is 2.8-11.8 s at think 30s
-// and 57.4-71.2 s at think 75s, which puts the real split up to ~36 s past the
-// period boundary and pulls that many seconds of the next period's turn index 0
-// into the early half. So the balance below is a property of the SCHEDULE, which
-// is the part a geometry can control; the check's own split is shifted by a drain
-// no offline model can predict, and at think 75s the shift is large.
-//
-// That shift is also the likeliest reason the re-run's drifts came back negative
-// rather than near zero: the slug it moves into the early half is the cheap,
-// short first turn of a visit. The cells are unflagged either way — the check
-// fires only on a first half that is SLOWER — but "each half is one whole visit"
-// is a claim about the arrival schedule and not about what warmupDrift measured.
-//
-// These tests pin the schedule against the generator with no fleet running, in
-// the way #17's own design was checked before any GPU time was spent.
+// See docs/measurements/2026-09-13-warmup-drift/ for the re-score of all 216
+// recorded open-loop cells.
 
 // visitPeriod is how long an open-loop cell takes to walk a conversation from
 // its first turn to its last: one round per turn, and a round is the pool
@@ -95,10 +87,13 @@ func visitPeriod(rate float64, think time.Duration, turnsPerSession int) (time.D
 // each turn index land in the first half of the measured window and how many in
 // the second.
 //
-// It splits where warmupDrift splits — the midpoint of the measured window — so
-// what it reports is the composition of the two populations whose TTFT medians
-// the drift check divides. Nothing here contacts a fleet: the schedule is
-// arithmetic and the turn a request carries is a pure function of (user, turn).
+// It splits where the drift check splits — the midpoint of the ARRIVAL window —
+// so what it reports is the composition of the two populations the check
+// compares. Since #33 those are the same instant: the check no longer runs its
+// window to the last response, so the drain that used to shift its split by up
+// to 36 s is gone and this model and the check now divide a cell at the same
+// point. Nothing here contacts a fleet: the schedule is arithmetic and the turn
+// a request carries is a pure function of (user, turn).
 func (d recencyDesign) indexMix(t *testing.T, warm time.Duration) (early, late map[int]int) {
 	t.Helper()
 	pool, err := conversationPool(d.rate, d.think)
@@ -241,8 +236,11 @@ func TestTheAsRunRecencyWindowsDoNotOpenOnAVisitBoundary(t *testing.T) {
 // number of times in both, and the cold opening periods are behind the warm-up
 // rather than inside one half of the measurement.
 //
-// This is the schedule, not warmupDrift's split — see the drain caveat in the
-// file header. It is the half of the problem a cell geometry can fix.
+// Since #33 the check reports the same property per cell, off the rows, as
+// Summary.WarmupDriftTurnsConfined — and reported zero for all six of the cells this
+// geometry produced. This is the offline form of it: the schedule can be checked
+// before a card is booked, which is the only form available while choosing a
+// geometry.
 func TestTheRerunRecencyWindowsSplitTheWorkloadEvenly(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -270,9 +268,11 @@ func TestTheRerunRecencyWindowsSplitTheWorkloadEvenly(t *testing.T) {
 //
 // Held here rather than only in the box driver because the driver is a shell
 // script the box runs and this is the reason it runs those values. A cell length
-// that stops being a whole number of visit periods is the defect this whole file
-// exists to catch, and it is silent: the run completes, the cells flag, and the
-// curve stays unpublished for a second time.
+// that stops being a whole number of visit periods used to be silent: the run
+// completed, the cells flagged, and the curve stayed unpublished for a second
+// time. Since #33 it is no longer silent — the cell says so itself, naming the
+// fractional window rather than prescribing a longer warm-up — but the fix is
+// still a geometry, and this is where this run's is recorded.
 func TestTheRerunGeometryIsWholeVisitPeriods(t *testing.T) {
 	for _, tc := range []struct {
 		name string

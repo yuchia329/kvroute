@@ -508,6 +508,31 @@ a count means something different at every rate and a gap between turns does not
 driver has no such knob: there the next turn goes out when the last response arrives.
 _Avoid_: delay, pacing, user delay, session pool size
 
+**Visit**:
+One session's run from its first turn to its last, before the workload draws a fresh session for
+that slot. Its length is the workload's turns per session, and every conversation in an
+open-loop cell's pool walks its visit in step, because the rotation maps the k-th arrival to turn
+k/pool and so makes the turn index the round.
+_Avoid_: session (that is the conversation, not the pass through it), episode, epoch
+
+**Visit period**:
+How long a cell takes to walk one visit: turns per session times think time. It is the period of
+everything that follows from prompt length — TTFT, prefill tokens, KV held per session — because
+the whole pool rolls over to freshly drawn sessions at once. A measured window holding a
+fractional number of visit periods offers some turn indices more often than others, so its
+percentiles are over a mix no cell of another length shares.
+_Avoid_: cycle, round (that is one turn for the whole pool, not a whole visit), session length
+
+**Warm-up drift**:
+How much a cell's TTFT p50 moved across the window it was measured over, compared within each
+turn index and split on the arrival window. Positive is slower early. It is what lets the warm-up
+length be checked rather than trusted, and it is judged two-sided: a cell that got twice as slow
+is as unpoolable as one that got twice as fast. A cell over the threshold is flagged with the
+cause the check found — a still-cold opening period, a fleet that degraded, or a fractional
+number of visit periods — because the three have different fixes and only the first is a longer
+warm-up.
+_Avoid_: warm-up error, ramp, drift (unqualified — that is belief divergence or schedule lag)
+
 **Schedule lag**:
 How long after its due time a request was actually sent. It is the open-loop driver auditing
 itself: a driver that fell behind its own schedule offered less than the cell claims, which is

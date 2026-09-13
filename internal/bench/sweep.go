@@ -737,12 +737,21 @@ func RunSweep(ctx context.Context, cfg SweepConfig) ([]Cell, error) {
 }
 
 func (cfg SweepConfig) summaryOptions() SummaryOptions {
-	return SummaryOptions{
+	options := SummaryOptions{
 		SLO:                  cfg.SLO,
 		FailureThreshold:     cfg.FailureThreshold,
 		WarmupDriftThreshold: cfg.WarmupDriftThreshold,
 		ScheduleLagThreshold: cfg.ScheduleLagThreshold,
 	}
+	// Off the workload's own name rather than a field on the generator, so the
+	// live summary and a later re-score of the same cell read the period from
+	// the same string. The name is the run's only record of what it sent, so a
+	// re-score has nothing else to read it from; deriving it two ways would let
+	// a cell be judged one way when it ran and another way when it is checked.
+	if turns, ok := turnsPerSession(cfg.Workload.Name()); ok {
+		options.TurnsPerSession = turns
+	}
+	return options
 }
 
 // loads is the sweep's load axis: its concurrency levels, then its arrival

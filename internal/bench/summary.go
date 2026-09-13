@@ -45,6 +45,19 @@ type SummaryOptions struct {
 	// which a cell is flagged as under-warmed. Zero uses
 	// DefaultWarmupDriftThreshold; a negative value disables the check.
 	WarmupDriftThreshold float64
+	// TurnsPerSession is how many turns a session sends before the workload
+	// draws a fresh one, which is the period the turn index cycles with and the
+	// stratifier the drift check compares within. Zero from a workload that
+	// never returns to a turn index — the fixed workload's index is a counter,
+	// not a position — and the drift check then pools.
+	//
+	// Stated rather than inferred from the rows. The two look alike inside one
+	// cell: a closed-loop fixed cell at high concurrency has its virtual users
+	// spread across a handful of turn numbers whose spans overlap exactly as a
+	// multi-turn cell's indices do, and a rule that guessed from the rows read
+	// that as a four-turn workload and reported four missing visits. The
+	// workload knows its own period, so it says.
+	TurnsPerSession int
 	// ScheduleLagThreshold is how late an open-loop cell's requests may be sent
 	// against the schedule that asked for them, at the 99th percentile, before
 	// the cell is flagged. Zero uses DefaultScheduleLagThreshold; a negative
@@ -141,14 +154,42 @@ type Summary struct {
 	SLOTTFTNs  int64 `json:"slo_ttft_ns" parquet:"slo_ttft_ns"`
 	SLOITLNs   int64 `json:"slo_itl_ns" parquet:"slo_itl_ns"`
 
-	// WarmupDrift is how much slower the first half of the measured window was
-	// than the second, by TTFT p50: 0.30 means the first half was 30% slower.
+	// WarmupDrift is how much slower the early part of the measured window was
+	// than the late part, by TTFT p50: 0.30 means 30% slower early, and -0.30
+	// means 30% slower late. The sign convention is unchanged from before #33 so
+	// that a re-scored cell can be held against its recorded number.
 	//
-	// It exists so the warm-up length can be checked rather than trusted. A
-	// cell whose measured window is still speeding up is still warming up, and
-	// no constant chosen in advance can prove otherwise for every concurrency
-	// level. NaN-free: zero when there are too few successes to compare.
+	// It exists so the warm-up length can be checked rather than trusted. A cell
+	// whose measured window is still speeding up is still warming up, and no
+	// constant chosen in advance can prove otherwise for every concurrency
+	// level. It is tested two-sided: a cell that got twice as slow across its
+	// window is as unpoolable as one that got twice as fast, and is a different
+	// fault with a different fix.
+	//
+	// Split on the arrival window rather than on first-start-to-last-response,
+	// and compared within each turn index rather than across the pooled halves.
+	// See warmupdrift.go for why each of those is load-bearing. NaN-free: zero
+	// when there are too few successes to compare.
 	WarmupDrift float64 `json:"warmup_drift" parquet:"warmup_drift"`
+	// WarmupDriftBasis says what WarmupDrift was measured over — "turn" when each
+	// turn index was compared with itself, "pooled" when every success was
+	// compared as one population, and empty when there was too little to
+	// compare. A drift figure means different things under the two, so the
+	// record carries which was used rather than leaving it to be inferred from
+	// the workload name.
+	WarmupDriftBasis string `json:"warmup_drift_basis,omitempty" parquet:"warmup_drift_basis"`
+	// WarmupDriftTurnsCompared is how many turn indices the figure is an average
+	// over, and WarmupDriftTurnsConfined how many of the workload's indices did
+	// not appear on both sides of the split with enough requests to have a
+	// median — absent from the window altogether, offered only early, or only
+	// late.
+	//
+	// WarmupDriftTurnsConfined above zero is the cell saying its measured window
+	// is not a whole number of visit periods: the two halves hold different turn
+	// indices, so every percentile in this summary is over a mix no cell of
+	// another length shares.
+	WarmupDriftTurnsCompared int `json:"warmup_drift_turns_compared,omitempty" parquet:"warmup_drift_turns_compared"`
+	WarmupDriftTurnsConfined int `json:"warmup_drift_turns_confined,omitempty" parquet:"warmup_drift_turns_confined"`
 
 	// Scheduled is how many measured requests carried a due time, which is all
 	// of them under the open-loop driver and none under the closed-loop one.
@@ -296,10 +337,11 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 	if s.Requests > 0 {
 		s.FailureRate = float64(s.Failed+s.Dropped) / float64(s.Requests)
 	}
-	if window := measuredWindow(first, last, firstDue, lastDue, rate); window > 0 {
-		s.WindowNs = window.Nanoseconds()
-		s.ThroughputRPS = float64(s.Successes) / window.Seconds()
-		s.GoodputRPS = float64(met) / window.Seconds()
+	window := cellWindow{first: first, last: last, firstDue: firstDue, lastDue: lastDue, rate: rate}
+	if offered := window.duration(); offered > 0 {
+		s.WindowNs = offered.Nanoseconds()
+		s.ThroughputRPS = float64(s.Successes) / offered.Seconds()
+		s.GoodputRPS = float64(met) / offered.Seconds()
 	}
 
 	slices.Sort(ttft)
@@ -320,13 +362,40 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 	s.ITLP50Ns = stats.Quantile(itl, 0.50).Nanoseconds()
 	s.ITLP95Ns = stats.Quantile(itl, 0.95).Nanoseconds()
 
-	s.WarmupDrift = warmupDrift(results, first, last)
+	drift := measureDrift(results, window, opts.TurnsPerSession)
+	s.WarmupDrift = drift.drift
+	s.WarmupDriftBasis = string(drift.basis)
+	s.WarmupDriftTurnsCompared = drift.compared
+	s.WarmupDriftTurnsConfined = drift.confined
 	s.ScheduleLagThresholdNs = opts.scheduleLagThreshold().Nanoseconds()
 	s.flag(opts.driftThreshold(), opts.scheduleLagThreshold())
 	return s
 }
 
-// measuredWindow is the span the cell's rates are computed over: the schedule a
+// cellWindow is the stretch of time a cell's measured rows cover, held as the
+// four instants the rows supply rather than as one duration.
+//
+// One type rather than a span passed around, because two different questions are
+// asked of it and they want different answers. How long load was OFFERED is the
+// denominator of every rate. WHEN load was offered is what the warm-up drift
+// check splits on. Deriving both from one struct is what keeps the split and the
+// denominator describing the same window.
+type cellWindow struct {
+	// first and last are the first measured request's start and the last one's
+	// finish.
+	first, last time.Time
+	// firstDue and lastDue are the first and last arrival the schedule asked
+	// for, and the zero time under the closed-loop driver, which has no
+	// schedule.
+	firstDue, lastDue time.Time
+	// rate is the arrival rate the rows were offered at, read off the rows.
+	rate float64
+}
+
+// scheduled reports whether this cell's rows carry an arrival schedule.
+func (w cellWindow) scheduled() bool { return !w.firstDue.IsZero() && w.rate > 0 }
+
+// duration is the span the cell's rates are computed over: the schedule a
 // scheduled cell offered load on, and otherwise the span its rows cover.
 //
 // The distinction is the open-loop driver's whole point arriving in the
@@ -334,57 +403,32 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 // still in flight, so at and past saturation the last response lands well after
 // the last arrival. Dividing by that would understate the rate exactly where the
 // driver exists to stop the rate being understated.
-func measuredWindow(first, last, firstDue, lastDue time.Time, rate float64) time.Duration {
-	if !firstDue.IsZero() && rate > 0 {
-		// Plus one inter-arrival gap: n arrivals at rate r occupy n/r seconds,
-		// and the span between the first and the last is one gap short of that.
-		// Without it a cell of one arrival would have no window at all.
-		return lastDue.Sub(firstDue) + time.Duration(float64(time.Second)/rate)
-	}
-	if last.IsZero() || !last.After(first) {
+func (w cellWindow) duration() time.Duration {
+	opens, closes := w.arrivals()
+	if !closes.After(opens) {
 		return 0
 	}
-	return last.Sub(first)
+	return closes.Sub(opens)
 }
 
-// minHalfForDrift is how many successes each half needs before their medians
-// are worth comparing. Below this the comparison is noise.
-const minHalfForDrift = 5
-
-// warmupDrift compares TTFT p50 over the first half of the measured window
-// against the second. A cell that is still speeding up was not warm when the
-// measurement started.
+// arrivals is the window as two instants: when the cell began offering load and
+// when it stopped.
 //
-// TTFT rather than total latency because it is what queueing and cold caches
-// move first, and it is not diluted by however many tokens each response
-// happened to generate.
-func warmupDrift(results []Result, first, last time.Time) float64 {
-	if first.IsZero() || !last.After(first) {
-		return 0
+// A scheduled cell's is its schedule — first arrival due to last arrival due,
+// plus the one inter-arrival gap the last arrival owns, since n arrivals at rate
+// r occupy n/r seconds and the span between the first and the last is one gap
+// short of that. A closed-loop cell has no schedule to be read, so its rows are
+// the only account of when it was offering load.
+//
+// The drain is outside it either way, which is the point. A window that ran to
+// the last RESPONSE would have its midpoint half a drain past its arrival
+// midpoint — 57 to 71 seconds on #29's think-75s cells — and everything the
+// halves are supposed to hold would be off by that much.
+func (w cellWindow) arrivals() (opens, closes time.Time) {
+	if w.scheduled() {
+		return w.firstDue, w.lastDue.Add(time.Duration(float64(time.Second) / w.rate))
 	}
-	midpoint := first.Add(last.Sub(first) / 2)
-
-	var early, late []time.Duration
-	for _, r := range results {
-		if r.Warmup || r.Outcome != record.OutcomeSuccess {
-			continue
-		}
-		if time.Unix(0, r.StartedAtNs).Before(midpoint) {
-			early = append(early, time.Duration(r.TTFTNs))
-		} else {
-			late = append(late, time.Duration(r.TTFTNs))
-		}
-	}
-	if len(early) < minHalfForDrift || len(late) < minHalfForDrift {
-		return 0
-	}
-	slices.Sort(early)
-	slices.Sort(late)
-	lateP50 := stats.Quantile(late, 0.50)
-	if lateP50 <= 0 {
-		return 0
-	}
-	return float64(stats.Quantile(early, 0.50)-lateP50) / float64(lateP50)
+	return w.first, w.last
 }
 
 // flag records every reason this cell should not be silently averaged in with
@@ -397,10 +441,7 @@ func (s *Summary) flag(driftThreshold float64, scheduleLagThreshold time.Duratio
 		s.Flag(fmt.Sprintf("failure rate %.2f%% exceeds the %.2f%% threshold (%d dropped, %d failed of %d)",
 			s.FailureRate*100, s.FailureThreshold*100, s.Dropped, s.Failed, s.Requests))
 	}
-	if driftThreshold > 0 && s.WarmupDrift > driftThreshold {
-		s.Flag(fmt.Sprintf("still warming up: the first half of the measured window was %.0f%% slower than the second by TTFT p50, over a %.0f%% threshold. Lengthen the warm-up and re-run",
-			s.WarmupDrift*100, driftThreshold*100))
-	}
+	s.flagDrift(driftThreshold)
 	if s.Scheduled > 0 && scheduleLagThreshold > 0 && s.ScheduleLagP99Ns > scheduleLagThreshold.Nanoseconds() {
 		// The open-loop driver's whole claim is that offered load is an input.
 		// A driver that fell behind its own schedule offered less than the cell
