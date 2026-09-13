@@ -168,6 +168,14 @@ Cell records and the reports. The per-request rows behind every figure above are
 configuration and stay on the box under `runs/recency-rerun/`; each figure is recomputable from
 them with `cmd/divergence`, which reads only and needs no fleet and no GPU.
 
+Two of the tables above are not `cmd/divergence`'s, so the scripts that drew them are in
+[`evidence/`](evidence/), byte for byte as they ran on the box:
+[`period-check.py`](evidence/period-check.py) for the per-visit-period TTFT and the split the
+drift check made, and [`period-confound.py`](evidence/period-confound.py) for the curve recomputed
+inside each period. Both read the rows only. `period-check.py` run against #17's cells reproduces
+the 288/81/61 ms that set this run's geometry, which is the check that it is reading what it
+claims to.
+
 The driver is [`ops/box/run-recency-rerun.sh`](../../../ops/box/run-recency-rerun.sh), committed
 before the run rather than after it, so the geometry could be reviewed before the fleet time was
 spent.
