@@ -51,13 +51,29 @@ import (
 //
 // The fix that covers both is a measured window of two whole visit periods that
 // opens on a period boundary, with the warm-up covering the periods the rows
-// show were still settling. Each half of the drift check is then exactly one
-// visit — the same turn indices in the same proportions — so what is left in the
-// comparison is the fleet, which is the only thing the check is entitled to
-// speak about.
+// show were still settling. The ARRIVAL window is then split into two equal
+// visits, so the schedule offers each half the same turn indices in the same
+// proportions.
 //
-// These tests pin that against the generator with no fleet running, in the way
-// #17's own design was checked before any GPU time was spent.
+// WHAT THAT DOES NOT BUY, and it is worth being exact about it. warmupDrift does
+// not split the arrival window. It splits first-row-start to last-row-END
+// (summary.go:242 takes r.EndedAt(), the last response, not the last arrival),
+// so its midpoint sits half the cell's drain past the arrival midpoint. Measured
+// on the six cells this geometry produced, the drain is 2.8-11.8 s at think 30s
+// and 57.4-71.2 s at think 75s, which puts the real split up to ~36 s past the
+// period boundary and pulls that many seconds of the next period's turn index 0
+// into the early half. So the balance below is a property of the SCHEDULE, which
+// is the part a geometry can control; the check's own split is shifted by a drain
+// no offline model can predict, and at think 75s the shift is large.
+//
+// That shift is also the likeliest reason the re-run's drifts came back negative
+// rather than near zero: the slug it moves into the early half is the cheap,
+// short first turn of a visit. The cells are unflagged either way — the check
+// fires only on a first half that is SLOWER — but "each half is one whole visit"
+// is a claim about the arrival schedule and not about what warmupDrift measured.
+//
+// These tests pin the schedule against the generator with no fleet running, in
+// the way #17's own design was checked before any GPU time was spent.
 
 // visitPeriod is how long an open-loop cell takes to walk a conversation from
 // its first turn to its last: one round per turn, and a round is the pool
@@ -128,21 +144,39 @@ func (d recencyDesign) indexMix(t *testing.T, warm time.Duration) (early, late m
 // indexImbalance reports how far the worst turn index is from falling half in
 // each half of the measured window. Zero is a window whose two medians are taken
 // over the same workload.
+//
+// gap keeps its sign — positive means the index is over-represented in the FIRST
+// half — because every message built from it names one half or the other, and an
+// absolute value silently prints them the wrong way round.
 func indexImbalance(early, late map[int]int) (worst int, gap float64) {
 	for index := range designTurnsPerVisit {
 		total := early[index] + late[index]
 		if total == 0 {
-			continue
+			// An index absent from both halves is not evidence of balance; it is
+			// a window that never offered it. Reported as a full imbalance so a
+			// geometry that drops an index cannot pass as an even split.
+			gap, worst = 1, index
+			return worst, gap
 		}
 		off := float64(early[index])/float64(total) - 0.5
-		if off < 0 {
-			off = -off
-		}
-		if off > gap {
+		if off > gap || -off > gap {
 			gap, worst = off, index
 		}
 	}
 	return worst, gap
+}
+
+// shares renders an imbalance as the two halves' percentages, in that order.
+func shares(gap float64) (first, second float64) {
+	return (0.5 + gap) * 100, (0.5 - gap) * 100
+}
+
+// abs of a gap, for comparing against a tolerance.
+func absGap(gap float64) float64 {
+	if gap < 0 {
+		return -gap
+	}
+	return gap
 }
 
 // The two defects in #17's recency geometry, each in the configuration it
@@ -189,14 +223,12 @@ func TestTheAsRunRecencyWindowsDoNotOpenOnAVisitBoundary(t *testing.T) {
 				t.Logf("  turn index %d: first half %4d, second half %4d", index, early[index], late[index])
 			}
 			worst, gap := indexImbalance(early, late)
-			switch balanced := gap < 0.01; {
-			case balanced != tc.wantBalanced && tc.wantBalanced:
-				t.Errorf("turn index %d lands %.0f%%/%.0f%% across the split; this configuration was diagnosed as flagging on the cold opening period alone, with the sawtooth cancelling",
-					worst, (0.5+gap)*100, (0.5-gap)*100)
-			case balanced != tc.wantBalanced:
-				t.Errorf("every turn index splits evenly here, so the sawtooth cannot be what flagged this configuration and the diagnosis needs rechecking")
-			case !balanced:
-				t.Logf("worst index %d sits %.0f%%/%.0f%% across the split", worst, (0.5+gap)*100, (0.5-gap)*100)
+			first, second := shares(gap)
+			if balanced := absGap(gap) < 0.01; balanced != tc.wantBalanced {
+				t.Errorf("turn index %d lands %.0f%%/%.0f%% across the split (balanced=%v, want %v), so this configuration's diagnosis needs rechecking",
+					worst, first, second, balanced, tc.wantBalanced)
+			} else if !balanced {
+				t.Logf("worst index %d sits %.0f%%/%.0f%% across the split", worst, first, second)
 			}
 		})
 	}
@@ -204,10 +236,13 @@ func TestTheAsRunRecencyWindowsDoNotOpenOnAVisitBoundary(t *testing.T) {
 
 // The property the re-run's geometry is chosen for.
 //
-// A measured window of two whole visit periods, beginning on a period boundary,
-// hands the drift check two halves of exactly one visit each. Every turn index
-// appears the same number of times in both, and the cold opening periods are
-// behind the warm-up rather than inside one half of the measurement.
+// An arrival window of two whole visit periods, beginning on a period boundary,
+// offers two halves of exactly one visit each: every turn index appears the same
+// number of times in both, and the cold opening periods are behind the warm-up
+// rather than inside one half of the measurement.
+//
+// This is the schedule, not warmupDrift's split — see the drain caveat in the
+// file header. It is the half of the problem a cell geometry can fix.
 func TestTheRerunRecencyWindowsSplitTheWorkloadEvenly(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -222,9 +257,10 @@ func TestTheRerunRecencyWindowsSplitTheWorkloadEvenly(t *testing.T) {
 			for index := range designTurnsPerVisit {
 				t.Logf("  turn index %d: first half %4d, second half %4d", index, early[index], late[index])
 			}
-			if worst, gap := indexImbalance(early, late); gap >= 0.01 {
-				t.Errorf("turn index %d lands %.0f%% in the first half of the measured window against %.0f%% in the second, so the drift check is still comparing two different workloads",
-					worst, (0.5+gap)*100, (0.5-gap)*100)
+			if worst, gap := indexImbalance(early, late); absGap(gap) >= 0.01 {
+				first, second := shares(gap)
+				t.Errorf("turn index %d lands %.0f%% in the first half of the arrival window against %.0f%% in the second, so the geometry is not offering the two halves the same workload",
+					worst, first, second)
 			}
 		})
 	}
@@ -318,9 +354,16 @@ func TestTheRerunStillSpreadsTheRecencyAxis(t *testing.T) {
 
 	think75 := recencyDesign{rate: 8, think: 75 * time.Second, cell: 900 * time.Second, workingSet: 3, skew: 1.0}
 	buckets, measured, _ = think75.offer(t, 300*time.Second)
+	// A bucket is past the TTL only if its WHOLE range is, which is its LOWER
+	// bound -- recencyBuckets[i-1] -- and not its upper. Keying on the upper
+	// bound pulls in 30s-1m, which is mostly younger than the 57 s TTL and is
+	// the trough where divergence.go says the index still believes; counting it
+	// here would let a geometry that never reaches past the TTL satisfy the
+	// share below. (The same expression at recencydesign_test.go:201 has the
+	// defect and the comment naming the intent it misses.)
 	var beyond int
-	for i, bound := range recencyBuckets {
-		if bound > derivedTTL {
+	for i := range recencyBuckets {
+		if i > 0 && recencyBuckets[i-1] >= derivedTTL {
 			beyond += buckets[recencyLabels[i+1]]
 		}
 	}

@@ -48,14 +48,14 @@ Two different defects follow from that, one per configuration:
   120 s period, so 45 s of the coldest traffic in the cell sat in the first half and none of it
   in the second. Here a longer warm-up really is the whole fix, as #29 assumed.
 - **think 75s** is the other case. A period is 300 s and the whole cell was 420 s, so the
-  window could not hold even one: its halves shared **no turn index at all** — index 0 ran 600
-  requests to nil across the split, index 2 nil to 600. **No warm-up clears that**, because it
+  window could not hold even one: its halves shared **no turn index at all** — index 0 ran nil to
+  600 across the split, index 2 ran 600 to nil. **No warm-up clears that**, because it
   never decays. The check was comparing two different workloads and would have fired on a fleet
   that had been up for a week.
 
 So both cells are sized to open on a visit boundary, after the periods the rows show were still
-settling, and to measure exactly **two whole visit periods** — one per half of the drift check,
-which leaves it comparing the fleet against itself:
+settling, and to offer exactly **two whole visit periods** of arrivals — one per half of the
+schedule's own midpoint:
 
 | | think time | visit period | warm-up | cell | measured |
 |---|---:|---:|---:|---:|---:|
@@ -74,16 +74,30 @@ record of what a fractional window measures.
 
 ## The flags cleared, and the arithmetic is why
 
-| cell | drift on 2026-09-10 | drift here | periods in the measured window |
+| cell | drift on 2026-09-10 | drift here | periods of arrivals measured |
 |---|---:|---:|---:|
 | think30 r1 / r2 / r3 | +0.936 / +2.311 / +1.933 | **−0.079 / −0.115 / −0.145** | 2.00 / 2.00 / 2.00 |
 | think75 r1 / r2 / r3 | +3.246 / +4.248 / +0.514 | **−0.571 / −0.690 / −0.562** | 2.00 / 2.00 / 2.00 |
 
-Every drift is now **negative** — the first half slightly faster than the second — which is the
-residual sawtooth across two whole periods showing up in the direction the check does not fire
-on. The warm-up sizing is confirmed by the same rows that set it: think30's p0 came in at
-291–309 ms and its p1 at 80–82 ms, so two periods of warm-up were both needed and sufficient,
-and think75's p1 was already at steady state, so one was.
+Every drift is now **negative** — the first half faster than the second, by 8–15% at think30
+and 56–69% at think75. Neither figure is a residual sawtooth: across two whole periods the
+schedule offers both halves the same turn indices, so that contribution is nil by construction.
+
+What puts it there is mostly that **`warmupDrift` does not split the arrival window.** It splits
+first-row-start to last-row-*end* (`summary.go:242` takes `r.EndedAt()`), so its midpoint sits
+half the cell's drain past the arrival midpoint — and the drain here is 2.8–11.8 s at think30
+and 57.4–71.2 s at think75. At think75 that puts the real split about 32 s past the period
+boundary and moves roughly 255 of the next period's short first turns into the early half. The
+pressure trend documented below runs the same way.
+
+So the cells are unflagged, and part of the reason is that the check is **one-sided** — it fires
+only on a first half that is *slower*. That is worth saying plainly rather than reading a large
+negative drift as a clean bill of health. What the geometry did buy is the schedule: the arrival
+window is two whole visits, which is the half of the problem a cell length can fix.
+
+The warm-up sizing is confirmed by the same rows that set it: think30's p0 came in at 291–309 ms
+and its p1 at 80–82 ms, so two periods of warm-up were both needed and sufficient, and think75's
+p1 was already at steady state, so one was.
 
 ## Result: the belief decays, and it decays at the TTL
 
@@ -104,9 +118,10 @@ trough lands in the bucket beneath it. Past the TTL the index has dropped the be
 claims very little — predicted/req falls from 1,818 to 481 — and what little it still claims is
 honoured again. The shape is the TTL, read from both sides.
 
-**This half of the curve is new.** #17's think30 cells put 8 requests in the 1 m – 2 m bucket;
-there are 2,082 here, because think75's longer think time is what reaches past the TTL at all.
-The recovery is no longer resting on a handful of requests.
+**This half of the curve rests on twice the evidence.** #17 recorded 1,120 requests in the
+1 m – 2 m bucket across its six cells; there are 2,082 here. Both runs reach past the TTL --
+think75's think time is what does it, in #17 as here — so the gain is a doubling rather than
+something new: 1,120 → 2,082, at 97.8% honoured then and 98.1% now.
 
 ### Two configurations, read separately
 
@@ -138,13 +153,18 @@ Recomputing the curve **inside each measured period separately** says it does no
 
 | since last served | p1 | p2 |
 |---|---:|---:|
-| 1 s – 2 s | 100.0% (n=454) | 99.4% (n=417) |
-| 10 s – 30 s | 97.9% (n=1,086) | 97.7% (n=939) |
-| 30 s – 1 m | **88.8% (n=772)** | **87.7% (n=760)** |
+| 1 s – 2 s | 100.0% (n=454) | 99.4% (n=415) |
+| 10 s – 30 s | 97.9% (n=1,087) | 97.7% (n=938) |
+| 30 s – 1 m | **88.8% (n=770)** | **87.7% (n=759)** |
 | 1 m – 2 m | 98.2% (n=486) | 98.0% (n=580) |
 
 Every bucket matches within about a point, and the buckets are populated comparably from both
 periods. The decay is a within-period fact and the trend across periods does not reach it.
+
+The counts are a sub-population of the table above it: rows on which the index claimed nothing are
+skipped here and binned there. A zero claim adds nothing to either side of the honoured ratio, so
+the shares compare directly; the n columns do not, and the difference sits mostly past the TTL —
+which is precisely where the index stops claiming.
 
 ## What else the run says
 

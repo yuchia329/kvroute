@@ -71,7 +71,7 @@ LOG=recency-rerun.log
 RECENCY=runs/recency-rerun
 LADDER=runs/divergence
 EVID=$RECENCY/evidence
-mkdir -p "$EVID"
+mkdir -p "$EVID" "$LADDER"
 
 RATE=8
 KV_CAPACITY=629760
@@ -130,7 +130,11 @@ if [[ -n "$others" ]]; then
   say "$others"
   fatal "not starting: a sweep between its cells has no bench and no router, and fleet_up would take its fleet down"
 fi
-if pgrep -x bench-linux-amd64 > /dev/null 2>&1 || pgrep -x router-linux-amd64 > /dev/null 2>&1; then
+# -f and not -x. `pgrep -x` matches /proc/PID/stat's comm, which the kernel
+# truncates to 15 characters; "bench-linux-amd64" is 17 and "router-linux-amd64"
+# is 18, so an -x pattern for either can never match and the check would pass on
+# a fleet somebody is actively driving by hand.
+if pgrep -f "[b]ench-linux-amd64" > /dev/null 2>&1 || pgrep -f "[r]outer-linux-amd64" > /dev/null 2>&1; then
   fatal "a bench or router is still up against this fleet; not starting"
 fi
 
@@ -182,15 +186,23 @@ recency_config() {
     -replicas "$SPECS" -model "$MODEL" -gpu-indexes "$GPUS" -slo-from "$SLO" \
     $GEOMETRY -working-set 3 -skew 1.0 \
     -cell-duration "$cell" -warmup "$warm" -settle "$SETTLE" -repetitions "$REPS" \
-    >> "$EVID/recency-$name.log" 2>&1
-  say "$name exited $?"
+    >> "$EVID/recency-$name.log" 2>&1 || { stop_router; fatal "$name's bench failed; see $EVID/recency-$name.log"; }
   stop_router
-  # A cell that sent nothing is the failure this layout exists to prevent, and
-  # it is silent: the run log looks identical.
-  local rows
+  RPID=""
+  # start_router names the router log after the POLICY (lib-sweep.sh), and all
+  # three stages here run prefix_affinity -- so without this the next stage
+  # truncates this one's log and only the last survives.
+  mv -f "$EVID/router-prefix_affinity.log" "$EVID/router-$name.log" 2>/dev/null || true
+  # A cell that sent nothing is the failure this layout exists to prevent, and it
+  # is silent: the run log looks identical. Counted against what this geometry
+  # offers -- cell seconds x rate x repetitions -- rather than a flat floor, because
+  # a stage that died after one of three repetitions clears any flat floor and then
+  # gets published as though it were whole.
+  local rows want
+  want=$(( ${cell%s} * RATE * REPS ))
   rows=$(cat "$RECENCY/$name"/cells/*.jsonl 2>/dev/null | wc -l)
-  say "$name recorded $rows rows"
-  [ "$rows" -gt 1000 ] || fatal "$name recorded only $rows rows -- it resumed another configuration's cells or the fleet refused the load"
+  say "$name recorded $rows rows of an offered $want"
+  [ "$rows" -ge "$want" ] || fatal "$name recorded $rows rows against the $want its geometry offers -- a repetition is missing, or it resumed another configuration's cells"
 }
 
 # ---- half two: the missing rung ---------------------------------------------
@@ -206,12 +218,17 @@ ws3_rung() {
     -replicas "$SPECS" -model "$MODEL" -gpu-indexes "$GPUS" -slo-from "$SLO" \
     $GEOMETRY -working-set 3 -skew 0 \
     -concurrency 32 -cell-duration $CELL -warmup $WARM -settle $SETTLE -repetitions $REPS \
-    >> "$EVID/ladder-ws3.log" 2>&1
-  say "WS 3 exited $?"
+    >> "$EVID/ladder-ws3.log" 2>&1 || { stop_router; fatal "WS 3's bench failed; see $EVID/ladder-ws3.log"; }
   stop_router
-  local rows
+  RPID=""
+  mv -f "$EVID/router-prefix_affinity.log" "$EVID/router-ws3.log" 2>/dev/null || true
+  # Closed loop, so the count is not arithmetic from the geometry; three cells'
+  # worth of records is what says every repetition ran.
+  local rows cells
   rows=$(cat "$LADDER/ws3"/cells/*.jsonl 2>/dev/null | wc -l)
-  say "WS 3 recorded $rows rows"
+  cells=$(ls "$LADDER/ws3"/cells/*.json 2>/dev/null | wc -l)
+  say "WS 3 recorded $rows rows across $cells cells"
+  [ "$cells" -eq "$REPS" ] || fatal "WS 3 recorded $cells cells, not the $REPS its repetitions offer"
   [ "$rows" -gt 1000 ] || fatal "WS 3 recorded only $rows rows"
 }
 

@@ -70,10 +70,10 @@ committed.
 | `run-pressure-spilloff.sh` | Prefix affinity with the spill rule off, across the same grid and the same bytes, into its own directory. |
 | `run-exact-grid.sh` | #24's grid: exact residency against the approximate index, on a fleet publishing KV cache events, with session affinity as the baseline. |
 | `run-hash-grid.sh` | #26's two arms: the stateless hash's weight axis, then the grid at the weight that axis settled on. |
-| `run-recency-rerun.sh` | #29's two halves: the recency axis re-run at whole visit periods, and the WS 3 rung the working-set axis is missing. **Not yet run** — see below. |
+| `run-recency-rerun.sh` | #29's two halves: the recency axis re-run at whole visit periods, and the WS 3 rung the working-set axis is missing. Run 2026-09-12; see below. |
 
-`run-recency-rerun.sh` is committed before its run rather than after it, which is the
-opposite of every other row here. What it encodes is a design that was settled off the GPU:
+`run-recency-rerun.sh` was committed **before** its run rather than after it, which is the
+opposite of every other row here (the run has since happened — 2026-09-12, in two attempts). What it encodes is a design that was settled off the GPU:
 the cell lengths come from `internal/bench/recencywindow_test.go`, which derives them from
 the workload's visit period and re-asserts that the longer cells still spread the axis the
 run exists to plot. Committing it first is what lets that design be reviewed before the
@@ -88,8 +88,10 @@ fleet down at the one moment that run could not be seen. `run-recency-rerun.sh` 
 looks for another *driver script*, which lives for the whole run, and it refuses on that.
 Two more traps in the same family: arm the `trap cleanup EXIT` **after** the gates, or the
 refusal itself tears the other fleet down on the way out; and `/tmp/kvroute-sweep.lock` is
-not a convention you can rely on, because only `run-load-knee.sh` and `run-recency.sh` take
-it. All three were found on 2026-09-12 by running the driver against a live `#31` sweep,
+not a convention you can rely on: **no driver in this repo takes it** except
+`run-recency-rerun.sh` itself, so it currently serialises nothing. Two of the box-only drivers
+(`run-load-knee.sh`, `run-recency.sh`) do take it, but they are not committed here, and
+`run-load-denominator.sh` — which is — does not. All three were found on 2026-09-12 by running the driver against a live `#31` sweep,
 which it correctly declined.
 
 Its flag set was rehearsed end to end against `cmd/fakereplica` with

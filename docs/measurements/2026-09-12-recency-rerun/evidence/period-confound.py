@@ -16,6 +16,12 @@ decay is there in both, it is a within-period fact and the trend across periods
 does not reach it.
 
 honoured = (predicted - over) / predicted, as internal/prefix.Divergence computes it.
+
+NOTE ON THE COUNTS. Rows on which the index claimed nothing are skipped here, where
+cmd/divergence bins them. A zero claim adds nothing to either side of the honoured
+ratio, so the SHARES below are comparable with the report's; the n columns are not,
+and are smaller -- most of the difference falls in the buckets past the TTL, which is
+exactly where the index stops claiming.
 """
 import glob
 import json
@@ -58,13 +64,21 @@ def main() -> int:
         # A request's age is its own start minus the end of that session's
         # previous turn in the same cell -- the definition the report uses. Warm-up
         # rows are walked so they can supply a predecessor, but never scored.
+        # Kept exactly as internal/bench/divergence.go keeps it: advanced only on a
+        # SUCCESSFUL turn, and with max() rather than assignment. At skew 1.0 a hot
+        # conversation is held by several pool slots at once and its turns overlap,
+        # so a plain assignment lets the predecessor move BACKWARDS and ages the
+        # next turn by tens of seconds -- enough to carry a row across the 57 s TTL
+        # in the very table this script exists to check.
         last_end: dict[str, int] = {}
         for r in rows:
             session = r.get("session") or ""
             prior = last_end.get(session)
-            end = r["started_at_ns"] + (r.get("total_ns") or 0)
-            last_end[session] = end
-            if r.get("warmup") or r.get("outcome") != "success":
+            success = r.get("outcome") == "success"
+            if session and success:
+                end = r["started_at_ns"] + (r.get("total_ns") or 0)
+                last_end[session] = max(last_end.get(session, 0), end)
+            if r.get("warmup") or not success:
                 continue
             if prior is None:
                 continue
@@ -75,6 +89,12 @@ def main() -> int:
             # tokens. So the prediction is converted at this request's own prompt
             # bytes per token, both sides of which are on the row, which is what
             # the report does.
+            # divergence.go books a row with no engine cached-token account as
+            # Unaccounted rather than scoring it; without this a replica that
+            # stopped reporting prompt_tokens_details reads here as 0% honoured
+            # and manufactures the decay the table is testing for.
+            if not r.get("engine_cache_read"):
+                continue
             match_bytes = r.get("prefix_match_bytes") or 0
             prompt_bytes = r.get("prompt_bytes") or 0
             prompt_tokens = r.get("engine_prompt_tokens") or 0

@@ -53,13 +53,16 @@ def main() -> int:
             "CLEAN" if not summary.get("flagged") else "FLAGGED: "
             + "; ".join(summary.get("flag_reasons") or [])))
 
-        # The cell's own clock, so periods are counted from where the cell began
-        # rather than from the first row that happened to succeed.
+        # The cell's own clock, off the record, so periods are counted from where
+        # the cell began rather than from the first row that happened to succeed.
+        # On a cell whose opening arrivals fail or return no TTFT -- the condition
+        # a warm-up exists for -- those two differ, and every period boundary and
+        # every warm/measured label below would move with the offset.
         served = [r for r in rows if r.get("ttft_ns") and r.get("outcome") == "success"]
         if not served:
             print("  no successful rows carrying a TTFT")
             continue
-        start = min(r["started_at_ns"] for r in served)
+        start = record.get("started_at_ns") or min(r["started_at_ns"] for r in served)
 
         # Every period, warm-up included, so the periods the warm-up was sized to
         # cover can be seen to have been the slow ones.
