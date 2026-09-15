@@ -159,6 +159,25 @@ def test_the_regime_map_marks_a_point_with_no_tile_as_not_run():
     assert "not run" in shown, "a point with no tile at all must read as not run, not as a loss"
 
 
+def test_two_load_axes_get_a_panel_each_rather_than_one_grid_of_gaps():
+    """A closed-loop row in users beside an open-loop row in req/s share no
+    load value, so one grid would be mostly 'not run'. Each gets its own panel
+    with only its own rungs."""
+    first, second = REGIME_MAP["tiles"][0], REGIME_MAP["tiles"][1]
+    two_axes = dict(REGIME_MAP,
+                    x_axis=dict(REGIME_MAP["x_axis"], values=["8 users", "32 users", "6 req/s"]),
+                    y_axis=dict(REGIME_MAP["y_axis"], values=["closed-loop", "open-loop"]),
+                    tiles=[dict(first, x="8 users", y="closed-loop"), dict(second, x="32 users", y="closed-loop"),
+                           dict(first, x="6 req/s", y="open-loop")])
+
+    fig = figures.regime_map(two_axes)
+
+    drawn = [ax for ax in fig.axes if ax.patches]
+    assert len(drawn) == 2, "the two drivers were drawn on one shared load axis"
+    assert "not run" not in texts(fig), "a rung the other driver never has is not a point that was not run"
+    assert [len(ax.patches) for ax in drawn] == [2, 1]
+
+
 def test_the_regime_map_legend_has_one_entry_per_policy():
     fig = figures.regime_map(REGIME_MAP)
     labels = [t.get_text() for t in fig.axes[0].get_legend().get_texts()]

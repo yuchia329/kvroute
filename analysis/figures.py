@@ -23,6 +23,7 @@ draws two: goodput against load, and the cache mechanism.
 import json
 import math
 import sys
+import textwrap
 from pathlib import Path
 
 import matplotlib
@@ -150,46 +151,69 @@ def regime_map(data):
     figure comes straight off the tiles bench.RegimeMap already built."""
     x_axis, y_axis = data["x_axis"], data["y_axis"]
     xs, ys = x_axis["values"], y_axis["values"]
-    fig, ax = plt.subplots(figsize=(1.8 + 1.6 * len(xs), 1.2 + 0.9 * len(ys)))
+    present = {y: [x for x in xs if any(t["x"] == x and t["y"] == y for t in data["tiles"])] for y in ys}
 
-    for row, y in enumerate(ys):
-        for col, x in enumerate(xs):
-            tile = next((t for t in data["tiles"] if t["x"] == x and t["y"] == y), None)
-            hatch = None
-            if tile is None:
-                face, text, ink = "white", "not run", "black"
-            elif not tile["measured"]:
-                face, text, ink = "white", tile["label"], "black"
-            else:
-                base = regime_colour(tile["winner"])
-                if tile["within_spread"]:
-                    face, hatch = _lighten(base), "//"
+    # Two rows that share no x value at all are two different load axes (a
+    # closed-loop row in users beside an open-loop row in req/s), and one grid
+    # would be mostly "not run" tiles. Each such row gets its own panel with
+    # only its own rungs. Rows that overlap stay one grid, where an empty
+    # position is a point that was not run and has to read as such.
+    disjoint = len(ys) > 1 and all(
+        not set(present[a]) & set(present[b]) for i, a in enumerate(ys) for b in ys[i + 1:])
+    panels = [(y, present[y]) for y in ys] if disjoint else [(None, xs)]
+    widest = max(len(cols) for _, cols in panels)
+    fig, axes = plt.subplots(len(panels), 1, squeeze=False,
+                             figsize=(1.8 + 1.6 * widest, 1.2 + 0.9 * (len(ys) + 0.6 * (len(panels) - 1))))
+
+    for ax, (panel_y, cols) in zip(axes[:, 0], panels):
+        rows = [panel_y] if panel_y is not None else ys
+        for row, y in enumerate(rows):
+            for col, x in enumerate(cols):
+                tile = next((t for t in data["tiles"] if t["x"] == x and t["y"] == y), None)
+                hatch = None
+                if tile is None:
+                    face, text, ink = "white", "not run", "black"
+                elif not tile["measured"]:
+                    face, text, ink = "white", tile["label"], "black"
                 else:
-                    face = base
-                ink = _ink_for(matplotlib.colors.to_rgb(face) if isinstance(face, str) else face)
-                text = f"{tile['winner']}\n{tile['label']}"
-            ax.add_patch(plt.Rectangle((col, row), 1, 1, facecolor=face, edgecolor="white",
-                                        linewidth=2, hatch=hatch))
-            ax.text(col + 0.5, row + 0.5, text, ha="center", va="center", fontsize=8, color=ink)
+                    base = regime_colour(tile["winner"])
+                    if tile["within_spread"]:
+                        face, hatch = _lighten(base), "//"
+                    else:
+                        face = base
+                    ink = _ink_for(matplotlib.colors.to_rgb(face) if isinstance(face, str) else face)
+                    text = f"{tile['winner']}\n{tile['label']}"
+                ax.add_patch(plt.Rectangle((col, row), 1, 1, facecolor=face, edgecolor="white",
+                                            linewidth=2, hatch=hatch))
+                ax.text(col + 0.5, row + 0.5, text, ha="center", va="center", fontsize=8, color=ink)
 
-    ax.set_xlim(0, len(xs))
-    ax.set_ylim(len(ys), 0)
-    ax.set_xticks([c + 0.5 for c in range(len(xs))], xs)
-    ax.set_yticks([r + 0.5 for r in range(len(ys))], ys)
-    ax.set_xlabel(x_axis["label"])
-    ax.set_ylabel(y_axis["label"])
-    ax.tick_params(length=0)
-    for spine in ax.spines.values():
-        spine.set_visible(False)
+        ax.set_xlim(0, widest)
+        ax.set_ylim(len(rows), 0)
+        ax.set_xticks([c + 0.5 for c in range(len(cols))], cols)
+        ax.set_yticks([r + 0.5 for r in range(len(rows))], rows)
+        ax.set_xlabel(x_axis["label"] if panel_y is None else f"{x_axis['label']} ({panel_y})")
+        ax.set_ylabel(y_axis["label"])
+        ax.tick_params(length=0)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
 
     handles = [Patch(facecolor=regime_colour(p), label=p) for p in data["policies"]]
     handles.append(Patch(facecolor=_lighten("#999999"), hatch="//", edgecolor="black", label="within spread"))
-    ax.legend(handles=handles, fontsize=7, loc="upper left", bbox_to_anchor=(1.02, 1))
+    axes[0, 0].legend(handles=handles, fontsize=7, loc="upper left", bbox_to_anchor=(1.02, 1))
 
     slo = data["slo"]
     fig.suptitle(f"Who wins where — SLO TTFT < {slo['ttft_ms']:g} ms, inter-token p50 < {slo['itl_ms']:g} ms; "
                  f"hatched = within the run-to-run spread", fontsize=9)
-    notes = ["⚠ " + cell for cell in data["surfaced"]]
+    if disjoint:
+        fig.subplots_adjust(hspace=0.9)
+    notes = []
+    if data["surfaced"]:
+        # Name every cell the figure keeps with its goodput only, but not its
+        # whole verdict: a load sweep past the knee surfaces dozens, and the
+        # report beside the figure carries each sentence in full.
+        names = [cell.split(":", 1)[0].strip("` ") for cell in data["surfaced"]]
+        notes.extend(textwrap.wrap(f"⚠ {len(names)} cells kept with goodput only, past saturation or over the "
+                                   f"failure threshold, each named in the report: {', '.join(names)}", 150))
     if data["missing"]:
         notes.append(f"not run: {', '.join(data['missing'])}")
     if notes:
