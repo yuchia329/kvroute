@@ -140,7 +140,7 @@ dips *during* the outage, when orphaned conversations land together on one repli
 
 Router overhead is **217–223 µs p50** across policies; the prefix index costs about 160 µs more
 than hashing a session id, against TTFT p50s of hundreds of milliseconds
-(![Router overhead per policy](docs/figures/overhead.svg)).
+([figure](docs/figures/overhead.svg)).
 
 ## How the comparison was kept fair
 
@@ -172,9 +172,9 @@ re-verify warning — three of its claims moved within four weeks of research.
 Every figure and table, from a checkout, with no fleet and no GPU:
 
 ```sh
-make figures        # six figures + their data, from docs/measurements
+make figures        # every figure + its data, from docs/measurements
 make figures-test   # the plotting script's tests
-make test            # the full Go suite under the race detector
+make test           # the full Go suite under the race detector
 ```
 
 Without a GPU, the router itself runs against a fake replica:
