@@ -95,7 +95,7 @@ than in a later sweep:
 
 - The replica cannot start on a drifted engine, and cannot start having quietly chosen a different
   kernel. Both are loud failures at bring-up.
-- The sampler is not the engine's default. This is a deviation worth stating in the README's
+- The sampler is not the engine's default. This is a deviation worth stating in the report's
   methodology section alongside the chunked-prefill setting, since it is held constant across
   every policy and therefore cannot favour one.
 - Five settings now have to be reproduced by anyone rerunning this. They live in one file.

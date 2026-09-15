@@ -94,7 +94,7 @@ func (r *Recorder) Summary() Summary {
 //
 // Exported so that the benchmark harness and the router's own overhead
 // reporting share one definition of a percentile. Two definitions would be two
-// numbers that disagree by a rank in the README.
+// numbers that disagree by a rank in the report.
 //
 // Generic over the ordered type for that same reason rather than for reuse's
 // sake: latencies are durations and goodput is a rate, and a median over rates

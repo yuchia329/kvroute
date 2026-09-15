@@ -67,7 +67,7 @@ produce the same silence. This is the distinction `gpu_samples` already draws fo
 
 - **Cells recorded before this carry no throttle evidence**, and read as clocks nobody looked at
   rather than as cards that were fine. Everything measured before 2026-09-08 also ran with GPU 3
-  in the fleet. The six-card policy comparison in the README is the one published result that
+  in the fleet. The six-card policy comparison in the report is the one published result that
   stands on a fleet that no longer exists, and its caveat stays until it is re-run on the five.
 - **The flag can fire on a healthy host.** A hot room or a blocked intake throttles cards that are
   not defective, and the cell is still excluded — correctly, because its figures still describe a

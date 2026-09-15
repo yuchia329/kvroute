@@ -1,11 +1,13 @@
 # kvroute
 
+> This is the full report. The short version is the repository [README](../README.md).
+
 **Where does cache-aware routing stop paying for itself against the consistent-hash session
 affinity any load balancer already gives you for free?**
 
 kvroute is a KV-cache-aware router in front of six single-GPU vLLM replicas, built to answer that
 question and nothing else. The deliverable is a measured comparison of routing policies, not a
-service. See [`idea.md`](idea.md) for the spec and [`CONTEXT.md`](CONTEXT.md) for the vocabulary
+service. See [`idea.md`](../idea.md) for the spec and [`CONTEXT.md`](../CONTEXT.md) for the vocabulary
 every figure here is stated in.
 
 Six policies are implemented; five have been measured on the fleet. Every number below is
@@ -44,7 +46,7 @@ The headline figure. Goodput delta between session affinity and prefix affinity 
 ratio crossed with Zipf skew, at one concurrency — memory pressure on one axis, load imbalance on
 the other, because they are physically different and trip different branches of the spill rule.
 
-![Pressure map: goodput delta, prefix affinity against session affinity, across working set ratio and skew](docs/figures/pressuremap.svg)
+![Pressure map: goodput delta, prefix affinity against session affinity, across working set ratio and skew](figures/pressuremap.svg)
 
 | WS \ skew | 0 | 1 | 1.4 |
 |---|---:|---:|---:|
@@ -55,7 +57,7 @@ the other, because they are physically different and trip different branches of 
 
 ¹ Two repetitions, not three: one was flagged for warm-up drift, re-run, and drifted harder. The
 direction holds either way — session affinity's best repetition sits below prefix affinity's worst —
-but the size does not. See the [measurement](docs/measurements/2026-09-11-pressure-grid/).
+but the size does not. See the [measurement](measurements/2026-09-11-pressure-grid/).
 
 ² Also two repetitions, since the rebuilt warm-up drift check set one of session affinity's aside
 as a cold opening ([#33](https://github.com/yuchia329/kvroute/issues/33)). Published as +41.3%; it
@@ -80,12 +82,12 @@ everywhere. A rule that fires on 0.2–2.5% of decisions accounts for up to a do
 
 ## Goodput against load, and what produced it
 
-![Goodput against load for each policy, closed loop and open loop](docs/figures/comparison-goodput.svg)
+![Goodput against load for each policy, closed loop and open loop](figures/comparison-goodput.svg)
 
-![Prefix cache hit rate and redundant prefill for each policy](docs/figures/comparison-cache.svg)
+![Prefix cache hit rate and redundant prefill for each policy](figures/comparison-cache.svg)
 
 Three policies over both load axes, 2026-09-08
-([measurement](docs/measurements/2026-09-08-three-policy-multiturn/)). Session affinity roughly
+([measurement](measurements/2026-09-08-three-policy-multiturn/)). Session affinity roughly
 doubles the fleet's usable capacity against round robin, and the open-loop panel is where the fleet
 falls over: round robin and least outstanding reach zero goodput at 8 req/s offered, while session
 affinity still holds 7.63/s.
@@ -95,10 +97,10 @@ that served nothing inside the SLO, and the two must not read alike.
 
 ## Surviving a replica dying
 
-![Recovery curves through a replica kill, session affinity against prefix affinity](docs/figures/recovery-kill.svg)
+![Recovery curves through a replica kill, session affinity against prefix affinity](figures/recovery-kill.svg)
 
 One replica killed under steady open-loop load at 6 req/s and restarted 60 s later, once per policy
-([measurement](docs/measurements/2026-09-11-chaos-recovery/)). Both policies held 5.98/s before the
+([measurement](measurements/2026-09-11-chaos-recovery/)). Both policies held 5.98/s before the
 fault. Both lost exactly **one request of 1,501** — the one that was mid-stream when its replica
 died, which cannot be rerouted. Draining a replica through the router instead of killing it dropped
 **nothing**.
@@ -127,7 +129,7 @@ passed ones, with nothing else restarted.
 The obvious alternative explanation for any of this is that the router simply added latency the
 baselines did not pay. It did not.
 
-![Router overhead per policy, accept to first dispatch](docs/figures/overhead.svg)
+![Router overhead per policy, accept to first dispatch](figures/overhead.svg)
 
 | run | policy | dispatched | p50 | p99 |
 |---|---|---:|---:|---:|
@@ -154,7 +156,7 @@ Every request carries both sides on one row: the prefix match the router decided
 engine's own `usage.prompt_tokens_details.cached_tokens` for that same request.
 
 **99.7% of the tokens the index claimed were really there**, over 19,391 requests of the clean
-working-set run ([measurement](docs/measurements/2026-09-10-belief-divergence/)). The errors run
+working-set run ([measurement](measurements/2026-09-10-belief-divergence/)). The errors run
 overwhelmingly the safe way: 17,845 requests under-predicted against 1,531 that over-predicted.
 Forgetting a block a replica still holds forfeits a match; believing in one it has evicted pays the
 full prefill *and* spends the routing decision on a reason that had stopped being true. The two are
@@ -176,7 +178,7 @@ holding the set.
 
 That measurement then sizes the index: the node cap is the fleet model scaled by the share of belief
 the engines honoured, which trimmed it by 0.3% (16,311 → 16,258). The modelling decision
-[ADR-0006](docs/adr/0006-the-prefix-index-is-bounded-by-measurement.md) could not verify turns out to
+[ADR-0006](adr/0006-the-prefix-index-is-bounded-by-measurement.md) could not verify turns out to
 have been very nearly right.
 
 ## Null and negative results
@@ -205,21 +207,21 @@ These are findings, in the same voice as the positive ones.
   490.7 ms of prefilling it: **7.5%**, where idea.md §8 predicted 1.3%. No pair of cards on this host
   can reach another directly — the driver reports peer access unsupported on all 30 ordered pairs —
   so every card-to-card copy bounces through host memory. Nothing was built; the arithmetic settled
-  it ([measurement](docs/measurements/2026-09-11-pcie-arithmetic/)).
+  it ([measurement](measurements/2026-09-11-pcie-arithmetic/)).
 - **The index's decay curve was withheld once, and then published.** Every cell of #17's recency run
   was flagged as still warming up, which is precisely the condition that manufactures
   under-prediction, so the curve was not published. Re-run at a geometry whose cells do not flag, the
   decay holds: 99.8% of belief honoured at 1–2 s falling to **86.0% at 30 s – 1 m**, the bucket
   beneath the measured 57 s TTL, and back to 98.1% past it
   ([#29](https://github.com/yuchia329/kvroute/issues/29),
-  [measurement](docs/measurements/2026-09-12-recency-rerun/)). The check that withheld it was itself
+  [measurement](measurements/2026-09-12-recency-rerun/)). The check that withheld it was itself
   wrong in three ways, and rebuilding it moved 118 of the 216 recorded open-loop cells: #17's
   think-75 s cells were never a cold fleet but a window holding 1.05 visit periods, and two of #29's
   six re-run cells do carry a flag after all — on the four that do not, the trough is 85.8% against
   the 86.0% published. The 97 cells the rebuilt check newly flags past the knee keep their goodput
   in every comparison, marked, because a fleet that fell behind its offered load is the result
   rather than a broken measurement ([#33](https://github.com/yuchia329/kvroute/issues/33),
-  [measurement](docs/measurements/2026-09-13-warmup-drift/)).
+  [measurement](measurements/2026-09-13-warmup-drift/)).
 - **An earlier headline was an artefact and is withdrawn.** The first two-policy comparison, on six
   cards, concluded that balancing load *cost* goodput — least outstanding losing 16–32%. GPU 3
   thermally throttles whenever all six cards draw power at once, so round robin was feeding a
@@ -244,7 +246,7 @@ These are findings, in the same voice as the positive ones.
   index buys is hit rate, and only where eviction is real: its three largest hit-rate gaps over the
   hash are exactly its three largest goodput margins, and at WS 0.25, where nothing is evicted and
   a hash's assumption that a replica still holds a prefix is simply true, it buys nothing
-  ([measurement](docs/measurements/2026-09-12-stateless-hash/)).
+  ([measurement](measurements/2026-09-12-stateless-hash/)).
 - **Exact residency costs more than knowing exactly returns, and it also places worse.** It sits
   *below* the believed index at every point of that grid where it has a usable cell — eleven of
 twelve, 4.6–13.5% of goodput; at WS 1 / skew 1 all three of its cells slowed across their windows
@@ -261,12 +263,12 @@ and were set aside by #33's re-score — with complete
   requests that share a new prefix onto one replica; exact residency knows only what has been
   reported, so they scatter while the first one prefills. The deficit is twice as large on first
   turns, which arrive concurrently, as on later ones, which do not
-  ([measurement](docs/measurements/2026-09-12-exact-residency/)).
+  ([measurement](measurements/2026-09-12-exact-residency/)).
 - **Neither is a reproduction of OpenAI's router.** `prefix_hash` is a mechanism inferred from their
   public documentation of a hash of "the initial tokens" plus machine load: the window, the
   weighting and the placement are all choices made here, and no number for any of them has been
   published ([#26](https://github.com/yuchia329/kvroute/issues/26),
-  [ADR-0012](docs/adr/0012-the-stateless-hash-is-the-same-ring-and-the-same-blocks-as-the-policies-it-controls-for.md)).
+  [ADR-0012](adr/0012-the-stateless-hash-is-the-same-ring-and-the-same-blocks-as-the-policies-it-controls-for.md)).
 
 ## How the comparison was kept fair
 
@@ -274,14 +276,14 @@ and were set aside by #33's re-score — with complete
   is keyed on the load axis and the repetition and deliberately not on the policy. `compare` refuses
   cells whose workload names differ.
 - **A cold fleet for every policy.** The replicas run with prefix caching on, so a second pass would
-  read back what the first prefilled. [ADR-0004](docs/adr/0004-every-measurement-sends-unseen-bytes.md)
+  read back what the first prefilled. [ADR-0004](adr/0004-every-measurement-sends-unseen-bytes.md)
   measured that at TTFT p50 ~325 ms for unseen prompts against ~46 ms for the same prompts re-sent —
   a sevenfold head start on the primary metric. The fleet is cycled between policies, every time.
 - **One SLO, derived rather than chosen.** TTFT < 990 ms and inter-token p50 < 24 ms is **3× the
   measured latency floor** (TTFT p50 329 ms, inter-token p50 7.8 ms over 1,487 requests at
   concurrency 1, straight at each replica, pooled). The multiple is a judgement and the floor is not,
   so the two are published together
-  ([ADR-0003](docs/adr/0003-slo-is-three-times-the-measured-floor.md)). `compare` refuses to put
+  ([ADR-0003](adr/0003-slo-is-three-times-the-measured-floor.md)). `compare` refuses to put
   cells judged against two different SLOs in one table.
 - **Which driver produced which table.** The closed-loop driver holds a fixed number of virtual users
   and throttles itself when the fleet slows, so its tail is optimistic by construction; the open-loop
@@ -310,7 +312,7 @@ and were set aside by #33's re-score — with complete
   960 MHz at 75 °C while a 83 °C card holds 1,305 MHz. A permanently slow card *is* a permanent load
   imbalance, which is the mechanism under test, and it is paid unequally by load-aware and load-blind
   policies ([#25](https://github.com/yuchia329/kvroute/issues/25),
-  [measurement](docs/measurements/2026-09-07-gpu3-thermal/)).
+  [measurement](measurements/2026-09-07-gpu3-thermal/)).
 - **Replica symmetry, checked.** Driven one at a time the replicas agree to 1.5–2.3%; driven all six
   at once the spread is 12.7% and grows with time on load. The spec's symmetry check drives them one
   at a time, which is the one configuration in which the effect cannot appear — `make contention` is
@@ -319,7 +321,7 @@ and were set aside by #33's re-score — with complete
 ## Measured facts everything else scales off
 
 Six replicas of `Meta-Llama-3.1-8B-Instruct-AWQ-INT4`, one per RTX 3090
-([characterization](docs/measurements/2026-09-07-characterization/)).
+([characterization](measurements/2026-09-07-characterization/)).
 
 | Quantity | Measured |
 |---|---|
@@ -330,7 +332,7 @@ Six replicas of `Meta-Llama-3.1-8B-Instruct-AWQ-INT4`, one per RTX 3090
 | Host topology | GPUs 0–3 on NUMA 0 at 12 threads each, GPUs 4–5 on NUMA 1 at 24 |
 | Router overhead | **217–223 µs p50**, 431–787 µs p99 |
 
-The rows behind every figure are in [`docs/measurements/`](docs/measurements/). Sweep output is
+The rows behind every figure are in [`docs/measurements/`](measurements/). Sweep output is
 gitignored because a full pass is hundreds of megabytes; a reference run the README cites is not,
 because a figure whose rows have been deleted is an assertion rather than a measurement.
 
@@ -339,7 +341,7 @@ because a figure whose rows have been deleted is an assertion rather than a meas
 Cache-aware routing is an active production pattern, not an original idea. This project does not
 claim the mechanism. **Every claim below was re-checked against a primary source on 2026-09-11**;
 per-claim verdicts, quotes and URLs are in
-[`docs/research/prior-art-routing.md`](docs/research/prior-art-routing.md), which carries a permanent
+[`docs/research/prior-art-routing.md`](research/prior-art-routing.md), which carries a permanent
 re-verify warning because three of its claims moved within four weeks during research.
 
 | System | What it does |
@@ -451,7 +453,7 @@ version, model, quantization backend, prefix caching, chunked prefill, the GPU-d
 Nothing downstream keeps a second copy. Sweeps resume: finished cells are reused, the interrupted one
 is re-run, a contaminated one is moved aside and re-run, and deriving the SLO later resummarises
 cached cells from their own rows rather than costing another hour of GPU time
-([ADR-0002](docs/adr/0002-jsonl-during-parquet-after.md)).
+([ADR-0002](adr/0002-jsonl-during-parquet-after.md)).
 
 ## What runs
 
@@ -480,10 +482,10 @@ cmd/characterize ──► replica-0..5, one at a time, no router in the path
   ring of replicas; `prefix_affinity`, which routes to the replica believed to hold the longest
   leading run of the prompt's bytes and declines that match under load pressure;
   `exact_residency`, which follows the engines' own KV cache events instead of a belief
-  ([ADR-0010](docs/adr/0010-exact-residency-asks-the-engine-for-tokens-and-forgets-what-it-cannot-vouch-for.md));
+  ([ADR-0010](adr/0010-exact-residency-asks-the-engine-for-tokens-and-forgets-what-it-cannot-vouch-for.md));
   and `prefix_hash`, which hashes the prompt's leading blocks onto the same ring and weighs it
   against inflight, holding no index at all
-  ([ADR-0012](docs/adr/0012-the-stateless-hash-is-the-same-ring-and-the-same-blocks-as-the-policies-it-controls-for.md)).
+  ([ADR-0012](adr/0012-the-stateless-hash-is-the-same-ring-and-the-same-blocks-as-the-policies-it-controls-for.md)).
   Inflight is counted locally and exactly, never scraped: a scraped figure would read the same for
   every request inside one polling window and stampede them all onto one replica.
 - **`cmd/bench`** — the two drivers and the sweeps. Refuses to start unless every replica answers
@@ -491,14 +493,14 @@ cmd/characterize ──► replica-0..5, one at a time, no router in the path
   three separate columns, samples the GPUs throughout, and resumes from cached cells.
 - **`cmd/calibrate`** — measures the prefix index's node cap and TTL off the fleet rather than
   defaulting them in source, and refuses rather than substituting a constant for a measurement it
-  could not take ([ADR-0006](docs/adr/0006-the-prefix-index-is-bounded-by-measurement.md),
-  [ADR-0008](docs/adr/0008-the-node-cap-is-calibrated-against-measured-divergence.md)).
+  could not take ([ADR-0006](adr/0006-the-prefix-index-is-bounded-by-measurement.md),
+  [ADR-0008](adr/0008-the-node-cap-is-calibrated-against-measured-divergence.md)).
 - **`cmd/chaos` / `cmd/recovery`** — take one replica away under load and bring it back, then compare
   the curves. Refuses to compare runs that did not face the same failure.
 - **`cmd/rescore`** — re-judges recorded cells from their own recorded rows and reports which
   verdicts move. The rows are the system of record and a cell's summary is arithmetic over them, so
   a change to that arithmetic is checkable against everything already measured rather than only
-  against the next run ([measurement](docs/measurements/2026-09-13-warmup-drift/)). It writes
+  against the next run ([measurement](measurements/2026-09-13-warmup-drift/)). It writes
   nothing back unless told to with `-write`, and then only the drift verdict, only after the report
   of what moved is published, and only if every cell's rows reproduce its record.
 - **`cmd/preflight`** — refuses to bring the fleet up while any GPU already holds memory; the same
@@ -546,5 +548,5 @@ rows' is exact.
   claiming to be clean.
 - **The records are the system of record.** Every published figure is recomputable from the JSONL
   rows; Parquet is the derived artefact, and compaction never deletes the JSONL
-  ([ADR-0002](docs/adr/0002-jsonl-during-parquet-after.md)).
+  ([ADR-0002](adr/0002-jsonl-during-parquet-after.md)).
 </content>

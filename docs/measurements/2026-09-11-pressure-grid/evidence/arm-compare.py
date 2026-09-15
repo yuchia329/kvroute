@@ -10,7 +10,7 @@ Each argument is NAME=DIR:POLICY. DIR holds one subdirectory per grid point
 (ws<ws>-skew<skew>/cells/*.json), which is what every arm of #18 is: the grid
 itself, the spill-off arm, and one directory per residency mark.
 
-Why this exists. The tables in the README that cmd/pressuremap does not draw are
+Why this exists. The tables in the report that cmd/pressuremap does not draw are
 cross-arm — the same policy under different spill rules, in different directories
 — and a pressure map is one directory's comparison between policies. Without this
 script those tables are assertions. It reads only what is committed beside it, so
@@ -19,7 +19,7 @@ it reproduces them from the repository rather than from the box.
 What it does NOT read. Per-replica placement — the busiest replica's share, and
 how many replicas served each repetition's hottest conversations — is counted off
 the router rows, which stay on the box (43 MB gzipped). Those columns in the
-README name the run that produced them.
+report name the run that produced them.
 
 A flagged cell is skipped, never pooled: §6 discards rather than averages. n is
 what survived, and a point where the arms have different n says so.
