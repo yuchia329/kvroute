@@ -107,6 +107,27 @@ correction strengthens that rather than moving it: round-robin and least-outstan
 offered load at rates 2 and 4 and then collapse at 8, which is a knee at 6–7 read off four points
 instead of one.
 
+## The regime map on the load axis
+
+Prefix affinity was not run in this sweep, so the map ranks the three policies this directory
+actually holds. Session affinity is the winner at every rung of both drivers where a comparison
+could be made. Closed-loop: +96.4% at 1 user, +17.2% at 4, +37.0% at 8, +16.7% (within spread)
+at 16, +36.5% (within spread) at 32, +27.3% at 64, +203.8% (unreplicated) at 128; 256 users has
+no usable comparison (every repetition of every policy is excluded — see *Known gaps* above).
+Open-loop: +15.0% at 2 req/s, +16.1% at 4, +53.5% at 6, then the cache-blind pair collapses —
++12300.0% ⚠ at 8 req/s and "over zero" ⚠ at every rung from 10 through 20, where round robin and
+least outstanding serve nothing at all.
+
+The map's *Contested* section names every one of those rungs, because the rule it applies asks
+which policy beats prefix affinity beyond the spread, and prefix affinity did not run here — so
+every session-affinity win is, mechanically, a win over an absent policy. Read that list as "no
+prefix-affinity comparison exists in this directory," never as evidence that session affinity
+beats prefix affinity; the pressure grid's regime map is where that comparison is actually made,
+and there prefix affinity wins nearly everywhere.
+
+Full report: [`regimemap-load.md`](regimemap-load.md). Figure:
+[`../../figures/regimemap-load.svg`](../../figures/regimemap-load.svg).
+
 ## The mechanism, not just the outcome
 
 At concurrency 32, every link moves together:

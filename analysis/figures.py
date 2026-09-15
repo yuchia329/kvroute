@@ -16,8 +16,8 @@ arithmetic of its own beyond scaling for display, so a figure cannot disagree
 with the table printed beside it.
 
 A data file's kind is the start of its name — pressuremap, comparison, recovery,
-overhead — and each is drawn to an SVG of the same stem. A comparison draws two:
-goodput against load, and the cache mechanism.
+overhead, regimemap — and each is drawn to an SVG of the same stem. A comparison
+draws two: goodput against load, and the cache mechanism.
 """
 
 import json
@@ -29,6 +29,7 @@ import matplotlib
 
 matplotlib.use("svg")
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.patches import Patch  # noqa: E402
 
 # Reproducible output: the same data draws the same bytes, so regenerating the
 # figures changes nothing in the repository unless a number changed.
@@ -48,9 +49,39 @@ WITHIN_SPREAD = "#e6e6e6"
 FAILING_NOTE = "⚠ rests on a repetition that dropped or failed more requests than the threshold allows"
 SATURATED_NOTE = "⚠ rests on a repetition that fell behind the load it was offered; its TTFT is not drawn"
 
+# The regime map's own palette. Kept separate from POLICY_COLOURS above rather
+# than reusing it: that dict is what every other figure's lines are coloured
+# by, and `make figures` has to reproduce those byte-identical, so this map's
+# colours cannot leak into them. Shades chosen to read on the white page and
+# stay distinguishable converted to greyscale.
+REGIME_POLICY_COLOURS = {
+    "round_robin": "#8fa6bf",
+    "least_outstanding": "#3f9142",
+    "session_affinity": "#f0a83c",
+    "prefix_affinity": "#1f4e8c",
+}
+
 
 def colour(policy):
     return POLICY_COLOURS.get(policy, "#8c564b")
+
+
+def regime_colour(policy):
+    return REGIME_POLICY_COLOURS.get(policy, "#8c564b")
+
+
+def _lighten(hex_colour, amount=0.55):
+    """hex_colour blended toward white — the within-spread face for a tile
+    that still names a winner, just not one the spread can tell from the
+    runner-up."""
+    r, g, b = matplotlib.colors.to_rgb(hex_colour)
+    return (r + (1 - r) * amount, g + (1 - g) * amount, b + (1 - b) * amount)
+
+
+def _ink_for(face_rgb):
+    r, g, b = face_rgb[:3]
+    luminance = 0.299 * r + 0.587 * g + 0.114 * b
+    return "white" if luminance < 0.45 else "black"
 
 
 def axis_label(value):
@@ -105,6 +136,60 @@ def pressure_map(data):
     notes = ["⚠ " + cell for cell in data["surfaced"]]
     if notes:
         notes.append(FAILING_NOTE)
+    if data["missing"]:
+        notes.append(f"not run: {', '.join(data['missing'])}")
+    if notes:
+        fig.text(0.01, -0.02, "\n".join(notes), fontsize=7, va="top")
+    return fig
+
+
+def regime_map(data):
+    """Which policy wins at each recorded point of the map's two axes: a tile
+    per point, coloured by the winner and hatched where the margin over the
+    runner-up sits inside the run-to-run spread. Not a new reduction — every
+    figure comes straight off the tiles bench.RegimeMap already built."""
+    x_axis, y_axis = data["x_axis"], data["y_axis"]
+    xs, ys = x_axis["values"], y_axis["values"]
+    fig, ax = plt.subplots(figsize=(1.8 + 1.6 * len(xs), 1.2 + 0.9 * len(ys)))
+
+    for row, y in enumerate(ys):
+        for col, x in enumerate(xs):
+            tile = next((t for t in data["tiles"] if t["x"] == x and t["y"] == y), None)
+            hatch = None
+            if tile is None:
+                face, text, ink = "white", "not run", "black"
+            elif not tile["measured"]:
+                face, text, ink = "white", tile["label"], "black"
+            else:
+                base = regime_colour(tile["winner"])
+                if tile["within_spread"]:
+                    face, hatch = _lighten(base), "//"
+                else:
+                    face = base
+                ink = _ink_for(matplotlib.colors.to_rgb(face) if isinstance(face, str) else face)
+                text = f"{tile['winner']}\n{tile['label']}"
+            ax.add_patch(plt.Rectangle((col, row), 1, 1, facecolor=face, edgecolor="white",
+                                        linewidth=2, hatch=hatch))
+            ax.text(col + 0.5, row + 0.5, text, ha="center", va="center", fontsize=8, color=ink)
+
+    ax.set_xlim(0, len(xs))
+    ax.set_ylim(len(ys), 0)
+    ax.set_xticks([c + 0.5 for c in range(len(xs))], xs)
+    ax.set_yticks([r + 0.5 for r in range(len(ys))], ys)
+    ax.set_xlabel(x_axis["label"])
+    ax.set_ylabel(y_axis["label"])
+    ax.tick_params(length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    handles = [Patch(facecolor=regime_colour(p), label=p) for p in data["policies"]]
+    handles.append(Patch(facecolor=_lighten("#999999"), hatch="//", edgecolor="black", label="within spread"))
+    ax.legend(handles=handles, fontsize=7, loc="upper left", bbox_to_anchor=(1.02, 1))
+
+    slo = data["slo"]
+    fig.suptitle(f"Who wins where — SLO TTFT < {slo['ttft_ms']:g} ms, inter-token p50 < {slo['itl_ms']:g} ms; "
+                 f"hatched = within the run-to-run spread", fontsize=9)
+    notes = ["⚠ " + cell for cell in data["surfaced"]]
     if data["missing"]:
         notes.append(f"not run: {', '.join(data['missing'])}")
     if notes:
@@ -265,7 +350,10 @@ def draw(path):
         return [("", recovery(data))]
     if kind == "overhead":
         return [("", overhead(data))]
-    raise ValueError(f"{path}: not a kind of figure data this draws (pressuremap, comparison, recovery, overhead)")
+    if kind == "regimemap":
+        return [("", regime_map(data))]
+    raise ValueError(
+        f"{path}: not a kind of figure data this draws (pressuremap, comparison, recovery, overhead, regimemap)")
 
 
 def main(data_dir, out_dir):

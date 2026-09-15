@@ -626,6 +626,16 @@ pressure-map: build ## Draw the pressure map across every point of the grid that
 	@test -n "$(PRESSURE_MAP_DIRS)" || { echo "pressure-map: no grid points under $(PRESSURE_DIR); run pressure-grid first" >&2; exit 1; }
 	$(BIN)/pressuremap$(EXE) -out $(PRESSURE_MAP_OUT) $(PRESSURE_MAP_ARGS) $(PRESSURE_MAP_DIRS)
 
+# The regime map: a view over the same grid, naming the winner at each point
+# rather than one baseline's delta. Reads the same directories as pressure-map
+# and nothing else, so it needs the same guard.
+REGIME_MAP_OUT ?= runs/regimemap.md
+
+.PHONY: regime-map
+regime-map: build ## Name the winning policy at each point of the grid that has been run
+	@test -n "$(PRESSURE_MAP_DIRS)" || { echo "regime-map: no grid points under $(PRESSURE_DIR); run pressure-grid first" >&2; exit 1; }
+	$(BIN)/regimemap$(EXE) -out $(REGIME_MAP_OUT) $(PRESSURE_MAP_DIRS)
+
 # The chaos test (#19, idea.md §7): one replica taken away under steady
 # open-loop load and brought back, once per policy, and the recovery curves
 # compared. ops/chaos.sh runs one policy and says what the operator does between
@@ -864,9 +874,11 @@ FIGURES_PYTHON ?= 3.12
 .PHONY: figures
 figures: ## Regenerate every published figure from the committed measurements, into FIGURES_DIR
 	@command -v uv >/dev/null || { echo "figures: needs uv, which runs analysis/figures.py with its own pinned matplotlib" >&2; exit 1; }
-	$(GO) build -o $(BIN)/ ./cmd/pressuremap ./cmd/compare ./cmd/overhead ./cmd/recovery
+	$(GO) build -o $(BIN)/ ./cmd/pressuremap ./cmd/compare ./cmd/overhead ./cmd/recovery ./cmd/regimemap
 	rm -f $(FIGURES_DIR)/data/*.json $(FIGURES_DIR)/*.svg
 	$(BIN)/pressuremap -data $(FIGURES_DIR)/data/pressuremap.json $(FIGURES_PRESSURE) >/dev/null
+	$(BIN)/regimemap -data $(FIGURES_DIR)/data/regimemap.json $(FIGURES_PRESSURE) >/dev/null
+	$(BIN)/regimemap -load-axis -data $(FIGURES_DIR)/data/regimemap-load.json $(FIGURES_COMPARE) >/dev/null
 	$(BIN)/compare -data $(FIGURES_DIR)/data/comparison.json $(FIGURES_COMPARE) >/dev/null
 	$(BIN)/overhead -data $(FIGURES_DIR)/data/overhead.json $(FIGURES_ROUTER_ROWS) >/dev/null
 	$(if $(FIGURES_CHAOS_ROUTER_ROWS),$(BIN)/overhead -data $(FIGURES_DIR)/data/overhead-chaos.json $(FIGURES_CHAOS_ROUTER_ROWS) >/dev/null,)

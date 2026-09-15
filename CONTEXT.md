@@ -579,6 +579,17 @@ The figure drawn from the pressure grid: the goodput delta between two policies 
 points, showing where cache-aware routing pays and where it does not.
 _Avoid_: heatmap, pressure grid (that is the set of cells it is drawn from)
 
+**Regime map**:
+A view over a comparison already built — the pressure grid, or a sweep's load axis — naming, at
+each recorded point, the policy with the highest pooled goodput and its margin over the
+runner-up. Never a new reduction of cells: pooling, exclusion and the one-SLO check are read off
+the comparison the pressure map itself rests on, not recomputed. A margin is qualified *within
+spread* the same way the pressure map's own deltas are — smaller than the run-to-run range behind
+it, which is a difference between a policy and itself. *Contested* is a point where a policy other
+than prefix affinity wins beyond the spread.
+_Avoid_: heatmap, pressure map (that is one baseline's delta against one challenger; this names a
+winner among every policy present)
+
 **Working set ratio**:
 Total session tokens offered divided by aggregate fleet KV capacity. The axis of the pressure grid
 that creates memory pressure, because it determines whether the fleet can hold every session at

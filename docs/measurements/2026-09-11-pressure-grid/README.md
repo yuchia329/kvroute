@@ -112,6 +112,24 @@ the spill-off arm, eight in the residency arm; seven as cold openings and six as
 slowed. The tables below are drawn from what is left and mark every figure that moved. None of the
 thirteen empties a point that had a usable cell.
 
+## The regime map: who wins where
+
+Prefix affinity has the highest goodput at 11 of 12 points beyond the spread, and ties at the
+twelfth: at WS 0.25 / skew 0 session affinity is +7.3% ahead, within spread. The news in the
+four-policy map is the runner-up. At skew 0 and skew 1 (for WS ≥ 1) the runner-up is session
+affinity. At skew 1.4 it is least outstanding, and session affinity falls to round robin's
+level: 11.23 against 11.22 at WS 1, 6.44 against 11.23 at WS 3, 10.69 against 10.21 at WS 8. At
+WS 0.25 the flip already happens at skew 1 (least outstanding 17.84, session affinity 8.83).
+Stickiness alone is worth about twice round robin under even traffic and nothing, or less than
+nothing, under skewed traffic, where a load balancer that knows nothing about caches beats the
+session hash two to three times over. Prefix affinity is the only policy that is best or tied at
+every point, because it is both: affinity when traffic is even, load balancing when it is not.
+No point contests prefix affinity beyond the spread, so the adaptive-router question (a later
+ticket) has no region to work in on these two axes; the open axes are turns per session and
+prompt length.
+
+Full report: [`regimemap.md`](regimemap.md). Figure: [`../../figures/regimemap.svg`](../../figures/regimemap.svg).
+
 ## All four policies
 
 Goodput — requests per second inside the SLO — median of the usable repetitions:

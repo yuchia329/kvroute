@@ -64,6 +64,29 @@ RECOVERY = {
     }],
 }
 
+REGIME_MAP = {
+    "slo": SLO,
+    "policies": ["round_robin", "least_outstanding", "session_affinity", "prefix_affinity"],
+    "x_axis": {"name": "skew", "label": "skew", "values": ["0", "1"]},
+    "y_axis": {"name": "working_set", "label": "WS", "values": ["0.25", "1"]},
+    "tiles": [
+        {"x": "0", "y": "0.25", "load_label": "32 users", "winner": "prefix_affinity",
+         "runner_up": "session_affinity", "margin_percent": 66.2, "runner_up_zero": False,
+         "measured": True, "replicated": True, "within_spread": False, "marked": False,
+         "label": "+66.2%", "missing": [], "goodput": []},
+        {"x": "1", "y": "0.25", "load_label": "32 users", "winner": "session_affinity",
+         "runner_up": "prefix_affinity", "margin_percent": 7.3, "runner_up_zero": False,
+         "measured": True, "replicated": True, "within_spread": True, "marked": False,
+         "label": "+7.3% (within spread)", "missing": [], "goodput": []},
+        # WS 1, skew 0 is left out entirely — a point with no tile at all, not a losing one.
+        {"x": "1", "y": "1", "load_label": "32 users", "winner": "prefix_affinity",
+         "runner_up": "round_robin", "margin_percent": 51.4, "runner_up_zero": False,
+         "measured": True, "replicated": True, "within_spread": False, "marked": False,
+         "label": "+51.4%", "missing": ["least_outstanding"], "goodput": []},
+    ],
+    "missing": [], "refused": [], "excluded": [], "surfaced": [],
+}
+
 OVERHEAD = {
     "sources": ["router.jsonl"],
     "policies": [{"policy": "round_robin", "dispatched": 3, "p50_us": 200, "p99_us": 300, "max_us": 300,
@@ -116,6 +139,34 @@ def test_the_pressure_map_names_the_cells_a_figure_rests_on():
     assert "session_affinity-c32-r2" in shown, "the map counts failing cells without naming them"
 
 
+def test_the_regime_map_colours_the_winner_tile_in_its_policy_colour():
+    fig = figures.regime_map(REGIME_MAP)
+    winner_face = tuple(round(c, 3) for c in matplotlib_rgb(figures.REGIME_POLICY_COLOURS["prefix_affinity"]))
+    faces = {tuple(round(c, 3) for c in patch.get_facecolor()[:3]): patch.get_hatch()
+             for patch in fig.axes[0].patches}
+    assert winner_face in faces and faces[winner_face] is None, \
+        "the clear-winner tile is not drawn in its policy's colour, unhatched"
+
+
+def test_the_regime_map_hatches_the_within_spread_tile():
+    fig = figures.regime_map(REGIME_MAP)
+    hatched = [patch for patch in fig.axes[0].patches if patch.get_hatch()]
+    assert hatched, "the within-spread tile carries no hatch"
+
+
+def test_the_regime_map_marks_a_point_with_no_tile_as_not_run():
+    shown = texts(figures.regime_map(REGIME_MAP))
+    assert "not run" in shown, "a point with no tile at all must read as not run, not as a loss"
+
+
+def test_the_regime_map_legend_has_one_entry_per_policy():
+    fig = figures.regime_map(REGIME_MAP)
+    labels = [t.get_text() for t in fig.axes[0].get_legend().get_texts()]
+    for policy in REGIME_MAP["policies"]:
+        assert policy in labels
+    assert "within spread" in labels
+
+
 def test_goodput_rings_a_figure_resting_on_a_failing_repetition():
     fig = figures.goodput(COMPARISON)
     ringed = [line for line in fig.axes[0].lines if line.get_label() == "_marked"]
@@ -153,13 +204,15 @@ def test_every_data_file_is_drawn_to_an_svg(tmp_path):
     data = tmp_path / "data"
     data.mkdir()
     for name, payload in [("pressuremap", PRESSURE_MAP), ("comparison", COMPARISON),
-                          ("recovery-kill", RECOVERY), ("overhead", OVERHEAD)]:
+                          ("recovery-kill", RECOVERY), ("overhead", OVERHEAD),
+                          ("regimemap", REGIME_MAP), ("regimemap-load", REGIME_MAP)]:
         (data / f"{name}.json").write_text(json.dumps(payload))
 
     written = figures.main(data, tmp_path / "out")
 
     assert sorted(p.name for p in written) == [
-        "comparison-cache.svg", "comparison-goodput.svg", "overhead.svg", "pressuremap.svg", "recovery-kill.svg"]
+        "comparison-cache.svg", "comparison-goodput.svg", "overhead.svg", "pressuremap.svg",
+        "recovery-kill.svg", "regimemap-load.svg", "regimemap.svg"]
     first = (tmp_path / "out" / "pressuremap.svg").read_bytes()
     figures.main(data, tmp_path / "out")
     assert (tmp_path / "out" / "pressuremap.svg").read_bytes() == first, "the same data drew different bytes"
