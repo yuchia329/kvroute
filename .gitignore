@@ -16,3 +16,8 @@ __pycache__/
 # kind and are kept, so every published figure stays recomputable from the rows
 # it came from rather than being an assertion.
 !docs/measurements/**
+# Local editor and OS clutter, and the binary `go build ./cmd/preflight` leaves at the root.
+# Anchored, so it cannot swallow cmd/preflight/.
+.DS_Store
+.vscode
+/preflight

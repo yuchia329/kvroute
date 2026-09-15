@@ -1,0 +1,3817 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Where Cache-Aware Routing Stops Paying</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+  <style>
+    :root {
+      --ground: #eef1f5;
+      --surface: #ffffff;
+      --surface-2: #f5f7fa;
+      --ink: #0f1720;
+      --ink-2: #3d4a59;
+      --muted: #68788a;
+      --rule: #d3dae3;
+      --rule-strong: #26405c;
+      --accent: #26405c;
+      --accent-soft: #dfe7f0;
+      --good: #146b4a;
+      --bad: #a32f2e;
+      --warn-bg: #fdf3e3;
+      --warn-ink: #7a4c0b;
+      --warn-rule: #e0b877;
+
+      --s-1: #2a78d6;
+      /* index / believed */
+      --s-2: #eb6834;
+      /* hash / stateless */
+      --s-3: #1baf7a;
+      /* session affinity */
+      --s-4: #eda100;
+      /* exact residency */
+
+      --h-neg: #dd8f8d;
+      --h0: #cde2fb;
+      --h1: #9ec5f4;
+      --h2: #6da7ec;
+      --h3: #3987e5;
+      --h4: #256abf;
+      --h5: #104281;
+      --on-light: #0f1720;
+      --on-dark: #ffffff;
+
+      --shadow: 0 1px 2px rgba(15, 23, 32, .05), 0 8px 24px -18px rgba(15, 23, 32, .35);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --ground: #0d1219;
+        --surface: #151d26;
+        --surface-2: #1b242f;
+        --ink: #e9eef4;
+        --ink-2: #bcc9d6;
+        --muted: #8b9cad;
+        --rule: #2a3644;
+        --rule-strong: #7fa3c7;
+        --accent: #9fc0e0;
+        --accent-soft: #1e2b3a;
+        --good: #4cc08e;
+        --bad: #f08b89;
+        --warn-bg: #2a2113;
+        --warn-ink: #e8c68a;
+        --warn-rule: #6b5222;
+
+        --s-1: #3987e5;
+        --s-2: #d95926;
+        --s-3: #199e70;
+        --s-4: #c98500;
+
+        --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px -20px rgba(0, 0, 0, .9);
+      }
+    }
+
+    :root[data-theme="dark"] {
+      --ground: #0d1219;
+      --surface: #151d26;
+      --surface-2: #1b242f;
+      --ink: #e9eef4;
+      --ink-2: #bcc9d6;
+      --muted: #8b9cad;
+      --rule: #2a3644;
+      --rule-strong: #7fa3c7;
+      --accent: #9fc0e0;
+      --accent-soft: #1e2b3a;
+      --good: #4cc08e;
+      --bad: #f08b89;
+      --warn-bg: #2a2113;
+      --warn-ink: #e8c68a;
+      --warn-rule: #6b5222;
+
+      --s-1: #3987e5;
+      --s-2: #d95926;
+      --s-3: #199e70;
+      --s-4: #c98500;
+
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px -20px rgba(0, 0, 0, .9);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      background: var(--ground);
+      color: var(--ink);
+      font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .wrap {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding-inline: 20px;
+      padding-block: 0 96px;
+    }
+
+    .prose {
+      max-width: 68ch;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4 {
+      font-family: "Newsreader", Georgia, serif;
+      font-weight: 600;
+      text-wrap: balance;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(2.1rem, 5.2vw, 3.4rem);
+      line-height: 1.08;
+      letter-spacing: -.015em;
+    }
+
+    h2 {
+      font-size: clamp(1.5rem, 3.4vw, 2.05rem);
+      line-height: 1.15;
+      letter-spacing: -.01em;
+    }
+
+    h3 {
+      font-size: 1.2rem;
+      line-height: 1.25;
+    }
+
+    h4 {
+      font-family: "IBM Plex Sans", sans-serif;
+      font-size: .82rem;
+      font-weight: 600;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    p {
+      margin: 0;
+    }
+
+    a {
+      color: var(--accent);
+      text-underline-offset: 3px;
+      text-decoration-thickness: 1px;
+    }
+
+    a:focus-visible,
+    button:focus-visible {
+      outline: 2px solid var(--rule-strong);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+
+    code,
+    .mono {
+      font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    code {
+      font-size: .88em;
+      background: var(--surface-2);
+      padding: .1em .34em;
+      border-radius: 3px;
+    }
+
+    .eyebrow {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: .74rem;
+      font-weight: 500;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    /* ---------- masthead ---------- */
+    .masthead {
+      padding-block: 56px 40px;
+      border-bottom: 2px solid var(--rule-strong);
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .masthead .lede {
+      font-family: "Newsreader", Georgia, serif;
+      font-size: clamp(1.12rem, 2.3vw, 1.42rem);
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 60ch;
+    }
+
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 22px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: .76rem;
+      color: var(--muted);
+    }
+
+    .meta-row b {
+      color: var(--ink-2);
+      font-weight: 500;
+    }
+
+    /* ---------- headline figures ---------- */
+    .figures {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(196px, 1fr));
+      gap: 1px;
+      background: var(--rule);
+      border: 1px solid var(--rule);
+      margin-block: 40px;
+    }
+
+    .fig {
+      background: var(--surface);
+      padding: 22px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .fig .n {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: clamp(1.5rem, 3.3vw, 1.95rem);
+      font-weight: 600;
+      letter-spacing: -.02em;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+
+    .fig .k {
+      font-size: .8rem;
+      font-weight: 600;
+      color: var(--ink-2);
+    }
+
+    .fig .d {
+      font-size: .78rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    /* ---------- toc ---------- */
+    .toc {
+      margin-block: 40px;
+      border-top: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+      padding-block: 18px;
+    }
+
+    .toc ol {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 6px 28px;
+    }
+
+    .toc li {
+      display: flex;
+      gap: 10px;
+      font-size: .88rem;
+    }
+
+    .toc .num {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: .74rem;
+      color: var(--muted);
+      padding-top: 3px;
+    }
+
+    .toc a {
+      text-decoration: none;
+      color: var(--ink-2);
+    }
+
+    .toc a:hover {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+
+    /* ---------- sections ---------- */
+    section {
+      padding-block: 52px 0;
+    }
+
+    .sec-head {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 22px;
+      border-top: 1px solid var(--rule-strong);
+      padding-top: 14px;
+    }
+
+    .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .stack-tight {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* ---------- tables ---------- */
+    .tw {
+      overflow-x: auto;
+      border: 1px solid var(--rule);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: .84rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    caption {
+      caption-side: top;
+      text-align: left;
+      padding: 14px 16px 12px;
+      font-size: .82rem;
+      color: var(--muted);
+      border-bottom: 1px solid var(--rule);
+      line-height: 1.5;
+    }
+
+    caption b {
+      color: var(--ink-2);
+      font-weight: 600;
+    }
+
+    th,
+    td {
+      padding: 8px 12px;
+      text-align: right;
+      border-bottom: 1px solid var(--rule);
+      white-space: nowrap;
+    }
+
+    th:first-child,
+    td:first-child {
+      text-align: left;
+    }
+
+    thead th {
+      font-family: "IBM Plex Sans", sans-serif;
+      font-size: .72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+      background: var(--surface-2);
+      position: sticky;
+      top: 0;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    tbody tr.hl {
+      background: var(--accent-soft);
+    }
+
+    tbody tr.hl td {
+      font-weight: 600;
+    }
+
+    td.num,
+    th.num {
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .pos {
+      color: var(--good);
+    }
+
+    .neg {
+      color: var(--bad);
+    }
+
+    .sub {
+      display: block;
+      font-size: .72rem;
+      color: var(--muted);
+      font-family: "IBM Plex Sans", sans-serif;
+    }
+
+    tfoot td {
+      padding: 10px 12px;
+      font-size: .76rem;
+      color: var(--muted);
+      white-space: normal;
+      text-align: left;
+      border-top: 1px solid var(--rule);
+    }
+
+    /* ---------- callouts ---------- */
+    .note {
+      border-left: 3px solid var(--rule-strong);
+      padding: 2px 0 2px 16px;
+      color: var(--ink-2);
+      font-size: .92rem;
+    }
+
+    .warn {
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-rule);
+      color: var(--warn-ink);
+      padding: 14px 16px;
+      font-size: .88rem;
+      line-height: 1.55;
+    }
+
+    .warn b {
+      color: var(--warn-ink);
+    }
+
+    .verdict {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-left: 4px solid var(--accent);
+      padding: 18px 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .verdict p+p {
+      margin-top: 10px;
+    }
+
+    /* ---------- charts ---------- */
+    figure {
+      margin: 0;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      padding: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    figcaption {
+      font-size: .8rem;
+      color: var(--muted);
+      margin-top: 14px;
+      line-height: 1.5;
+      border-top: 1px solid var(--rule);
+      padding-top: 12px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 18px;
+      font-size: .78rem;
+      color: var(--ink-2);
+      margin-bottom: 16px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .swatch {
+      width: 11px;
+      height: 11px;
+      border-radius: 2px;
+      flex: none;
+    }
+
+    /* heatmap */
+    .heatwrap {
+      overflow-x: auto;
+    }
+
+    .heat {
+      display: grid;
+      grid-template-columns: 74px repeat(3, minmax(96px, 1fr));
+      gap: 2px;
+      min-width: 380px;
+    }
+
+    .heat .hh {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: .74rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 0;
+    }
+
+    .heat .hr {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: .78rem;
+      color: var(--ink-2);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding-right: 10px;
+      font-weight: 500;
+    }
+
+    .cell {
+      position: relative;
+      padding: 16px 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      min-height: 66px;
+      cursor: default;
+    }
+
+    .cell .v {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: .96rem;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .cell .t {
+      font-size: .66rem;
+      opacity: .82;
+      text-align: center;
+      line-height: 1.2;
+    }
+
+    .cell .tip {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--ink);
+      color: var(--ground);
+      font-size: .72rem;
+      font-family: "IBM Plex Mono", monospace;
+      padding: 7px 10px;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .12s;
+      z-index: 5;
+      box-shadow: var(--shadow);
+    }
+
+    .cell:hover .tip,
+    .cell:focus-visible .tip {
+      opacity: 1;
+    }
+
+    .b-neg {
+      background: var(--h-neg);
+      color: var(--on-light);
+    }
+
+    .b0 {
+      background: var(--h0);
+      color: var(--on-light);
+    }
+
+    .b1 {
+      background: var(--h1);
+      color: var(--on-light);
+    }
+
+    .b2 {
+      background: var(--h2);
+      color: var(--on-light);
+    }
+
+    .b3 {
+      background: var(--h3);
+      color: var(--on-dark);
+    }
+
+    .b4 {
+      background: var(--h4);
+      color: var(--on-dark);
+    }
+
+    .b5 {
+      background: var(--h5);
+      color: var(--on-dark);
+    }
+
+    .ramp {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-top: 16px;
+      font-size: .7rem;
+      font-family: "IBM Plex Mono", monospace;
+      color: var(--muted);
+      flex-wrap: wrap;
+    }
+
+    .ramp i {
+      width: 30px;
+      height: 11px;
+      display: inline-block;
+    }
+
+    .ramp .lbl {
+      padding-inline: 8px;
+    }
+
+    /* bar rows */
+    .bars {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .bargroup {
+      display: grid;
+      grid-template-columns: 92px 1fr;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .bargroup>.gl {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: .76rem;
+      color: var(--ink-2);
+      text-align: right;
+    }
+
+    .barset {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .bar {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .bar .fill {
+      height: 13px;
+      border-radius: 0 3px 3px 0;
+      flex: none;
+      min-width: 2px;
+    }
+
+    .bar .bv {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: .72rem;
+      color: var(--ink-2);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .bar .bn {
+      font-size: .68rem;
+      color: var(--muted);
+    }
+
+    /* ticket story */
+    .acts {
+      display: flex;
+      flex-direction: column;
+      gap: 34px;
+    }
+
+    .act {
+      display: grid;
+      grid-template-columns: 128px 1fr;
+      gap: 24px;
+    }
+
+    .act-rail {
+      border-top: 2px solid var(--rule-strong);
+      padding-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .act-rail .an {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: .72rem;
+      letter-spacing: .1em;
+      color: var(--muted);
+    }
+
+    .act-rail .at {
+      font-family: "Newsreader", serif;
+      font-size: 1.08rem;
+      font-weight: 600;
+      line-height: 1.2;
+    }
+
+    .act-rail .ad {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: .68rem;
+      color: var(--muted);
+    }
+
+    .act-body {
+      border-top: 1px solid var(--rule);
+      padding-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .tk {
+      display: grid;
+      grid-template-columns: 54px 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .tk .id {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: .8rem;
+      font-weight: 600;
+      color: var(--accent);
+      padding-top: 1px;
+    }
+
+    .tk .body {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .tk .tt {
+      font-weight: 600;
+      font-size: .92rem;
+      line-height: 1.35;
+    }
+
+    .tk .tx {
+      font-size: .86rem;
+      color: var(--ink-2);
+      line-height: 1.55;
+    }
+
+    .tk .tx em {
+      color: var(--ink);
+      font-style: normal;
+      font-weight: 600;
+    }
+
+    .pill {
+      display: inline-block;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: .64rem;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      padding: 1px 6px;
+      border: 1px solid var(--rule-strong);
+      color: var(--ink-2);
+      margin-left: 6px;
+      vertical-align: 1px;
+    }
+
+    .pill.open {
+      border-color: var(--warn-rule);
+      background: var(--warn-bg);
+      color: var(--warn-ink);
+    }
+
+    /* misc lists */
+    ul.findings {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    ul.findings>li {
+      border-left: 2px solid var(--rule);
+      padding-left: 16px;
+      font-size: .92rem;
+      color: var(--ink-2);
+      line-height: 1.6;
+    }
+
+    ul.findings>li b {
+      color: var(--ink);
+    }
+
+    ul.plain {
+      margin: 0;
+      padding-left: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: .92rem;
+      color: var(--ink-2);
+    }
+
+    .two {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 18px;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      padding: 20px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .panel h3 {
+      font-size: 1.05rem;
+    }
+
+    .panel p {
+      font-size: .88rem;
+      color: var(--ink-2);
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 4px 16px;
+      font-size: .84rem;
+    }
+
+    .kv dt {
+      color: var(--muted);
+    }
+
+    .kv dd {
+      margin: 0;
+      font-family: "IBM Plex Mono", monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    footer {
+      margin-top: 72px;
+      border-top: 2px solid var(--rule-strong);
+      padding-top: 20px;
+      font-size: .8rem;
+      color: var(--muted);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    @media (max-width: 720px) {
+      .act {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+
+      .bargroup {
+        grid-template-columns: 1fr;
+      }
+
+      .bargroup>.gl {
+        text-align: left;
+      }
+
+      .bar {
+        flex-wrap: wrap;
+        row-gap: 2px;
+      }
+
+      .bar .bn {
+        flex-basis: 100%;
+        line-height: 1.4;
+      }
+
+      .barset {
+        gap: 8px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        transition: none !important;
+        animation: none !important;
+      }
+    }
+  </style>
+  <style>
+    body {
+      margin: 0;
+    }
+
+    img {
+      max-width: 100%;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+
+    <header class="masthead">
+      <div class="eyebrow">kvroute &middot; final measurement report &middot; 2026-09-13</div>
+      <h1>Where cache-aware routing stops paying for itself</h1>
+      <p class="lede">Six routing policies, five RTX&nbsp;3090s, one 4-bit Llama&nbsp;3.1&nbsp;8B per card. The question
+        was whether a router that models KV-cache residency beats the consistent-hash session affinity any load balancer
+        gives you for free &mdash; and where it stops being worth the machinery. It does beat it, by up to +373%. The
+        machinery is worth about a tenth of the win.</p>
+      <div class="meta-row">
+        <span><b>33</b> tickets</span>
+        <span><b>16</b> measurement runs</span>
+        <span><b>13</b> ADRs</span>
+        <span><b>6</b> policies implemented, <b>5</b> measured on the fleet</span>
+        <span>SLO <b>TTFT &lt; 990 ms</b>, <b>ITL p50 &lt; 24 ms</b></span>
+      </div>
+    </header>
+
+    <div class="figures">
+      <div class="fig">
+        <div class="n">+66.2%</div>
+        <div class="k">prefix affinity over session affinity</div>
+        <div class="d">Goodput at the frozen point, WS 1 / skew 0, 32 users. Reaches +373% at skew 1.4.</div>
+      </div>
+      <div class="fig">
+        <div class="n">+11.0%</div>
+        <div class="k">median gain of the index over a stateless hash</div>
+        <div class="d">The believed-residency trie against OpenAI&rsquo;s documented pattern, at the 11 of 12 grid
+          points that separate.</div>
+      </div>
+      <div class="fig">
+        <div class="n">&times;2</div>
+        <div class="k">what the spill rule is worth</div>
+        <div class="d">A rule firing on 0.2&ndash;2.5% of decisions adds up to +106% goodput. Turn it off and prefix
+          affinity pins like a hash.</div>
+      </div>
+      <div class="fig">
+        <div class="n">&minus;13.5%</div>
+        <div class="k">cost of knowing exactly</div>
+        <div class="d">Exact residency sits <em>below</em> the belief it was built to replace, at every one of 12
+          points.</div>
+      </div>
+    </div>
+
+    <nav class="toc" aria-label="Contents">
+      <ol>
+        <li><span class="num">01</span><a href="#setup">The fleet and the ruler</a></li>
+        <li><span class="num">02</span><a href="#headline">The headline: the pressure map</a></li>
+        <li><span class="num">03</span><a href="#ladder">The residency ladder</a></li>
+        <li><span class="num">04</span><a href="#openai">Prefix affinity vs. OpenAI&rsquo;s pattern</a></li>
+        <li><span class="num">05</span><a href="#spill">Spill on vs. spill off</a></li>
+        <li><span class="num">06</span><a href="#belief">How wrong the index is</a></li>
+        <li><span class="num">07</span><a href="#exact">Why exact residency loses</a></li>
+        <li><span class="num">08</span><a href="#robust">Failure, overhead, hardware</a></li>
+        <li><span class="num">09</span><a href="#nulls">Null and withdrawn results</a></li>
+        <li><span class="num">10</span><a href="#story">The ticket story</a></li>
+        <li><span class="num">11</span><a href="#open">What is still open</a></li>
+      </ol>
+    </nav>
+
+    <!-- ============ 01 SETUP ============ -->
+    <section id="setup">
+      <div class="sec-head">
+        <div class="eyebrow">01 &middot; Ground truth</div>
+        <h2>The fleet and the ruler</h2>
+      </div>
+      <div class="stack">
+        <p class="prose">Every number downstream scales off one characterization run, and the SLO was derived from the
+          hardware rather than chosen. The latency floor was measured at concurrency 1, straight at each replica with
+          the router out of the path; the SLO is three times it. That multiple is a judgement and the floor is not, so
+          both are published.</p>
+
+        <div class="tw">
+          <table>
+            <caption><b>Measured facts everything else is read through.</b> Six replicas of
+              <code>Meta-Llama-3.1-8B-Instruct-AWQ-INT4</code>, one per RTX 3090. The comparison runs on five &mdash;
+              GPU 3 is excluded for thermal throttling.</caption>
+            <thead>
+              <tr>
+                <th>Quantity</th>
+                <th class="num">Measured</th>
+                <th>How</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Fleet KV capacity</td>
+                <td class="num">755,712 tokens <span class="sub">629,760 across the five used</span></td>
+                <td style="text-align:left;white-space:normal">7,872 <code>num_gpu_blocks</code> &times; 16 per replica,
+                  read off each replica&rsquo;s own config and summed</td>
+              </tr>
+              <tr>
+                <td>Latency floor</td>
+                <td class="num">TTFT p50 329 ms <span class="sub">inter-token p50 7.8 ms</span></td>
+                <td style="text-align:left;white-space:normal">1,487 requests at concurrency 1, 1.3% cache hit rate
+                  &mdash; a prefill cost, not a lookup</td>
+              </tr>
+              <tr class="hl">
+                <td>SLO</td>
+                <td class="num">TTFT &lt; 990 ms<span class="sub">inter-token p50 &lt; 24 ms</span></td>
+                <td style="text-align:left;white-space:normal">3&times; the measured floor (ADR-0003)</td>
+              </tr>
+              <tr>
+                <td>Prompt bytes per token</td>
+                <td class="num">1.59 B/token <span class="sub">index calibrated at 1.6576</span></td>
+                <td style="text-align:left;white-space:normal">410 M prompt bytes over 258 M engine-reported tokens,
+                  from the 2026-09-08 sweep &mdash; not from the characterization the table is cited to. The prefix
+                  index in every published run was calibrated at 1.6576; see &sect;04</td>
+              </tr>
+              <tr>
+                <td>Router overhead</td>
+                <td class="num">217&ndash;223 &micro;s p50</td>
+                <td style="text-align:left;white-space:normal">accept to first dispatch, 431&ndash;787 &micro;s p99</td>
+              </tr>
+              <tr>
+                <td>Prefix index bounds</td>
+                <td class="num">TTL 56.97 s<span class="sub">node cap 16,311</span></td>
+                <td style="text-align:left;white-space:normal">TTL derived from 5,076 observed evictions, not the 20 s
+                  fallback; cap fleet-sized</td>
+              </tr>
+              <tr>
+                <td>Host topology</td>
+                <td class="num">0&ndash;3 on NUMA 0, 4&ndash;5 on NUMA 1</td>
+                <td style="text-align:left;white-space:normal">12 threads per GPU on node 0, 24 on node 1</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="prose">The comparison workload is frozen: <code>multiturn</code>, 4 turns, 448 new prompt tokens a
+          turn, 64 output, 30% of sessions carrying a shared 128-token system prompt, 30% branched, <code>seed=1</code>.
+          Two policies at the same load point send the same bytes; the fleet is cycled cold between policies, because a
+          second pass would read back what the first prefilled (ADR-0004 measured that head start at TTFT p50 ~325 ms
+          unseen against ~46 ms re-sent).</p>
+
+        <div class="warn">
+          <p><b>The grid&rsquo;s working-set axis is labelled with what each cell was configured for, not what it
+              applied &mdash; and it is off in two directions at once.</b></p>
+          <p style="margin-top:8px"><b>Down.</b> Skew discounts working set, because concentrating the draws touches
+            fewer distinct conversations, and a cell of finite length cannot touch a pool bigger than its visit count.
+            Counted from the session column of the 300 s cells rather than modelled, at WS 1 a cell realised <b>0.95</b>
+            of its label at skew 0 and <b>0.49</b> at skew 1.4; at skew 0 the four labels realised <b>0.25, 0.95, 1.78
+              and 2.26</b>. So the top of the axis is much flatter than the labels suggest. <span
+              style="opacity:.85">(The published map files still carry an older modelled estimate of 0.97 and 0.40
+              &mdash; the measured replacement is in the working tree, uncommitted, at the time of writing. The figures
+              above are the measured ones.)</span></p>
+          <p style="margin-top:8px"><b>Up.</b> The generator sizes prompts at an assumed 4 bytes per token and the
+            engines report about 1.66, so in engine tokens every label understates the pressure applied by roughly
+            2.4&times;. Read in the engine&rsquo;s own units the skew-0 column spans about 0.6&times; to 5.4&times;
+            fleet capacity rather than 0.25&times; to 8&times;.</p>
+          <p style="margin-top:8px">Neither discount is corrected, because correcting either would rename the workload
+            and refuse every cell recorded under the old name (ADR-0004, ADR-0007). The consequence for reading this
+            report: <b>compare down a column and along a row, never against another grid, and never read a WS label as a
+              literal multiple of capacity.</b></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 02 HEADLINE ============ -->
+    <section id="headline">
+      <div class="sec-head">
+        <div class="eyebrow">02 &middot; The headline figure</div>
+        <h2>The pressure map</h2>
+      </div>
+      <div class="stack">
+        <p class="prose">Memory pressure on one axis, load imbalance on the other, because they are physically different
+          things. Working-set ratio is offered session tokens over measured aggregate fleet KV; skew is the Zipf &alpha;
+          of the draw over conversations. Each cell is the goodput delta between session affinity and prefix affinity,
+          closed loop at 32 virtual users, median of three repetitions.</p>
+
+        <figure>
+          <div class="heatwrap">
+            <div class="heat">
+              <div class="hh"></div>
+              <div class="hh">skew 0</div>
+              <div class="hh">skew 1</div>
+              <div class="hh">skew 1.4</div>
+
+              <div class="hr">WS 0.25</div>
+              <div class="cell b-neg" tabindex="0"><span class="v">&minus;6.8%</span><span class="t">within
+                  spread</span><span class="tip">session 34.37 &middot; prefix 32.04 req/s</span></div>
+              <div class="cell b5" tabindex="0"><span class="v">+289.8%</span><span class="tip">session 8.83 (n=2)
+                  &middot; prefix 34.43 req/s</span></div>
+              <div class="cell b5" tabindex="0"><span class="v">+373.0%</span><span class="tip">session 7.36 &middot;
+                  prefix 34.79 req/s</span></div>
+
+              <div class="hr">WS 1</div>
+              <div class="cell b3" tabindex="0"><span class="v">+66.2%</span><span class="t">frozen point</span><span
+                  class="tip">session 8.99 &middot; prefix 14.94 req/s</span></div>
+              <div class="cell b2" tabindex="0"><span class="v">+38.6%</span><span class="tip">session 16.96 &middot;
+                  prefix 23.51 req/s</span></div>
+              <div class="cell b4" tabindex="0"><span class="v">+171.2%</span><span class="tip">session 11.23 &middot;
+                  prefix 30.45 req/s</span></div>
+
+              <div class="hr">WS 3</div>
+              <div class="cell b1" tabindex="0"><span class="v">+24.6%</span><span class="tip">session 9.32 &middot;
+                  prefix 11.61 req/s</span></div>
+              <div class="cell b2" tabindex="0"><span class="v">+51.4%</span><span class="t">was +41.3%</span><span
+                  class="tip">session 12.53 (n=2) &middot; prefix 18.97 req/s</span></div>
+              <div class="cell b5" tabindex="0"><span class="v">+346.9%</span><span class="tip">session 6.44 &middot;
+                  prefix 28.79 req/s</span></div>
+
+              <div class="hr">WS 8</div>
+              <div class="cell b1" tabindex="0"><span class="v">+21.0%</span><span class="tip">session 8.83 &middot;
+                  prefix 10.68 req/s</span></div>
+              <div class="cell b1" tabindex="0"><span class="v">+25.3%</span><span class="tip">session 13.49 &middot;
+                  prefix 16.91 req/s</span></div>
+              <div class="cell b4" tabindex="0"><span class="v">+162.4%</span><span class="tip">session 10.69 &middot;
+                  prefix 28.04 req/s</span></div>
+            </div>
+          </div>
+          <div class="ramp" aria-hidden="true">
+            <span class="lbl">below</span>
+            <i style="background:var(--h-neg)"></i><i style="background:var(--h0)"></i><i
+              style="background:var(--h1)"></i><i style="background:var(--h2)"></i><i
+              style="background:var(--h3)"></i><i style="background:var(--h4)"></i><i style="background:var(--h5)"></i>
+            <span class="lbl">+373%</span>
+          </div>
+          <figcaption>&Delta; goodput, prefix affinity against session affinity. Positive means prefix affinity served
+            more requests inside the SLO. Hover a cell for the two medians behind it. Full numbers in the table below.
+          </figcaption>
+        </figure>
+
+        <div class="verdict">
+          <p><b>Prefix affinity beats session affinity everywhere except the low-pressure corner, and it beats it most
+              where traffic concentrates.</b> At WS 0.25 / skew 0 the whole working set fits in cache and there is no
+            imbalance to fix; the two are indistinguishable, which is exactly where the spec predicted they would be.
+          </p>
+          <p><b>That is not the same as saying cache-aware routing stops paying there</b> &mdash; a distinction the
+            project&rsquo;s own README blurs. At that same cell round robin scores 5.40 and least outstanding 11.23,
+            against 34.37 for session affinity and 32.04 for prefix affinity: <em>every</em> policy that keeps a
+            conversation together is 3.1&ndash;6.4&times; the policies that do not. What stops paying in the
+            low-pressure corner is the extra machinery on top of a sticky hash, not stickiness itself.</p>
+          <p><b>The mechanism is not cache reuse.</b> Between the two affinity policies the prefix cache hit rate
+            differs by 0.0&ndash;2.2 points at every point of the grid, and per request they recompute prefill within
+            about 5% of each other. What separates them is load: session affinity hashes a conversation onto one replica
+            and keeps it there, so concentrated traffic piles onto one card. Across 23 cells at skew &gt; 0, the busiest
+            replica&rsquo;s share of requests predicts goodput at <b>r = &minus;0.797</b> &mdash; 34% on one replica
+            gave 24.61 req/s, 65% gave 5.15.</p>
+        </div>
+
+        <div class="tw">
+          <table>
+            <caption><b>Goodput behind the map</b>, requests per second meeting the SLO. Median of three repetitions
+              with the range across them, and the spread as a share of the median. Closed loop, 32 users, five replicas.
+            </caption>
+            <thead>
+              <tr>
+                <th>point</th>
+                <th class="num">round robin</th>
+                <th class="num">least outstanding</th>
+                <th class="num">session affinity</th>
+                <th class="num">prefix affinity</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>WS 0.25 / skew 0</td>
+                <td class="num">5.40 <span class="sub">&plusmn;6%</span></td>
+                <td class="num">11.23 <span class="sub">&plusmn;3%</span></td>
+                <td class="num">34.37 <span class="sub">&plusmn;14%</span></td>
+                <td class="num">32.04 <span class="sub">&plusmn;6%</span></td>
+              </tr>
+              <tr>
+                <td>WS 0.25 / skew 1</td>
+                <td class="num">9.87 <span class="sub">&plusmn;2%, n=2</span></td>
+                <td class="num">17.84 <span class="sub">&plusmn;6%, n=2</span></td>
+                <td class="num">8.83 <span class="sub">&plusmn;179%, n=2</span></td>
+                <td class="num">34.43 <span class="sub">&plusmn;2%</span></td>
+              </tr>
+              <tr>
+                <td>WS 0.25 / skew 1.4</td>
+                <td class="num">16.27 <span class="sub">&plusmn;3%</span></td>
+                <td class="num">25.35 <span class="sub">&plusmn;7%</span></td>
+                <td class="num">7.36 <span class="sub">&plusmn;118%</span></td>
+                <td class="num">34.79 <span class="sub">&plusmn;3%</span></td>
+              </tr>
+              <tr class="hl">
+                <td>WS 1 / skew 0</td>
+                <td class="num">3.51 <span class="sub">&plusmn;5%</span></td>
+                <td class="num">7.84 <span class="sub">&plusmn;6%</span></td>
+                <td class="num">8.99 <span class="sub">&plusmn;23%</span></td>
+                <td class="num">14.94 <span class="sub">&plusmn;3%</span></td>
+              </tr>
+              <tr>
+                <td>WS 1 / skew 1</td>
+                <td class="num">6.41 <span class="sub">&plusmn;1%</span></td>
+                <td class="num">13.49 <span class="sub">&plusmn;3%</span></td>
+                <td class="num">16.96 <span class="sub">&plusmn;38%</span></td>
+                <td class="num">23.51 <span class="sub">&plusmn;3%</span></td>
+              </tr>
+              <tr>
+                <td>WS 1 / skew 1.4</td>
+                <td class="num">11.22 <span class="sub">&plusmn;4%, n=2</span></td>
+                <td class="num">21.01 <span class="sub">&plusmn;4%</span></td>
+                <td class="num">11.23 <span class="sub">&plusmn;23%</span></td>
+                <td class="num">30.45 <span class="sub">&plusmn;4%</span></td>
+              </tr>
+              <tr>
+                <td>WS 3 / skew 0</td>
+                <td class="num">3.24 <span class="sub">&plusmn;4%</span></td>
+                <td class="num">7.57 <span class="sub">&plusmn;3%</span></td>
+                <td class="num">9.32 <span class="sub">&plusmn;14%</span></td>
+                <td class="num">11.61 <span class="sub">&plusmn;1%</span></td>
+              </tr>
+              <tr>
+                <td>WS 3 / skew 1</td>
+                <td class="num">5.15 <span class="sub">&plusmn;4%</span></td>
+                <td class="num">11.76 <span class="sub">&plusmn;2%</span></td>
+                <td class="num">12.53 <span class="sub">&plusmn;15%, n=2</span></td>
+                <td class="num">18.97 <span class="sub">&plusmn;1%</span></td>
+              </tr>
+              <tr>
+                <td>WS 3 / skew 1.4</td>
+                <td class="num">11.23 <span class="sub">&plusmn;6%</span></td>
+                <td class="num">19.69 <span class="sub">&plusmn;2%</span></td>
+                <td class="num">6.44 <span class="sub">&plusmn;92%</span></td>
+                <td class="num">28.79 <span class="sub">&plusmn;3%</span></td>
+              </tr>
+              <tr>
+                <td>WS 8 / skew 0</td>
+                <td class="num">3.21 <span class="sub">&plusmn;1%</span></td>
+                <td class="num">7.09 <span class="sub">&plusmn;6%</span></td>
+                <td class="num">8.83 <span class="sub">&plusmn;11%</span></td>
+                <td class="num">10.68 <span class="sub">&plusmn;2%</span></td>
+              </tr>
+              <tr>
+                <td>WS 8 / skew 1</td>
+                <td class="num">4.74 <span class="sub">&plusmn;5%</span></td>
+                <td class="num">11.05 <span class="sub">&plusmn;4%</span></td>
+                <td class="num">13.49 <span class="sub">&plusmn;17%</span></td>
+                <td class="num">16.91 <span class="sub">&plusmn;1%</span></td>
+              </tr>
+              <tr>
+                <td>WS 8 / skew 1.4</td>
+                <td class="num">10.21 <span class="sub">&plusmn;2%</span></td>
+                <td class="num">19.44 <span class="sub">&plusmn;2%</span></td>
+                <td class="num">10.69 <span class="sub">&plusmn;41%</span></td>
+                <td class="num">28.04 <span class="sub">&plusmn;2%</span></td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="5">Read a wide spread as two states, not as noise. At skew 1.4 the spill-off reference
+                  returned 10.76, 17.05 and 22.01 with SLO violation rates tracking each one exactly &mdash;
+                  bistability, not variance. The spill valve damps it for prefix affinity; the policies without one have
+                  nothing to damp it. A median over a bimodal sample is whichever state won most draws. One cell
+                  (<code>session_affinity-c32-r2</code>, 43% warm-up drift) was excluded and re-run. When #33 rebuilt
+                  the warm-up drift check and re-judged every recorded cell, four more were set aside here &mdash; one
+                  each behind the four <em>n=2</em> figures added above &mdash; and the map&rsquo;s WS 3 / skew 1 moved
+                  from +41.3% to +51.4%. With two values the pooled median is the lower one; the point separates
+                  either way (session&rsquo;s best 14.35 against prefix&rsquo;s worst 18.85).</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div class="tw">
+          <table>
+            <caption><b>The frozen comparison point in full</b> &mdash; WS 1.0, skew 0, closed loop at 32 users, five
+              replicas, three repetitions. This is the single cell the project&rsquo;s headline number comes from.
+            </caption>
+            <thead>
+              <tr>
+                <th>policy</th>
+                <th class="num">goodput/s</th>
+                <th class="num">TTFT p99</th>
+                <th class="num">prefix cache hit rate</th>
+                <th class="num">requests</th>
+                <th class="num">redundant prefill / request</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>round robin</td>
+                <td class="num">3.51 <span class="sub">3.37&ndash;3.55</span></td>
+                <td class="num">3,918 ms</td>
+                <td class="num">33.9%</td>
+                <td class="num">4,753</td>
+                <td class="num neg">+1,354 <span class="sub">+6.44 M tokens</span></td>
+              </tr>
+              <tr>
+                <td>least outstanding</td>
+                <td class="num">7.84 <span class="sub">7.71&ndash;8.16</span></td>
+                <td class="num">2,130 ms</td>
+                <td class="num">56.4%</td>
+                <td class="num">7,790</td>
+                <td class="num neg">+650 <span class="sub">+5.06 M tokens</span></td>
+              </tr>
+              <tr>
+                <td>session affinity</td>
+                <td class="num">8.99 <span class="sub">8.19&ndash;10.24</span></td>
+                <td class="num">1,622 ms</td>
+                <td class="num">76.6%</td>
+                <td class="num">8,781</td>
+                <td class="num neg">+26 <span class="sub">+0.23 M tokens</span></td>
+              </tr>
+              <tr class="hl">
+                <td>prefix affinity</td>
+                <td class="num">14.94 <span class="sub">14.72&ndash;15.10</span></td>
+                <td class="num">1,440 ms</td>
+                <td class="num">77.5%</td>
+                <td class="num">11,873</td>
+                <td class="num pos">best</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="6">+66.2% over session affinity, and the repetition ranges do not overlap. It is not an
+                  artefact of caching more &mdash; the two hit rates differ by 0.9 points. Redundant prefill is compared
+                  <b>per request</b>: under a closed loop a faster policy offers more prompts in the same window, so
+                  absolute token totals credit the slower policy with having wasted less. In absolute tokens prefix
+                  affinity looks like it wasted 1.92 M more; it served 3,092 more requests to do it.</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <h3 style="margin-top:8px">The open-loop cliff</h3>
+        <p class="prose">The closed-loop driver throttles itself when the fleet slows, so its tail is optimistic by
+          construction. The open-loop driver fires on a schedule regardless and records how late each request went out
+          &mdash; and it is where the fleet falls over. Three policies, 2026-09-08, before prefix affinity existed.</p>
+
+        <div class="tw">
+          <table>
+            <caption><b>Goodput against offered rate, open loop.</b> A gap is a load point where no usable cell
+              survived; a zero is a fleet that served nothing inside the SLO. The two must not read alike.</caption>
+            <thead>
+              <tr>
+                <th class="num">offered</th>
+                <th class="num">round robin</th>
+                <th class="num">least outstanding</th>
+                <th class="num">session affinity</th>
+                <th class="num">round robin TTFT p50</th>
+                <th class="num">session affinity TTFT p50</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="num">6 req/s</td>
+                <td class="num">3.90</td>
+                <td class="num">3.48</td>
+                <td class="num">5.98</td>
+                <td class="num">666 ms</td>
+                <td class="num">363 ms</td>
+              </tr>
+              <tr class="hl">
+                <td class="num">8 req/s</td>
+                <td class="num neg">0.06</td>
+                <td class="num neg">0.00</td>
+                <td class="num pos">7.63</td>
+                <td class="num neg">6,545 ms</td>
+                <td class="num">368 ms</td>
+              </tr>
+              <tr>
+                <td class="num">10 req/s</td>
+                <td class="num neg">0.00</td>
+                <td class="num neg">0.00</td>
+                <td class="num">8.80</td>
+                <td class="num neg">20,456 ms</td>
+                <td class="num">373 ms</td>
+              </tr>
+              <tr>
+                <td class="num">12 req/s</td>
+                <td class="num neg">0.00</td>
+                <td class="num neg">0.00</td>
+                <td class="num">9.59</td>
+                <td class="num neg">33,440 ms</td>
+                <td class="num">426 ms</td>
+              </tr>
+              <tr>
+                <td class="num">16 req/s</td>
+                <td class="num neg">0.00</td>
+                <td class="num neg">0.00</td>
+                <td class="num">3.88</td>
+                <td class="num neg">63,853 ms</td>
+                <td class="num">2,529 ms</td>
+              </tr>
+              <tr>
+                <td class="num">20 req/s</td>
+                <td class="num neg">0.00</td>
+                <td class="num neg">0.00</td>
+                <td class="num">3.12</td>
+                <td class="num neg">100,020 ms</td>
+                <td class="num">11,934 ms</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="6">Between 6 and 8 req/s both cache-blind policies go from serving most of the offered load
+                  to serving none of it, while session affinity walks straight past and peaks at 9.59/s. Round
+                  robin&rsquo;s TTFT p50 at 20 req/s is <b>100 seconds</b>. Session affinity recomputed 754 prompt
+                  tokens per request there against round robin&rsquo;s 2,565 &mdash; the fleet was doing 3.4&times; the
+                  prefill for the same bytes.</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 03 LADDER ============ -->
+    <section id="ladder">
+      <div class="sec-head">
+        <div class="eyebrow">03 &middot; How much residency knowledge is worth</div>
+        <h2>The residency ladder: none &rarr; none-but-reads-the-prompt &rarr; believed &rarr; exact</h2>
+      </div>
+      <div class="stack">
+        <p class="prose">Four policies differing only in how much they know about what the replicas actually hold. All
+          four were run on one engine configuration, cell for cell on the same grid, with the same block chunking, the
+          same consistent-hash ring and the same tie rotation &mdash; so they differ in what they remember and in
+          nothing else.</p>
+
+        <div class="two">
+          <div class="panel">
+            <h3>session affinity <span class="pill">none, sticky</span></h3>
+            <p>Hashes the conversation id onto a ring of 128 virtual nodes per replica. Never reads the prompt. Blind to
+              load by design &mdash; there is no escape hatch when the hash lands hot sessions together.</p>
+          </div>
+          <div class="panel">
+            <h3>prefix hash <span class="pill">none</span></h3>
+            <p>Hashes the prompt&rsquo;s leading 16 blocks (1,024 bytes, ~644 tokens) onto the same ring, then adds a
+              load term: cost is <code>inflight + weight &times; rank</code>. Holds no index and no per-session state.
+              Modelled on OpenAI&rsquo;s documented pattern.</p>
+          </div>
+          <div class="panel">
+            <h3>prefix affinity <span class="pill">believed</span></h3>
+            <p>A trie of believed residency under a measured TTL (56.97 s) and node cap (16,311), longest-chain match,
+              plus a spill rule that declines the match under load pressure. The expensive policy.</p>
+          </div>
+          <div class="panel">
+            <h3>exact residency <span class="pill">exact</span></h3>
+            <p>Follows the engines&rsquo; own KV cache events over ZMQ instead of a belief, and asks the engine to
+              tokenize every prompt. Forgets whatever it cannot vouch for.</p>
+          </div>
+        </div>
+
+        <figure>
+          <div class="legend">
+            <span><i class="swatch" style="background:var(--s-3)"></i>session affinity (none, sticky)</span>
+            <span><i class="swatch" style="background:var(--s-2)"></i>prefix hash (none)</span>
+            <span><i class="swatch" style="background:var(--s-1)"></i>prefix affinity (believed)</span>
+            <span><i class="swatch" style="background:var(--s-4)"></i>exact residency (exact)</span>
+          </div>
+          <div class="bars">
+            <div class="bargroup">
+              <div class="gl">WS 0.25<br>skew 0</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:95.9%;background:var(--s-3)"></span><span
+                    class="bv">34.53</span></div>
+                <div class="bar"><span class="fill" style="width:95.4%;background:var(--s-2)"></span><span
+                    class="bv">34.34</span></div>
+                <div class="bar"><span class="fill" style="width:89.3%;background:var(--s-1)"></span><span
+                    class="bv">32.15</span></div>
+                <div class="bar"><span class="fill" style="width:83.3%;background:var(--s-4)"></span><span
+                    class="bv">30.00</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">WS 1<br>skew 0</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:25.4%;background:var(--s-3)"></span><span
+                    class="bv">9.15</span></div>
+                <div class="bar"><span class="fill" style="width:33.6%;background:var(--s-2)"></span><span
+                    class="bv">12.11</span></div>
+                <div class="bar"><span class="fill" style="width:42.1%;background:var(--s-1)"></span><span
+                    class="bv">15.17</span><span class="bn">best</span></div>
+                <div class="bar"><span class="fill" style="width:38.3%;background:var(--s-4)"></span><span
+                    class="bv">13.78</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">WS 3<br>skew 0</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:24.9%;background:var(--s-3)"></span><span
+                    class="bv">8.97</span></div>
+                <div class="bar"><span class="fill" style="width:26.9%;background:var(--s-2)"></span><span
+                    class="bv">9.70</span></div>
+                <div class="bar"><span class="fill" style="width:32.3%;background:var(--s-1)"></span><span
+                    class="bv">11.64</span><span class="bn">best</span></div>
+                <div class="bar"><span class="fill" style="width:29.0%;background:var(--s-4)"></span><span
+                    class="bv">10.45</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">WS 8<br>skew 0</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:24.2%;background:var(--s-3)"></span><span
+                    class="bv">8.71</span></div>
+                <div class="bar"><span class="fill" style="width:25.3%;background:var(--s-2)"></span><span
+                    class="bv">9.12</span></div>
+                <div class="bar"><span class="fill" style="width:29.9%;background:var(--s-1)"></span><span
+                    class="bv">10.76</span><span class="bn">best</span></div>
+                <div class="bar"><span class="fill" style="width:25.8%;background:var(--s-4)"></span><span
+                    class="bv">9.30</span></div>
+              </div>
+            </div>
+          </div>
+          <figcaption>Median goodput, requests per second meeting the SLO, at the four skew-0 points. Bars share one
+            scale, 0 to 36 req/s. The skew-0 column is where the ladder reads cleanly: at skew &gt; 0 session affinity
+            collapses and the ladder&rsquo;s bottom rung stops being a fair floor.</figcaption>
+        </figure>
+
+        <div class="tw">
+          <table>
+            <caption><b>The full ladder</b> &mdash; median goodput over three repetitions, all 12 grid points. The last
+              two columns are what each rung of knowledge bought over the rung below it. <b>This is a different grid
+                from the pressure map above.</b> KV cache events are an engine setting, so all four policies here were
+              re-measured with them on rather than read off the events-off grid &mdash; which is why the
+              session-affinity column does not match §02&rsquo;s. Compare within this table, not across.</caption>
+            <thead>
+              <tr>
+                <th>point</th>
+                <th class="num">session <span class="sub">none, sticky</span></th>
+                <th class="num">hash <span class="sub">none</span></th>
+                <th class="num">index <span class="sub">believed</span></th>
+                <th class="num">exact</th>
+                <th class="num">hash v session</th>
+                <th class="num">index v hash</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>WS 0.25 / skew 0</td>
+                <td class="num">34.53</td>
+                <td class="num">34.34</td>
+                <td class="num">32.15</td>
+                <td class="num">30.00</td>
+                <td class="num">&minus;0.5%</td>
+                <td class="num">&minus;6.4% <span class="sub">within spread</span></td>
+              </tr>
+              <tr>
+                <td>WS 0.25 / skew 1</td>
+                <td class="num">10.19</td>
+                <td class="num">32.87</td>
+                <td class="num">34.66</td>
+                <td class="num">31.69</td>
+                <td class="num pos">+222.8%</td>
+                <td class="num pos">+5.4%</td>
+              </tr>
+              <tr>
+                <td>WS 0.25 / skew 1.4</td>
+                <td class="num">7.07</td>
+                <td class="num">32.69</td>
+                <td class="num">35.16</td>
+                <td class="num">32.46</td>
+                <td class="num pos">+362.4%</td>
+                <td class="num pos">+7.6%</td>
+              </tr>
+              <tr class="hl">
+                <td>WS 1 / skew 0</td>
+                <td class="num">9.15</td>
+                <td class="num">12.11</td>
+                <td class="num">15.17</td>
+                <td class="num">13.78</td>
+                <td class="num pos">+32.5%</td>
+                <td class="num pos">+25.2%</td>
+              </tr>
+              <tr>
+                <td>WS 1 / skew 1</td>
+                <td class="num">17.31</td>
+                <td class="num">21.22</td>
+                <td class="num">23.18</td>
+                <td class="num">21.16</td>
+                <td class="num pos">+22.6%</td>
+                <td class="num pos">+9.2%</td>
+              </tr>
+              <tr>
+                <td>WS 1 / skew 1.4</td>
+                <td class="num">11.02</td>
+                <td class="num">28.45</td>
+                <td class="num">30.63</td>
+                <td class="num">28.34</td>
+                <td class="num pos">+158.0%</td>
+                <td class="num pos">+7.7%</td>
+              </tr>
+              <tr>
+                <td>WS 3 / skew 0</td>
+                <td class="num">8.97</td>
+                <td class="num">9.70</td>
+                <td class="num">11.64</td>
+                <td class="num">10.45</td>
+                <td class="num pos">+8.1%</td>
+                <td class="num pos">+20.1%</td>
+              </tr>
+              <tr>
+                <td>WS 3 / skew 1</td>
+                <td class="num">13.50</td>
+                <td class="num">16.93</td>
+                <td class="num">19.02</td>
+                <td class="num">17.39</td>
+                <td class="num pos">+25.4%</td>
+                <td class="num pos">+12.4%</td>
+              </tr>
+              <tr>
+                <td>WS 3 / skew 1.4</td>
+                <td class="num">6.55</td>
+                <td class="num">26.64</td>
+                <td class="num">28.95</td>
+                <td class="num">27.60</td>
+                <td class="num pos">+306.5%</td>
+                <td class="num pos">+8.7%</td>
+              </tr>
+              <tr>
+                <td>WS 8 / skew 0</td>
+                <td class="num">8.71</td>
+                <td class="num">9.12</td>
+                <td class="num">10.76</td>
+                <td class="num">9.30</td>
+                <td class="num pos">+4.8%</td>
+                <td class="num pos">+17.9%</td>
+              </tr>
+              <tr>
+                <td>WS 8 / skew 1</td>
+                <td class="num">13.76</td>
+                <td class="num">14.86</td>
+                <td class="num">17.42</td>
+                <td class="num">15.08</td>
+                <td class="num pos">+8.0%</td>
+                <td class="num pos">+17.2%</td>
+              </tr>
+              <tr>
+                <td>WS 8 / skew 1.4</td>
+                <td class="num">10.37</td>
+                <td class="num">25.42</td>
+                <td class="num">28.23</td>
+                <td class="num">26.46</td>
+                <td class="num pos">+145.2%</td>
+                <td class="num pos">+11.0%</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="7">The ladder reads <b>none &lt; exact &lt; believed</b>, not none &lt; believed &lt;
+                  exact. Reading the prompt at all is what buys the bulk of the win: <b>+4.8% to +362%</b> for a
+                  stateless hash over sticky session affinity. Tracking belief on top of that buys <b>+5.4% to +25.2%,
+                    median +11.0%</b> &mdash; the median is over the 11 separating points; over all 12 it would be 9.1%.
+                  Knowing exactly gives 4.6&ndash;13.5% of it back.</td>
+              </tr>
+              <tr>
+                <td colspan="7"><b>One caveat on the session column only.</b> It is computed n=3 including three cells
+                  flagged as still warming up (<code>ws0.25-skew1 r2</code>, <code>ws1-skew1.4 r3</code>,
+                  <code>ws3-skew1 r3</code>). The same project&rsquo;s map file discards exactly those and publishes
+                  8.71 / 10.43 / 12.00 (n=2) where this table reads 10.19 / 11.02 / 13.50. The &ldquo;hash v
+                  session&rsquo;&rdquo; deltas above are computed against the flagged-inclusive column, so they are the
+                  <em>conservative</em> reading; on the discarded-cell numbers the hash&rsquo;s margin over session
+                  affinity is larger still. Every <code>prefix_hash</code> and <code>prefix_affinity</code> cell in this
+                  table reads <code>flagged=false, clean=true</code>, so the index-vs-hash column is untouched by it.
+                  #33&rsquo;s re-score, which re-judged every recorded cell, leaves that true and flags two more cells
+                  this table pools: session affinity&rsquo;s <code>ws1-skew1.4 r1</code>, and all three exact residency
+                  cells at WS 1 / skew 1. Neither moves a figure here, because this table pools every repetition.
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 04 OPENAI ============ -->
+    <section id="openai">
+      <div class="sec-head">
+        <div class="eyebrow">04 &middot; The control that isolates the index</div>
+        <h2>Prefix affinity against OpenAI&rsquo;s documented routing pattern</h2>
+      </div>
+      <div class="stack">
+        <div class="warn"><b>This is not a reproduction of OpenAI&rsquo;s router.</b> <code>prefix_hash</code> is a
+          mechanism inferred from public documentation of &ldquo;a hash of the initial tokens&rdquo; plus machine load.
+          The window size, the weighting, the ring and the rank ordering are all decisions made in this project; no
+          number for any of them has been published by OpenAI. The policy is named for what it hashes, not for the lab
+          that documented one.</div>
+
+        <p class="prose">OpenAI documents routing that depends on &ldquo;current machine load and available
+          capacity&rdquo; and &ldquo;a hash of the initial tokens,&rdquo; with <code>prompt_cache_key</code> folded into
+          that hash as a disambiguator rather than a pin &mdash; their docs are explicit that keys <em>&ldquo;influence
+            routing; they do not pin requests to a machine or guarantee a cache hit.&rdquo;</em> None of this
+          project&rsquo;s five planned policies is that shape, so a sixth was built as a control. It answers the
+          question nothing else in the plan asks: <b>what does tracking belief buy over a content hash that tracks
+            nothing?</b></p>
+
+        <div class="two">
+          <div class="panel">
+            <h3>What they share</h3>
+            <p>The same 64-byte block chunking and the same chained FNV-1a hash (<code>prefix.Blocks</code>, called
+              rather than copied). The same consistent-hash ring, 128 virtual nodes per replica, the same avalanche, the
+              same tie rotation. A replica leaving moves the same share of the key space under both.</p>
+          </div>
+          <div class="panel">
+            <h3>What differs &mdash; and it is only this</h3>
+            <p>Prefix affinity keeps a trie of what it believes each replica holds, decaying under TTL and LRU, and
+              matches the longest chain. Prefix hash keeps nothing: it ranks replicas by ring distance from the
+              prompt&rsquo;s key and pays <code>weight</code> inflight requests per rank step to move off its first
+              choice.</p>
+          </div>
+        </div>
+
+        <figure>
+          <div class="heatwrap">
+            <div class="heat">
+              <div class="hh"></div>
+              <div class="hh">skew 0</div>
+              <div class="hh">skew 1</div>
+              <div class="hh">skew 1.4</div>
+              <div class="hr">WS 0.25</div>
+              <div class="cell b-neg" tabindex="0"><span class="v">&minus;6.4%</span><span class="t">within
+                  spread</span><span class="tip">hash 34.34 &middot; index 32.15 req/s</span></div>
+              <div class="cell b0" tabindex="0"><span class="v">+5.4%</span><span class="tip">hash 32.87 &middot; index
+                  34.66 req/s</span></div>
+              <div class="cell b0" tabindex="0"><span class="v">+7.6%</span><span class="tip">hash 32.69 &middot; index
+                  35.16 req/s</span></div>
+              <div class="hr">WS 1</div>
+              <div class="cell b4" tabindex="0"><span class="v">+25.2%</span><span class="t">largest</span><span
+                  class="tip">hash 12.11 &middot; index 15.17 req/s</span></div>
+              <div class="cell b1" tabindex="0"><span class="v">+9.2%</span><span class="tip">hash 21.22 &middot; index
+                  23.18 req/s</span></div>
+              <div class="cell b0" tabindex="0"><span class="v">+7.7%</span><span class="tip">hash 28.45 &middot; index
+                  30.63 req/s</span></div>
+              <div class="hr">WS 3</div>
+              <div class="cell b3" tabindex="0"><span class="v">+20.1%</span><span class="tip">hash 9.70 &middot; index
+                  11.64 req/s</span></div>
+              <div class="cell b1" tabindex="0"><span class="v">+12.4%</span><span class="tip">hash 16.93 &middot; index
+                  19.02 req/s</span></div>
+              <div class="cell b1" tabindex="0"><span class="v">+8.7%</span><span class="tip">hash 26.64 &middot; index
+                  28.95 req/s</span></div>
+              <div class="hr">WS 8</div>
+              <div class="cell b3" tabindex="0"><span class="v">+17.9%</span><span class="tip">hash 9.12 &middot; index
+                  10.76 req/s</span></div>
+              <div class="cell b2" tabindex="0"><span class="v">+17.2%</span><span class="tip">hash 14.86 &middot; index
+                  17.42 req/s</span></div>
+              <div class="cell b1" tabindex="0"><span class="v">+11.0%</span><span class="tip">hash 25.42 &middot; index
+                  28.23 req/s</span></div>
+            </div>
+          </div>
+          <div class="ramp" aria-hidden="true">
+            <span class="lbl">below</span>
+            <i style="background:var(--h-neg)"></i><i style="background:var(--h0)"></i><i
+              style="background:var(--h1)"></i><i style="background:var(--h2)"></i><i
+              style="background:var(--h3)"></i><i style="background:var(--h4)"></i>
+            <span class="lbl">+25%</span>
+          </div>
+          <figcaption>&Delta; goodput, the believed index against the stateless prefix hash. Note the scale: this map
+            tops out at +25.2%, where the map against session affinity topped out at +373%. Same grid, same bytes, same
+            ring &mdash; the only difference is the trie.</figcaption>
+        </figure>
+
+        <div class="verdict">
+          <p><b>The prefix index buys about a tenth of what cache-aware routing is worth.</b> Against the stateless hash
+            it is worth <b>+5.4% to +25.2%, median +11.0%</b>, at the 11 of 12 points where the two separate. Against
+            session affinity, both beat it by <b>+4.8% to +362%</b>. Reading the prompt is the big win; remembering what
+            you read is the small one.</p>
+          <p><b>What the index buys is hit rate, and only where eviction is real.</b> Its three largest hit-rate gaps
+            over the hash are exactly its three largest goodput margins &mdash; WS 1 / skew 0 (+25.2%), WS 3 / skew 0
+            (+20.1%), WS 8 / skew 0 (+17.9%). At WS 0.25, where nothing is evicted and a hash&rsquo;s assumption that a
+            replica still holds a prefix is simply true, it buys nothing: &minus;6.4%, inside the spread.</p>
+        </div>
+
+        <div class="tw">
+          <table>
+            <caption><b>Why the index wins where it does</b> &mdash; prefix cache hit rate as the replicas themselves
+              reported it, not the router&rsquo;s prediction of it. The hit-rate column and the goodput column move
+              together.</caption>
+            <thead>
+              <tr>
+                <th>point</th>
+                <th class="num">session</th>
+                <th class="num">hash</th>
+                <th class="num">index</th>
+                <th class="num">exact</th>
+                <th class="num">index &minus; hash</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>WS 0.25 / skew 0</td>
+                <td class="num">99.7%</td>
+                <td class="num">98.3%</td>
+                <td class="num">97.1%</td>
+                <td class="num">96.3%</td>
+                <td class="num neg">&minus;1.2 pp</td>
+              </tr>
+              <tr>
+                <td>WS 0.25 / skew 1</td>
+                <td class="num">98.9%</td>
+                <td class="num">98.0%</td>
+                <td class="num">98.4%</td>
+                <td class="num">97.1%</td>
+                <td class="num">+0.4 pp</td>
+              </tr>
+              <tr>
+                <td>WS 0.25 / skew 1.4</td>
+                <td class="num">98.4%</td>
+                <td class="num">98.2%</td>
+                <td class="num">98.5%</td>
+                <td class="num">97.8%</td>
+                <td class="num">+0.4 pp</td>
+              </tr>
+              <tr class="hl">
+                <td>WS 1 / skew 0</td>
+                <td class="num">76.8%</td>
+                <td class="num">71.7%</td>
+                <td class="num">77.6%</td>
+                <td class="num">76.6%</td>
+                <td class="num pos">+5.9 pp</td>
+              </tr>
+              <tr>
+                <td>WS 1 / skew 1</td>
+                <td class="num">90.9%</td>
+                <td class="num">88.0%</td>
+                <td class="num">89.9%</td>
+                <td class="num">88.5%</td>
+                <td class="num">+2.0 pp</td>
+              </tr>
+              <tr>
+                <td>WS 1 / skew 1.4</td>
+                <td class="num">96.2%</td>
+                <td class="num">95.0%</td>
+                <td class="num">96.2%</td>
+                <td class="num">95.1%</td>
+                <td class="num">+1.2 pp</td>
+              </tr>
+              <tr class="hl">
+                <td>WS 3 / skew 0</td>
+                <td class="num">67.3%</td>
+                <td class="num">64.0%</td>
+                <td class="num">68.6%</td>
+                <td class="num">68.1%</td>
+                <td class="num pos">+4.6 pp</td>
+              </tr>
+              <tr>
+                <td>WS 3 / skew 1</td>
+                <td class="num">85.4%</td>
+                <td class="num">82.0%</td>
+                <td class="num">84.7%</td>
+                <td class="num">83.5%</td>
+                <td class="num">+2.7 pp</td>
+              </tr>
+              <tr>
+                <td>WS 3 / skew 1.4</td>
+                <td class="num">94.3%</td>
+                <td class="num">93.8%</td>
+                <td class="num">94.9%</td>
+                <td class="num">94.3%</td>
+                <td class="num">+1.1 pp</td>
+              </tr>
+              <tr class="hl">
+                <td>WS 8 / skew 0</td>
+                <td class="num">64.1%</td>
+                <td class="num">61.5%</td>
+                <td class="num">65.5%</td>
+                <td class="num">65.1%</td>
+                <td class="num pos">+4.0 pp</td>
+              </tr>
+              <tr>
+                <td>WS 8 / skew 1</td>
+                <td class="num">81.7%</td>
+                <td class="num">78.3%</td>
+                <td class="num">81.7%</td>
+                <td class="num">80.1%</td>
+                <td class="num">+3.5 pp</td>
+              </tr>
+              <tr>
+                <td>WS 8 / skew 1.4</td>
+                <td class="num">94.0%</td>
+                <td class="num">92.6%</td>
+                <td class="num">94.2%</td>
+                <td class="num">93.3%</td>
+                <td class="num">+1.5 pp</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="6">The three largest hit-rate gaps &mdash; +5.9, +4.6 and +4.0 pp, all at skew 0 with a
+                  working set at or above capacity &mdash; are exactly the three largest goodput margins: +25.2%,
+                  +20.1%, +17.9%. That is the index earning its complexity on one specific thing: <b>knowing what has
+                    been evicted.</b> A stateless hash assumes a replica that ever computed a prefix still holds it. At
+                  WS 0.25 that assumption is simply true and the hash sustains 98%. At WS 8 the hash falls to 61.5%
+                  while the index holds 65.5%, because the index has a TTL and a node cap calibrated against the
+                  fleet&rsquo;s own eviction tail and the hash has no model of eviction at all. Under skew the gap
+                  narrows again: a handful of hot conversations take most of the draws, they are always recently used
+                  and therefore always resident, and guessing they are resident is as good as knowing.</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div class="verdict">
+          <p><b>Session affinity has the best hit rate and the worst goodput.</b> Its prefix cache hit rate is higher
+            than the stateless hash&rsquo;s at <em>all twelve</em> points &mdash; and its goodput is lower at eleven of
+            twelve. That reproduces, from a third direction, what Anyscale published (a load-aware router beating
+            consistent hashing on tail latency <em>despite</em> a lower hit rate) and what CacheRoute published (sticky
+            routing taking the highest hit rate and the lowest capacity). <b>Hit rate is not the objective. It is one
+              term traded against balance, and a policy optimising it alone loses.</b></p>
+        </div>
+
+        <h3 style="margin-top:8px">The weighting between hash and load <em
+            style="font-style:normal;font-weight:400;color:var(--muted)">is</em> the policy</h3>
+        <p class="prose">The balance between the two terms is not a tuning detail &mdash; it is the axis the policy
+          lives on, so it was swept rather than defaulted. Five weights at WS 1 / skew 1.4, the load point, with a cold
+          fleet between every one.</p>
+
+        <figure>
+          <div class="bars">
+            <div class="bargroup">
+              <div class="gl">weight 0<br><span style="font-size:.68rem;color:var(--muted)">pure load</span></div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:73.6%;background:var(--s-2)"></span><span
+                    class="bv">21.26</span><span class="bn">3.5% SLO violations &middot; 80.4% deflected</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">weight 1</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:92.7%;background:var(--s-2)"></span><span
+                    class="bv">26.80</span><span class="bn">+26.1% &middot; 1.5% violations &middot; 38.4%
+                    deflected</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">weight 4<br><span style="font-size:.68rem;color:var(--muted)">selected</span></div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:97.9%;background:var(--s-1)"></span><span
+                    class="bv">28.29</span><span class="bn">+33.1% &middot; 0.7% violations &middot; 28.7%
+                    deflected</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">weight 12</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:67.8%;background:var(--s-2)"></span><span
+                    class="bv">19.59</span><span class="bn">&minus;7.9% &middot; 16.7% violations &middot; 14.7%
+                    deflected</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">weight 32<br><span style="font-size:.68rem;color:var(--muted)">pure hash</span></div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:26.9%;background:var(--s-2)"></span><span
+                    class="bv">7.76</span><span class="bn">&minus;63.5% &middot; 52.8% violations &middot; 0.0%
+                    deflected</span></div>
+              </div>
+            </div>
+          </div>
+          <figcaption>Median goodput over three repetitions at WS 1 / skew 1.4, scaled 0 to 28.9 req/s.
+            &ldquo;Deflected&rdquo; is the share of decisions the load term moved off the replica the hash ranked first.
+            Both ends are controls and both behaved: at weight 0 the least-loaded replica coincided with the
+            hash&rsquo;s first choice 18.5% of the time against a 20% chance baseline; at weight 32 deflection was
+            exactly 0.0%, 5,384 decisions to nil.</figcaption>
+        </figure>
+
+        <div class="verdict">
+          <p><b>The load term is an escape hatch, and closing it costs 63.5% of goodput.</b> Goodput peaks at weight 4,
+            +33.1% over routing on load alone, and the peak&rsquo;s range (28.09&ndash;28.90) is disjoint from second
+            place.</p>
+          <p><b>It does not fail through the metric you would expect.</b> TTFT <em>improves</em> monotonically as the
+            weight rises, 465 &rarr; 374 ms, because concentrating hot conversations where they hash is exactly what a
+            prefix cache rewards. Decode is what breaks: the batch on the winning replica deepens and at weight 32 the
+            <em>median</em> request&rsquo;s inter-token gap is 27.3 ms against a 24 ms bar it cleared at 12.5 ms four
+            points earlier. <b>Every SLO violation in this sweep is inter-token latency. Not one is TTFT</b>, which
+            never came within 500 ms of its own threshold at any weight.</p>
+        </div>
+
+        <div class="tw">
+          <table>
+            <caption><b>The weight axis in full.</b> <code>prefix_hash</code>, window 16 blocks, WS 1 / skew 1.4, closed
+              loop at 32 users, 300 s cells, three repetitions each, fleet cycled between weights.</caption>
+            <thead>
+              <tr>
+                <th class="num">weight</th>
+                <th class="num">goodput (3 reps)</th>
+                <th class="num">median</th>
+                <th class="num">vs weight 0</th>
+                <th class="num">TTFT p90</th>
+                <th class="num">ITL p50</th>
+                <th class="num">ITL p95</th>
+                <th class="num">SLO violations</th>
+                <th class="num">deflected</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="num">0</td>
+                <td class="num">21.07 / 21.26 / 21.48</td>
+                <td class="num">21.26</td>
+                <td class="num">&mdash;</td>
+                <td class="num">465 ms</td>
+                <td class="num">12.2 ms</td>
+                <td class="num">13.4 ms</td>
+                <td class="num">3.5%</td>
+                <td class="num">80.4%</td>
+              </tr>
+              <tr>
+                <td class="num">1</td>
+                <td class="num">26.79 / 26.80 / 27.85</td>
+                <td class="num">26.80</td>
+                <td class="num pos">+26.1%</td>
+                <td class="num">424 ms</td>
+                <td class="num">12.2 ms</td>
+                <td class="num">13.5 ms</td>
+                <td class="num">1.5%</td>
+                <td class="num">38.4%</td>
+              </tr>
+              <tr class="hl">
+                <td class="num">4</td>
+                <td class="num">28.09 / 28.29 / 28.90</td>
+                <td class="num">28.29</td>
+                <td class="num pos">+33.1%</td>
+                <td class="num">390 ms</td>
+                <td class="num">12.5 ms</td>
+                <td class="num">16.4 ms</td>
+                <td class="num">0.7%</td>
+                <td class="num">28.7%</td>
+              </tr>
+              <tr>
+                <td class="num">12</td>
+                <td class="num">17.67 / 19.59 / 22.68</td>
+                <td class="num">19.59</td>
+                <td class="num neg">&minus;7.9%</td>
+                <td class="num">374 ms</td>
+                <td class="num">13.5 ms</td>
+                <td class="num">26.2 ms</td>
+                <td class="num">16.7%</td>
+                <td class="num">14.7%</td>
+              </tr>
+              <tr>
+                <td class="num">32</td>
+                <td class="num">7.22 / 7.76 / 15.37</td>
+                <td class="num">7.76</td>
+                <td class="num neg">&minus;63.5%</td>
+                <td class="num">386 ms</td>
+                <td class="num neg">27.3 ms</td>
+                <td class="num">32.6 ms</td>
+                <td class="num neg">52.8%</td>
+                <td class="num">0.0%</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="9">The window is <b>16 blocks &mdash; 1,024 bytes</b>, bracketed by the workload&rsquo;s
+                  geometry rather than measured: past the 512-byte shared system prompt a third of sessions send
+                  identically, and well inside the first turn every later turn resends unchanged. A prompt shorter than
+                  the window is routed on load under <code>PROMPT_UNHASHED</code> rather than hashed on what it has; at
+                  this geometry the window is under a third of a first turn, so across 206,368 routing decisions it
+                  never fired once.</td>
+              </tr>
+              <tr>
+                <td colspan="9"><b>A note on that window in tokens.</b> The project states it as &ldquo;roughly 644
+                  engine tokens at the measured 1.59 prompt bytes per token.&rdquo; Two different measured ratios carry
+                  that label: 1.59 B/token, from the 2026-09-08 sweep (410,024,191 prompt bytes over 258,235,143 engine
+                  tokens), and <b>1.6576 B/token</b>, which is what every prefix index in every published run was
+                  actually calibrated with &mdash; logged identically across five router startups, and the figure belief
+                  divergence calls &ldquo;the 1.66 the engines report.&rdquo; At 1.66 the window is ~618 tokens, not
+                  ~644. Nothing downstream turns on the 26-token difference, but the window is stated against a ratio
+                  other than the one the index was sized with, and that is worth knowing before either number is reused.
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <p class="note">This is also the spec&rsquo;s claim that <em>&ldquo;consistent hashing has no escape hatch when
+            the hash lands hot sessions together&rdquo;</em> &mdash; measured as a continuous knob rather than inferred
+          from a comparison between two policies. It is the same escape hatch the spill rule gives the believed index.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 05 SPILL ============ -->
+    <section id="spill">
+      <div class="sec-head">
+        <div class="eyebrow">05 &middot; The ablation</div>
+        <h2>Does the spill rule earn its place?</h2>
+      </div>
+      <div class="stack">
+        <p class="prose">The spill rule is prefix affinity&rsquo;s escape hatch: having found the replica it believes
+          holds the longest leading run of the prompt, it declines that match when the replica is under pressure and
+          sends the turn elsewhere. It has two branches, and only one of them is armed in any published comparison.</p>
+
+        <div class="two">
+          <div class="panel">
+            <h3>Load-imbalance branch <span class="pill">armed</span></h3>
+            <p>Declines a match when the target replica holds more than <code>LOAD_IMBALANCE_FACTOR</code> = 2&times;
+              the least-loaded replica&rsquo;s inflight. This is the branch every published number rests on.</p>
+          </div>
+          <div class="panel">
+            <h3>Residency branch <span class="pill open">measured, kept off</span></h3>
+            <p>Was to decline under memory pressure. As first built it read <code>vllm:kv_cache_usage_perc</code>,
+              which counts blocks held by <em>running</em> requests &mdash; kv = 0.02128 + 0.02135 &times; inflight at
+              <b>r = 0.973</b> &mdash; so on this fleet it <em>was</em> the load branch. #28 rebuilt it on each
+              replica&rsquo;s own prefix cache hit rate (r = 0.138 with inflight), and #18&rsquo;s residency arm swept it
+              alone at three marks: it fires in the opposite direction to the load branch up the working-set axis, so
+              the two pressures <em>are</em> separable &mdash; and it loses to the load branch at every usable point, by
+              5&ndash;91%. It stays off on that evidence.</p>
+          </div>
+        </div>
+
+        <p class="prose">A second full arm ran prefix affinity with the rule off across the same grid &mdash; same
+          binaries, same bytes cell for cell, each from a cold fleet. This is the cleanest ablation in the project.</p>
+
+        <figure>
+          <div class="legend">
+            <span><i class="swatch" style="background:var(--s-3)"></i>session affinity</span>
+            <span><i class="swatch" style="background:var(--s-2)"></i>prefix affinity, spill <b>off</b></span>
+            <span><i class="swatch" style="background:var(--s-1)"></i>prefix affinity, spill <b>on</b></span>
+          </div>
+          <div class="bars">
+            <div class="bargroup">
+              <div class="gl">0.25 / 0</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:97.7%;background:var(--s-3)"></span><span
+                    class="bv">34.37</span></div>
+                <div class="bar"><span class="fill" style="width:100%;background:var(--s-2)"></span><span
+                    class="bv">35.16</span><span class="bn">spill off wins</span></div>
+                <div class="bar"><span class="fill" style="width:91.1%;background:var(--s-1)"></span><span
+                    class="bv">32.04</span><span class="bn">&minus;8.9%</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">0.25 / 1</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:25.1%;background:var(--s-3)"></span><span
+                    class="bv">8.83</span></div>
+                <div class="bar"><span class="fill" style="width:90.2%;background:var(--s-2)"></span><span
+                    class="bv">31.70</span></div>
+                <div class="bar"><span class="fill" style="width:97.9%;background:var(--s-1)"></span><span
+                    class="bv">34.43</span><span class="bn">+8.6%</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">0.25 / 1.4</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:20.9%;background:var(--s-3)"></span><span
+                    class="bv">7.36</span></div>
+                <div class="bar"><span class="fill" style="width:48.0%;background:var(--s-2)"></span><span
+                    class="bv">16.89</span></div>
+                <div class="bar"><span class="fill" style="width:98.9%;background:var(--s-1)"></span><span
+                    class="bv">34.79</span><span class="bn">+105.9%</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">1 / 0</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:25.6%;background:var(--s-3)"></span><span
+                    class="bv">8.99</span></div>
+                <div class="bar"><span class="fill" style="width:23.1%;background:var(--s-2)"></span><span
+                    class="bv">8.13</span></div>
+                <div class="bar"><span class="fill" style="width:42.5%;background:var(--s-1)"></span><span
+                    class="bv">14.94</span><span class="bn">+83.9%</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">1 / 1</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:48.2%;background:var(--s-3)"></span><span
+                    class="bv">16.96</span></div>
+                <div class="bar"><span class="fill" style="width:59.2%;background:var(--s-2)"></span><span
+                    class="bv">20.80</span></div>
+                <div class="bar"><span class="fill" style="width:66.9%;background:var(--s-1)"></span><span
+                    class="bv">23.51</span><span class="bn">+13.0%</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">1 / 1.4</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:31.9%;background:var(--s-3)"></span><span
+                    class="bv">11.23</span></div>
+                <div class="bar"><span class="fill" style="width:54.7%;background:var(--s-2)"></span><span
+                    class="bv">19.25</span></div>
+                <div class="bar"><span class="fill" style="width:86.6%;background:var(--s-1)"></span><span
+                    class="bv">30.45</span><span class="bn">+58.1%</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">3 / 0</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:26.5%;background:var(--s-3)"></span><span
+                    class="bv">9.32</span></div>
+                <div class="bar"><span class="fill" style="width:17.0%;background:var(--s-2)"></span><span
+                    class="bv">5.97</span></div>
+                <div class="bar"><span class="fill" style="width:33.0%;background:var(--s-1)"></span><span
+                    class="bv">11.61</span><span class="bn">+94.3%</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">3 / 1</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:38.2%;background:var(--s-3)"></span><span
+                    class="bv">13.44</span><span class="bn">n=2</span></div>
+                <div class="bar"><span class="fill" style="width:48.2%;background:var(--s-2)"></span><span
+                    class="bv">16.94</span><span class="bn">n=2</span></div>
+                <div class="bar"><span class="fill" style="width:54.0%;background:var(--s-1)"></span><span
+                    class="bv">18.97</span><span class="bn">+12.0%</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">3 / 1.4</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:18.3%;background:var(--s-3)"></span><span
+                    class="bv">6.44</span></div>
+                <div class="bar"><span class="fill" style="width:62.0%;background:var(--s-2)"></span><span
+                    class="bv">21.81</span></div>
+                <div class="bar"><span class="fill" style="width:81.9%;background:var(--s-1)"></span><span
+                    class="bv">28.79</span><span class="bn">+32.0%</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">8 / 0</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:25.1%;background:var(--s-3)"></span><span
+                    class="bv">8.83</span></div>
+                <div class="bar"><span class="fill" style="width:18.5%;background:var(--s-2)"></span><span
+                    class="bv">6.51</span></div>
+                <div class="bar"><span class="fill" style="width:30.4%;background:var(--s-1)"></span><span
+                    class="bv">10.68</span><span class="bn">+64.1%</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">8 / 1</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:38.4%;background:var(--s-3)"></span><span
+                    class="bv">13.49</span></div>
+                <div class="bar"><span class="fill" style="width:45.5%;background:var(--s-2)"></span><span
+                    class="bv">15.98</span></div>
+                <div class="bar"><span class="fill" style="width:48.1%;background:var(--s-1)"></span><span
+                    class="bv">16.91</span><span class="bn">+5.8%</span></div>
+              </div>
+            </div>
+            <div class="bargroup">
+              <div class="gl">8 / 1.4</div>
+              <div class="barset">
+                <div class="bar"><span class="fill" style="width:30.4%;background:var(--s-3)"></span><span
+                    class="bv">10.69</span></div>
+                <div class="bar"><span class="fill" style="width:67.3%;background:var(--s-2)"></span><span
+                    class="bv">23.66</span></div>
+                <div class="bar"><span class="fill" style="width:79.8%;background:var(--s-1)"></span><span
+                    class="bv">28.04</span><span class="bn">+18.5%</span></div>
+              </div>
+            </div>
+          </div>
+          <figcaption>Goodput, median of three repetitions, WS / skew. Bars share one scale, 0 to 35.16 req/s. At every
+            point the two prefix arms&rsquo; repetition ranges do not overlap. The two arms ran at different times
+            &mdash; the spill-on grid overnight, spill-off the next afternoon &mdash; on the same binaries and the same
+            bytes, each from a cold fleet. At WS 3 / skew 1 session affinity and spill-off each rest on two repetitions
+            since #33&rsquo;s re-score (was 13.42, 16.21 and +17.0%); these arm figures take the midpoint of two,
+            where the map above takes the lower.</figcaption>
+        </figure>
+
+        <div class="verdict">
+          <p><b>Yes. Prefix affinity with the spill rule beats prefix affinity without it at 11 of 12 points, by +5.8%
+              to +105.9%.</b> Turn the rule off and prefix affinity loses 5&ndash;51% of its goodput &mdash; and at
+            three points it drops <em>below</em> plain session affinity (WS 1 / skew 0: 8.13 against 8.99; WS 3 / skew
+            0: 5.97 against 9.32; WS 8 / skew 0: 6.51 against 8.83).</p>
+          <p><b>The rule is what spreads hot conversations.</b> With it off, prefix affinity serves each hot
+            conversation from one replica at every point &mdash; pinned, exactly as session affinity pins it &mdash; and
+            tie-breaking has nothing to choose between. With it on, the busiest replica sits at fair share
+            (21&ndash;22%) at all twelve points.</p>
+          <p><b>How a rule firing on 0.2&ndash;2.5% of decisions is worth a doubling:</b> a spill sends one turn of an
+            overloaded conversation to another replica, which then caches it too. From then on that conversation&rsquo;s
+            prefix match <em>ties</em> across every replica holding it, and the tie goes to the least loaded. The spill
+            makes the choice once; tie-breaking takes it from there. It does so without costing cache hits &mdash; with
+            and without the rule, hit rates match within 1.0 pp everywhere but one point.</p>
+        </div>
+
+        <div class="tw">
+          <table>
+            <caption><b>What the spill rule moves.</b> Decisions pooled per skew column across the working-set axis,
+              prefix affinity with the rule on.</caption>
+            <thead>
+              <tr>
+                <th></th>
+                <th class="num">skew 0</th>
+                <th class="num">skew 1</th>
+                <th class="num">skew 1.4</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>honoured prefix match</td>
+                <td class="num">87.6&ndash;97.5%</td>
+                <td class="num">92.7&ndash;98.8%</td>
+                <td class="num">97.7&ndash;99.2%</td>
+              </tr>
+              <tr>
+                <td>cold (no match)</td>
+                <td class="num">0.0&ndash;12.1%</td>
+                <td class="num">0.3&ndash;6.2%</td>
+                <td class="num">0.5&ndash;1.8%</td>
+              </tr>
+              <tr class="hl">
+                <td>spill (match declined)</td>
+                <td class="num">0.24&ndash;2.51%</td>
+                <td class="num">0.93&ndash;1.42%</td>
+                <td class="num">0.33&ndash;0.54%</td>
+              </tr>
+              <tr>
+                <td>replicas serving each repetition&rsquo;s 3 hottest conversations</td>
+                <td class="num">1.8&ndash;3.1</td>
+                <td class="num">3.8&ndash;4.8</td>
+                <td class="num">4.0&ndash;4.3</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="tw">
+          <table>
+            <caption><b>Where the balancing actually comes from</b> &mdash; pooled across the grid. Session affinity
+              serves every conversation from exactly one replica at every point.</caption>
+            <thead>
+              <tr>
+                <th></th>
+                <th class="num">session affinity</th>
+                <th class="num">prefix, spill off</th>
+                <th class="num">prefix, spill on</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>replicas serving each repetition&rsquo;s 3 hottest conversations</td>
+                <td class="num">1.00</td>
+                <td class="num">1.00&ndash;1.67</td>
+                <td class="num">1.78&ndash;4.78</td>
+              </tr>
+              <tr class="hl">
+                <td>busiest replica&rsquo;s share of requests <span class="sub">fair share is 20%</span></td>
+                <td class="num">22&ndash;55%</td>
+                <td class="num">23&ndash;41%</td>
+                <td class="num">21&ndash;22%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 style="margin-top:8px">Where the rule costs, and where it is simply wrong</h3>
+        <ul class="findings">
+          <li><b>WS 0.25 / skew 0: spill on is 8.9% below spill off</b> (equivalently, spill-off is +9.7% above spill-on
+            &mdash; the two are different numbers and the repository&rsquo;s README reports the first under the
+            second&rsquo;s wording), <b>with a hit rate 2.3 pp lower.</b> There is no imbalance to fix and the whole
+            working set fits in cache, so every spill only sends a turn to a replica that does not hold it. This is the
+            one cell in the whole grid where the rule is a net loss &mdash; and it is the same cell where the believed
+            index stops beating a plain sticky hash.</li>
+          <li><b>Placement matters separately from spilling, in both directions.</b> Prefix affinity sends a new
+            conversation to the least-loaded replica; session affinity hashes it. With spill off, that placement is the
+            <em>only</em> difference between them &mdash; and it helps under skew (WS 3 / skew 1.4: 6.44 &rarr; 21.81)
+            but hurts at skew 0 past WS 0.25 (WS 3 / skew 0: 9.32 &rarr; 5.97), where spill-off prefix affinity&rsquo;s
+            busiest replica runs at 28&ndash;31% against the hash&rsquo;s 22&ndash;26%. Why the placement unbalances
+            there is not isolated. The rule rescues exactly those cells: spill on is 64&ndash;94% above spill off at WS
+            1, 3 and 8 at skew 0.</li>
+          <li><b>Spill-off is also bistable; spill-on is not.</b> At WS 1 / skew 1 and WS 3 / skew 1.4 one of
+            spill-off&rsquo;s three repetitions fell to half the others &mdash; 10.55 and 10.78 against about 21. Spill
+            on showed no such repetition anywhere on the grid.</li>
+          <li><b>The rule is tuned for one load and misfires at another.</b> At 6 req/s open loop it fired on
+            <b>19&ndash;20% of later turns</b>, against 0.674% at the 32-user rung it was settled at. <b>42.0% of
+              spilled turns missed the SLO</b>, with 11.9% of prompt cached and TTFT p50 970 ms, against 7.6%, 73.9% and
+            372 ms for honoured matches. That is why the recovery curves use the spill-off arm.</li>
+          <li><b>&ldquo;Twice the fleet minimum&rdquo; was never a ratio.</b> Across 2,361 weighed decisions the
+            fleet&rsquo;s minimum inflight was 0 on 96.4% and 1 on the other 3.6% &mdash; <em>never once above 1</em>.
+            So a factor of 2 was the constant 2 for the entire run: &ldquo;decline any replica holding more than 2
+            requests.&rdquo; The settled rung has that condition on 16% of its decisions; this rung has it on 100%.</li>
+        </ul>
+
+        <h3 style="margin-top:8px">And at low load the answer reverses: the best setting is off</h3>
+        <p class="prose">The same rule, swept at 6 req/s open loop rather than 32 closed-loop users, with a fresh fleet
+          per point. All 10,812 requests succeeded; zero dropped, zero failed, every cell clean.</p>
+
+        <div class="tw">
+          <table>
+            <caption><b>Goodput falls monotonically with how often the condition fires.</b>
+              <code>prefix_affinity</code>, spill point varied per cell &mdash; the only thing that varies. Open loop at
+              6 req/s, 150 s cells, three repetitions.</caption>
+            <thead>
+              <tr>
+                <th>spill point</th>
+                <th class="num">spills (of requests)</th>
+                <th class="num">goodput/s</th>
+                <th class="num">vs off</th>
+                <th class="num">SLO misses / 601</th>
+                <th class="num">TTFT p99</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="hl">
+                <td>off</td>
+                <td class="num">0.0%</td>
+                <td class="num">5.99</td>
+                <td class="num">&mdash;</td>
+                <td class="num">0.7</td>
+                <td class="num">662&ndash;752 ms</td>
+              </tr>
+              <tr>
+                <td>4&times; min</td>
+                <td class="num">1.6%</td>
+                <td class="num">5.92</td>
+                <td class="num neg">&minus;1.2%</td>
+                <td class="num">8.3</td>
+                <td class="num">756&ndash;1,347 ms</td>
+              </tr>
+              <tr>
+                <td>2&times; mean</td>
+                <td class="num">7.2%</td>
+                <td class="num">5.64</td>
+                <td class="num neg">&minus;5.8%</td>
+                <td class="num">35.7</td>
+                <td class="num">1,560&ndash;1,639 ms</td>
+              </tr>
+              <tr>
+                <td>2&times; min <span class="sub">the settled point</span></td>
+                <td class="num">11.7%</td>
+                <td class="num">5.46</td>
+                <td class="num neg">&minus;8.8%</td>
+                <td class="num">54.0</td>
+                <td class="num">1,614&ndash;2,165 ms</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="6"><b>Both proposed repairs were measured and both rejected.</b> Holding the factor against
+                  the fleet <em>mean</em> recovers a third of the deficit and does so purely by firing less often;
+                  raising the factor to 4 against the unchanged minimum recovers 87% of it by firing less still.
+                  Extrapolate the line to zero spills and it arrives at the spill-off cell. <b>There is no setting of
+                    either axis at this rung that beats declining nothing.</b></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div class="verdict">
+          <p><b>Why, and it is not about the driver.</b> At 32 virtual users the replicas are saturated, so moving a
+            request off a buried replica buys back more queueing than the prefill costs, and the rule is worth +80%. At
+            6 req/s each replica holds <b>1.2 requests at the median</b> &mdash; six across the fleet, against the 32
+            the settled rung holds &mdash; so nothing is queueing, and a declined match pays a full prefill to escape a
+            wait that was not happening. <b>The rule is not mistuned there. It is answering a question the fleet is not
+              posing.</b></p>
+          <p>So the honest form of the answer: <b>prefix affinity + spill beats prefix affinity alone wherever the fleet
+              is loaded enough for queueing to exist, and loses to it wherever it is not.</b></p>
+        </div>
+
+        <div class="tw">
+          <table>
+            <caption><b>The factor itself has a turning point</b> &mdash; the pre-run tuning sweep that set the
+              grid&rsquo;s parameter, at 32 users. A single-cell sweep, not the grid. It is what moved the inherited
+              factor from 8 to 2 before any grid cell ran.</caption>
+            <thead>
+              <tr>
+                <th>load-imbalance factor</th>
+                <th class="num">2</th>
+                <th class="num">4</th>
+                <th class="num">8</th>
+                <th class="num">12</th>
+                <th class="num">16</th>
+                <th class="num">24</th>
+                <th class="num">32</th>
+                <th class="num">off</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>goodput/s</td>
+                <td class="num pos">29.89</td>
+                <td class="num">29.71</td>
+                <td class="num">29.63</td>
+                <td class="num">29.27</td>
+                <td class="num">28.86</td>
+                <td class="num">23.82</td>
+                <td class="num neg">14.45</td>
+                <td class="num">16.61</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="9">Goodput declines monotonically as the factor rises &mdash; there is no plateau &mdash;
+                  and <b>at factor 32 it falls below turning the rule off entirely</b>. Prefix cache hit rate is 95.5%
+                  at every factor, so a more aggressive valve costs nothing in cache terms; what it costs is the
+                  balance. The usable axis is also bounded by the rung: the inflight ratio never exceeded 29 across
+                  10,469 spill-off decisions at 32 users, so a factor chosen at one rung cannot be assumed at another
+                  &mdash; which is exactly what #31 later found the hard way.</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <ul class="findings">
+          <li><b>The replacement signal is measured and does not degenerate.</b> The residency branch now reads the
+            share of its own claims each replica honours, taken from the usage block of responses the router already
+            proxies. Over 4,022 routing decisions it moves with inflight at <b>r = 0.138</b>, against r = 0.979 for the
+            batch KV gauge it replaced on the same rows.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ============ 06 BELIEF ============ -->
+    <section id="belief">
+      <div class="sec-head">
+        <div class="eyebrow">06 &middot; The measurement nobody else publishes</div>
+        <h2>How wrong the index is, and how fast it goes wrong</h2>
+      </div>
+      <div class="stack">
+        <p class="prose">The router models state it does not own. Replicas evict on their own schedule and nothing tells
+          the router when they do, so the prefix index is a belief that decays. Every request carries both sides on one
+          row: the prefix match the router decided on, and the engine&rsquo;s own
+          <code>usage.prompt_tokens_details.cached_tokens</code> for that same request. Over-prediction and
+          under-prediction are never netted &mdash; believing in blocks a replica evicted misroutes the request;
+          forgetting blocks it still holds only forfeits a match.</p>
+
+        <div class="tw">
+          <table>
+            <caption><b>Belief against the engine&rsquo;s own account</b>, by working-set ratio. 19,391 requests of the
+              clean working-set run; <b>99.7% of the tokens the index claimed were really there</b>, with 17,845
+              requests under-predicting against 1,531 over-predicting.</caption>
+            <thead>
+              <tr>
+                <th>working set (nominal)</th>
+                <th class="num">requests</th>
+                <th class="num">honoured</th>
+                <th class="num">over-predicted</th>
+                <th class="num">mean tokens over</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>0.25</td>
+                <td class="num">10,626</td>
+                <td class="num">100.0%</td>
+                <td class="num">951</td>
+                <td class="num">4</td>
+              </tr>
+              <tr>
+                <td>1</td>
+                <td class="num">3,689</td>
+                <td class="num">98.9%</td>
+                <td class="num">317</td>
+                <td class="num">314</td>
+              </tr>
+              <tr>
+                <td>3</td>
+                <td class="num">2,639</td>
+                <td class="num">99.2%</td>
+                <td class="num">169</td>
+                <td class="num">246</td>
+              </tr>
+              <tr>
+                <td>8</td>
+                <td class="num">2,437</td>
+                <td class="num">99.5%</td>
+                <td class="num">94</td>
+                <td class="num">241</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="5"><b>Memory pressure makes the index wrong in bigger pieces, not more often.</b> The
+                  honoured share barely moves and the count of over-predicting requests falls monotonically &mdash; 951,
+                  317, 169, 94 &mdash; while the mean over-prediction jumps eightyfold between WS 0.25 and WS 1 and is
+                  then flat. Almost all of that change happens at the point the fleet stops holding the set.</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <figure>
+          <svg viewBox="0 0 720 268" role="img"
+            aria-label="Share of the router's belief the engines honoured, by how long since the session was last served. It sits near 99% up to 30 seconds, drops to 86.0% in the 30 second to 1 minute bucket, and returns to 98.1% beyond it."
+            style="width:100%;height:auto;display:block">
+            <rect x="535" y="24" width="77.5" height="186" fill="var(--warn-bg)"></rect>
+            <text x="573" y="18" text-anchor="middle" font-size="10" font-family="IBM Plex Mono, monospace"
+              fill="var(--warn-ink)">measured TTL 56.97 s</text>
+            <g stroke="var(--rule)" stroke-width="1">
+              <line x1="70" y1="210" x2="690" y2="210"></line>
+              <line x1="70" y1="150" x2="690" y2="150"></line>
+              <line x1="70" y1="90" x2="690" y2="90"></line>
+              <line x1="70" y1="30" x2="690" y2="30"></line>
+            </g>
+            <g font-size="10" font-family="IBM Plex Mono, monospace" fill="var(--muted)" text-anchor="end">
+              <text x="60" y="214">85%</text><text x="60" y="154">90%</text><text x="60" y="94">95%</text><text x="60"
+                y="34">100%</text>
+            </g>
+            <polyline fill="none" stroke="var(--s-1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"
+              points="70,48 147.5,43.2 225,32.4 302.5,37.2 380,40.8 457.5,58.8 535,198 612.5,52.8 690,52.8"></polyline>
+            <g fill="var(--s-1)">
+              <circle cx="70" cy="48" r="4"></circle>
+              <circle cx="147.5" cy="43.2" r="4"></circle>
+              <circle cx="225" cy="32.4" r="4"></circle>
+              <circle cx="302.5" cy="37.2" r="4"></circle>
+              <circle cx="380" cy="40.8" r="4"></circle>
+              <circle cx="457.5" cy="58.8" r="4"></circle>
+              <circle cx="535" cy="198" r="5.5" stroke="var(--surface)" stroke-width="2"></circle>
+              <circle cx="612.5" cy="52.8" r="4"></circle>
+              <circle cx="690" cy="52.8" r="4"></circle>
+            </g>
+            <text x="225" y="22" text-anchor="middle" font-size="11" font-family="IBM Plex Mono, monospace"
+              fill="var(--ink-2)" font-weight="600">99.8%</text>
+            <text x="535" y="220" text-anchor="middle" font-size="12" font-family="IBM Plex Mono, monospace"
+              fill="var(--bad)" font-weight="600">86.0%</text>
+            <g font-size="10" font-family="IBM Plex Mono, monospace" fill="var(--muted)" text-anchor="middle">
+              <text x="70" y="246">first</text><text x="147.5" y="246">&lt;1s</text><text x="225"
+                y="246">1&ndash;2s</text><text x="302.5" y="246">2&ndash;5s</text>
+              <text x="380" y="246">5&ndash;10s</text><text x="457.5" y="246">10&ndash;30s</text><text x="535"
+                y="246">30s&ndash;1m</text><text x="612.5" y="246">1&ndash;2m</text><text x="690" y="246">&ge;2m</text>
+            </g>
+            <text x="380" y="264" text-anchor="middle" font-size="10" font-family="IBM Plex Sans, sans-serif"
+              fill="var(--muted)">time since the session was last served</text>
+          </svg>
+          <figcaption>Share of predicted tokens the engines honoured, 20,160 requests of the re-run recency measurement
+            (<code>think30</code> and <code>think75</code> arms pooled). The dip is not gradual decay &mdash; it is a
+            cliff at the TTL, and the index recovers past it because a session gone that long has almost nothing left to
+            claim: predicted tokens per request fall from 2,519 in the 10&ndash;30 s bucket to 481 in the 1&ndash;2 m
+            bucket.</figcaption>
+        </figure>
+
+        <div class="tw">
+          <table>
+            <caption><b>The decay curve in full.</b> A request&rsquo;s age is its own start minus the end of that
+              session&rsquo;s previous turn in the same cell &mdash; derived from the rows, so it costs the routing path
+              nothing.</caption>
+            <thead>
+              <tr>
+                <th>since last served</th>
+                <th class="num">requests</th>
+                <th class="num">predicted/req</th>
+                <th class="num">actual/req</th>
+                <th class="num">honoured</th>
+                <th class="num">over-predicted</th>
+                <th class="num">mean tokens over</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>first turn</td>
+                <td class="num">1,029</td>
+                <td class="num">391</td>
+                <td class="num">401</td>
+                <td class="num">98.5%</td>
+                <td class="num">121</td>
+                <td class="num">50</td>
+              </tr>
+              <tr>
+                <td>&lt; 1 s</td>
+                <td class="num">5,523</td>
+                <td class="num">3,145</td>
+                <td class="num">3,134</td>
+                <td class="num">98.9%</td>
+                <td class="num">231</td>
+                <td class="num">859</td>
+              </tr>
+              <tr>
+                <td>1 s &ndash; 2 s</td>
+                <td class="num">1,242</td>
+                <td class="num">2,694</td>
+                <td class="num">2,731</td>
+                <td class="num pos">99.8%</td>
+                <td class="num">18</td>
+                <td class="num">401</td>
+              </tr>
+              <tr>
+                <td>2 s &ndash; 5 s</td>
+                <td class="num">1,964</td>
+                <td class="num">2,770</td>
+                <td class="num">2,822</td>
+                <td class="num">99.4%</td>
+                <td class="num">53</td>
+                <td class="num">603</td>
+              </tr>
+              <tr>
+                <td>5 s &ndash; 10 s</td>
+                <td class="num">1,699</td>
+                <td class="num">2,718</td>
+                <td class="num">2,783</td>
+                <td class="num">99.1%</td>
+                <td class="num">92</td>
+                <td class="num">461</td>
+              </tr>
+              <tr>
+                <td>10 s &ndash; 30 s</td>
+                <td class="num">3,495</td>
+                <td class="num">2,519</td>
+                <td class="num">2,577</td>
+                <td class="num">97.6%</td>
+                <td class="num">198</td>
+                <td class="num">1,084</td>
+              </tr>
+              <tr class="hl">
+                <td>30 s &ndash; 1 m</td>
+                <td class="num">2,656</td>
+                <td class="num">1,818</td>
+                <td class="num">1,759</td>
+                <td class="num neg">86.0%</td>
+                <td class="num">376</td>
+                <td class="num">1,793</td>
+              </tr>
+              <tr>
+                <td>1 m &ndash; 2 m</td>
+                <td class="num">2,082</td>
+                <td class="num">481</td>
+                <td class="num">686</td>
+                <td class="num">98.1%</td>
+                <td class="num">339</td>
+                <td class="num">56</td>
+              </tr>
+              <tr>
+                <td>&ge; 2 m</td>
+                <td class="num">470</td>
+                <td class="num">425</td>
+                <td class="num">475</td>
+                <td class="num">98.1%</td>
+                <td class="num">53</td>
+                <td class="num">71</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="7">Pooled: 20,160 requests, 97.4% honoured overall; over-predicted on 1,481 (1,197,474
+                  tokens), under-predicted on 18,661 (1,899,919 tokens), exact on 18. <b>This curve was withheld
+                    once.</b> Every cell of the first recency run was flagged as still warming up &mdash; precisely the
+                  condition that manufactures under-prediction &mdash; so it was not published. Re-run at a geometry
+                  whose cells do not flag, the decay holds.</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <p class="note">That measurement then sizes the index: the node cap is the fleet model scaled by the share of
+          belief the engines honoured, which trimmed it by 0.3% &mdash; 16,311 &rarr; 16,258. The modelling decision
+          ADR-0006 could not verify turns out to have been very nearly right.</p>
+      </div>
+    </section>
+
+    <!-- ============ 07 EXACT ============ -->
+    <section id="exact">
+      <div class="sec-head">
+        <div class="eyebrow">07 &middot; The rung that went the wrong way</div>
+        <h2>Exact residency costs more than knowing exactly returns</h2>
+      </div>
+      <div class="stack">
+        <p class="prose">The expected result was <em>none &lt; believed &lt; exact</em>. What the fleet produced was
+          <em>none &lt; exact &lt; believed</em>. Exact residency &mdash; following the engines&rsquo; own KV cache
+          events rather than a belief &mdash; sits below the believed index at every grid point where it has a usable
+          cell, eleven of twelve, by 4.6% to 13.5% of goodput. The streams were not broken: zero lost batches, zero resets, 0.26% orphaned of
+          885,071 applied events, and not one prompt that missed its tokenize budget.</p>
+
+        <div class="tw">
+          <table>
+            <caption><b>&Delta; goodput, exact residency against the believed index.</b> Negative means exact residency
+              served fewer requests inside the SLO. WS 1 / skew 1 read &minus;8.7% as first published; when #33
+              re-judged the recorded cells, all three of exact residency&rsquo;s there had slowed across their measured
+              windows by 27&ndash;45%, so the point has no usable cell.</caption>
+            <thead>
+              <tr>
+                <th>WS \ skew</th>
+                <th class="num">0</th>
+                <th class="num">1</th>
+                <th class="num">1.4</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>0.25</td>
+                <td class="num neg">&minus;6.7%</td>
+                <td class="num neg">&minus;8.6%</td>
+                <td class="num neg">&minus;7.7%</td>
+              </tr>
+              <tr>
+                <td>1</td>
+                <td class="num neg">&minus;9.2%</td>
+                <td class="num">&mdash;</td>
+                <td class="num neg">&minus;7.5%</td>
+              </tr>
+              <tr>
+                <td>3</td>
+                <td class="num neg">&minus;10.3%</td>
+                <td class="num neg">&minus;8.5%</td>
+                <td class="num neg">&minus;4.6%</td>
+              </tr>
+              <tr>
+                <td>8</td>
+                <td class="num neg">&minus;13.5%</td>
+                <td class="num neg">&minus;13.5%</td>
+                <td class="num neg">&minus;6.3%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="verdict">
+          <p><b>Two separate things put it there, and only one of them is the round-trip.</b> The router has no
+            tokenizer, so it asks an engine&rsquo;s <code>/tokenize</code> before every routing decision: p50 <b>25.96
+              ms</b>, p90 37.91 ms, against the index&rsquo;s 0.38 ms of total router overhead &mdash; a quarter of this
+            fleet&rsquo;s TTFT budget spent before anything is routed. Pooled TTFT goes p50 96.4 &rarr; 140.0 ms and p90
+            457.5 &rarr; 734.0 ms. The round-trip explains the p50 gap almost exactly (43.6 ms of gap against 25.96 ms
+            of tokenize, the rest being the second load those calls put on the same API servers). It does <em>not</em>
+            explain the <b>276 ms p90 gap</b>, which is four to seven times the tokenize p90.</p>
+          <p><b>Exact residency also reaches a lower hit rate than the belief it replaced</b> &mdash; 0.8973 against
+            0.9088 &mdash; and makes the engines compute <b>12.7% more new tokens per request</b>. Its predictions were
+            near-exact, so this is placement, not accuracy.</p>
+          <p><b>A belief is predictive and a fact is not.</b> The index records what it <em>sent</em> &mdash; intent
+            &mdash; so several requests arriving at once that share a new prefix are herded onto one replica and the
+            prefix is computed once. Exact residency records only what an engine has finished computing and reported:
+            while the first request is still prefilling, the others are told, correctly, that no replica holds that
+            prefix yet. So they scatter, and the same prefix is computed on several replicas at once.</p>
+        </div>
+
+        <div class="tw">
+          <table>
+            <caption><b>The turn split is the evidence.</b> First turns of different sessions arrive concurrently and
+              share only the system prompt and branch families &mdash; exactly the case the belief herds and the fact
+              scatters. Later turns run sequentially inside one closed-loop session, so the previous turn has finished
+              and <em>has</em> been reported.</caption>
+            <thead>
+              <tr>
+                <th>hit rate (aggregate)</th>
+                <th class="num">first turns</th>
+                <th class="num">later turns</th>
+                <th class="num">all</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="hl">
+                <td>prefix affinity (believed)</td>
+                <td class="num">0.8254</td>
+                <td class="num">0.9176</td>
+                <td class="num">0.9088</td>
+              </tr>
+              <tr>
+                <td>exact residency</td>
+                <td class="num">0.8026</td>
+                <td class="num">0.9073</td>
+                <td class="num">0.8973</td>
+              </tr>
+              <tr>
+                <td>session affinity</td>
+                <td class="num">0.7950</td>
+                <td class="num">0.9150</td>
+                <td class="num">0.9035</td>
+              </tr>
+              <tr>
+                <td>deficit, exact vs believed</td>
+                <td class="num neg">&minus;2.28 pp</td>
+                <td class="num neg">&minus;1.03 pp</td>
+                <td class="num neg">&minus;1.15 pp</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="4"><b>The index was complete, so this is not a cold-start artefact.</b> Across the twelve
+                  points the five event streams lost <b>zero</b> batches, reset <b>zero</b> times and reconnected
+                  <b>zero</b> times, with 2,285 orphaned runs out of <b>885,071 applied events &mdash; 0.26%</b>.
+                  <code>PROMPT_UNTOKENIZED</code> is <b>0</b>: the 500 ms budget never once bound. Exact residency also
+                  never routed cold at all (0 <code>COLD</code> decisions against the index&rsquo;s 2.8%), because the
+                  events always name <em>some</em> holder. Its knowledge was more complete than the index&rsquo;s and
+                  still worth less.</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <p class="note"><b>Where the deficit nearly closes.</b> It is smallest in the high-skew corner &mdash;
+          &minus;4.6% at WS 3 / skew 1.4 and &minus;6.3% at WS 8 / skew 1.4, against &minus;13.5% at WS 8 / skew 0. The
+          p90 TTFT penalty collapses with it: 52 ms at WS 3 / skew 1.4 against 340 ms at WS 8 / skew 0. The reason is
+          the same one that narrows the index&rsquo;s margin over the stateless hash under skew &mdash; a handful of hot
+          conversations take most of the draws, they are always recently used and therefore always resident, and under
+          those conditions a fact is nearly as good as a belief.</p>
+
+        <p class="note"><b>How this sits against llm-d.</b> llm-d measured P90 TTFT 0.54 s precise against 31.1 s
+          approximate; here the two are 734 ms exact against 458 ms approximate &mdash; the other way round. That is not
+          a contradiction so much as a statement of where their premise holds. A precise index pays off when a routing
+          miss is expensive: long prompts, prefill measured in seconds, caches a router cannot guess. Then a fixed 26 ms
+          to know exactly is nothing. On five consumer cards serving 448-token turns both terms invert at once &mdash;
+          the miss is cheap, because a believed index already reaches 0.909 hit rate, while 26 ms is a quarter of the
+          entire TTFT budget. <b>The cost of knowing is roughly fixed; the value of knowing scales with what a mistake
+            costs.</b> This fleet is small enough that the two cross over.</p>
+
+        <p class="note"><b>The one honest caveat</b> is that 26 ms is the cost of <em>this</em> way of knowing, not of
+          exactness itself. A router that tokenized in-process would pay perhaps 1&ndash;2 ms &mdash; rejected in
+          ADR-0010 as needing cgo or an unofficial chat-template port, and as failing silently when a template byte
+          drifts. Even granting a free tokenizer, the 12.7% redundant prefill and the 1.15 pp hit-rate deficit remain,
+          and those are what would still have to be answered.</p>
+
+        <div class="tw">
+          <table>
+            <caption><b>The cost of exactness at the TTFT tail.</b> TTFT p90 for the two policies at every grid point,
+              with llm-d&rsquo;s published datacentre-scale figure set beside them &mdash; not ranked against them.
+              Different fleet, model and workload; this is one host of consumer cards whose caches are far smaller and
+              evict far more often.</caption>
+            <thead>
+              <tr>
+                <th>point</th>
+                <th class="num">TTFT p90, believed index</th>
+                <th class="num">TTFT p90, exact residency</th>
+                <th class="num">share of the gain the approximation keeps</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>WS 0.25 / skew 0</td>
+                <td class="num">236 ms</td>
+                <td class="num">429 ms</td>
+                <td class="num">&mdash; <span class="sub">exact&rsquo;s gain inside spread</span></td>
+              </tr>
+              <tr>
+                <td>WS 0.25 / skew 1</td>
+                <td class="num">120 ms</td>
+                <td class="num">395 ms</td>
+                <td class="num">113%</td>
+              </tr>
+              <tr>
+                <td>WS 0.25 / skew 1.4</td>
+                <td class="num">120 ms</td>
+                <td class="num">362 ms</td>
+                <td class="num">111%</td>
+              </tr>
+              <tr class="hl">
+                <td>WS 1 / skew 0</td>
+                <td class="num">799 ms</td>
+                <td class="num">990 ms</td>
+                <td class="num">130%</td>
+              </tr>
+              <tr>
+                <td>WS 1 / skew 1</td>
+                <td class="num">470 ms</td>
+                <td class="num">734 ms <span class="sub">now-flagged cells</span></td>
+                <td class="num">&mdash; <span class="sub">no usable exact cell</span></td>
+              </tr>
+              <tr>
+                <td>WS 1 / skew 1.4</td>
+                <td class="num">395 ms</td>
+                <td class="num">464 ms</td>
+                <td class="num">&mdash; <span class="sub">one usable session repetition</span></td>
+              </tr>
+              <tr>
+                <td>WS 3 / skew 0</td>
+                <td class="num">972 ms</td>
+                <td class="num">1,141 ms</td>
+                <td class="num">181%</td>
+              </tr>
+              <tr>
+                <td>WS 3 / skew 1</td>
+                <td class="num">727 ms</td>
+                <td class="num">846 ms</td>
+                <td class="num">130%</td>
+              </tr>
+              <tr>
+                <td>WS 3 / skew 1.4</td>
+                <td class="num">421 ms</td>
+                <td class="num">473 ms</td>
+                <td class="num">106%</td>
+              </tr>
+              <tr>
+                <td>WS 8 / skew 0</td>
+                <td class="num">999 ms</td>
+                <td class="num">1,339 ms</td>
+                <td class="num">&mdash; <span class="sub">exact&rsquo;s gain inside spread</span></td>
+              </tr>
+              <tr>
+                <td>WS 8 / skew 1</td>
+                <td class="num">732 ms</td>
+                <td class="num">1,013 ms</td>
+                <td class="num">278%</td>
+              </tr>
+              <tr>
+                <td>WS 8 / skew 1.4</td>
+                <td class="num">420 ms</td>
+                <td class="num">488 ms</td>
+                <td class="num">111%</td>
+              </tr>
+              <tr>
+                <td>llm-d, published (datacentre scale)</td>
+                <td class="num">31.1 s <span class="sub">approximate</span></td>
+                <td class="num">0.54 s <span class="sub">precise</span></td>
+                <td class="num">&mdash;</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="4">&ldquo;Share of the gain kept&rdquo; is (index &minus; session) / (exact &minus;
+                  session) in goodput medians. Above 100% means the approximation beat the exact policy. No share is
+                  claimed at the two points where exact residency&rsquo;s own gain over session affinity is inside the
+                  run-to-run spread &mdash; a share of noise is noise &mdash; nor at the two #33&rsquo;s re-score left
+                  without the cells to compute one, which read 152% and 113% as first published. All eight shares that
+                  remain are above 100%. The per-point TTFT p90s are as first published; exact residency&rsquo;s 734 ms at
+                  WS 1 / skew 1 comes from the three cells now set aside.</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 08 ROBUSTNESS ============ -->
+    <section id="robust">
+      <div class="sec-head">
+        <div class="eyebrow">08 &middot; The alternative explanations, closed</div>
+        <h2>Failure, overhead, and the hardware underneath</h2>
+      </div>
+      <div class="stack">
+
+        <h3>Surviving a replica dying</h3>
+        <p class="prose">One replica killed under steady open-loop load at 6 req/s and restarted 60 s later, once per
+          policy. Ejection took 0.4&ndash;0.5 s after the kill, on two failed health checks; readmission took ~111 s, on
+          two passed ones.</p>
+
+        <div class="tw">
+          <table>
+            <caption><b>Recovery through a kill.</b> The prefix affinity arm here is spill-off, because the spill rule
+              misfires at this load rung (19% of later turns) and would confound the comparison.</caption>
+            <thead>
+              <tr>
+                <th></th>
+                <th class="num">session affinity</th>
+                <th class="num">prefix affinity (spill off)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>goodput before the fault</td>
+                <td class="num">5.98/s</td>
+                <td class="num">5.98/s</td>
+              </tr>
+              <tr>
+                <td>lowest from the fault on</td>
+                <td class="num">5.20/s at +110 s</td>
+                <td class="num">3.00/s at +70 s</td>
+              </tr>
+              <tr class="hl">
+                <td>deficit</td>
+                <td class="num">7 requests</td>
+                <td class="num">43 requests</td>
+              </tr>
+              <tr>
+                <td>back within 10% for good</td>
+                <td class="num">+115 s</td>
+                <td class="num">+80 s</td>
+              </tr>
+              <tr>
+                <td>dropped mid-stream / never placed</td>
+                <td class="num">1 / 0</td>
+                <td class="num">1 / 0</td>
+              </tr>
+              <tr>
+                <td>rerouted before a first token</td>
+                <td class="num">0</td>
+                <td class="num">1</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="3"><b>The two policies pay at opposite moments.</b> Session affinity is flat through the
+                  whole outage &mdash; four replicas at 6 req/s is inside what the fleet can serve &mdash; and dips only
+                  when the replica returns and the ring moves its sessions back onto an empty cache. Prefix affinity
+                  dips <em>during</em> the outage, when conversations orphaned by the kill land together on one replica
+                  (47% of load against a 25% fair share), and has cleared before the replica is back. Both lost exactly
+                  <b>one request of 1,501</b>: the one mid-stream when its replica died, which cannot be rerouted.
+                  Draining a replica through the router instead of killing it dropped <b>nothing</b>. With the spill
+                  rule on, prefix affinity&rsquo;s deficit was 92 requests and it took until +160 s to recover.</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <h3>Router overhead</h3>
+        <p class="prose">The obvious alternative explanation for all of the above is that the router simply added
+          latency the baselines did not pay. It did not.</p>
+
+        <div class="tw">
+          <table>
+            <caption><b>Accept to first dispatch</b>, off the router&rsquo;s own per-request rows rather than the
+              client&rsquo;s &mdash; TTFT is measured at the client with this inside it, so only the router&rsquo;s
+              record can separate them. Two runs because no single run carries every policy.</caption>
+            <thead>
+              <tr>
+                <th>run</th>
+                <th>policy</th>
+                <th class="num">dispatched</th>
+                <th class="num">p50</th>
+                <th class="num">p99</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>2026-09-08 sweep</td>
+                <td>round robin</td>
+                <td class="num">62,178</td>
+                <td class="num">221 &micro;s</td>
+                <td class="num">507 &micro;s</td>
+              </tr>
+              <tr>
+                <td></td>
+                <td>least outstanding</td>
+                <td class="num">66,172</td>
+                <td class="num">217 &micro;s</td>
+                <td class="num">431 &micro;s</td>
+              </tr>
+              <tr>
+                <td></td>
+                <td>session affinity</td>
+                <td class="num">70,455</td>
+                <td class="num">223 &micro;s</td>
+                <td class="num">787 &micro;s</td>
+              </tr>
+              <tr>
+                <td>2026-09-11 chaos</td>
+                <td>session affinity</td>
+                <td class="num">1,801</td>
+                <td class="num">223 &micro;s</td>
+                <td class="num">1,161 &micro;s</td>
+              </tr>
+              <tr>
+                <td></td>
+                <td>prefix affinity</td>
+                <td class="num">1,801</td>
+                <td class="num">383 &micro;s</td>
+                <td class="num">822 &micro;s</td>
+              </tr>
+              <tr>
+                <td>2026-09-11 grid <span class="sub">the same question at 100&times; the sample</span></td>
+                <td>round robin</td>
+                <td class="num">113,533</td>
+                <td class="num">206 &micro;s</td>
+                <td class="num">1,189 &micro;s</td>
+              </tr>
+              <tr>
+                <td></td>
+                <td>least outstanding</td>
+                <td class="num">169,524</td>
+                <td class="num">205 &micro;s</td>
+                <td class="num">955 &micro;s</td>
+              </tr>
+              <tr>
+                <td></td>
+                <td>session affinity</td>
+                <td class="num">186,067</td>
+                <td class="num">213 &micro;s</td>
+                <td class="num">1,290 &micro;s</td>
+              </tr>
+              <tr class="hl">
+                <td></td>
+                <td>prefix affinity</td>
+                <td class="num">256,089</td>
+                <td class="num">387 &micro;s</td>
+                <td class="num">827 &micro;s</td>
+              </tr>
+              <tr>
+                <td></td>
+                <td>prefix affinity, spill off</td>
+                <td class="num">222,440</td>
+                <td class="num">337 &micro;s</td>
+                <td class="num">736 &micro;s</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="5">Consulting the prefix index costs about <b>160&ndash;174 &micro;s</b> more than hashing
+                  a session id, against TTFT p50s of hundreds of milliseconds and a goodput difference of +66%. The grid
+                  rows are the stronger evidence &mdash; a quarter of a million dispatches per policy against the chaos
+                  run&rsquo;s 1,801, and they agree with it to within 4 &micro;s. The spill rule itself costs about 50
+                  &micro;s of the index&rsquo;s 174.</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <h3>The hardware, measured rather than assumed</h3>
+        <div class="two">
+          <div class="panel">
+            <h3>GPU 3 throttles on heat</h3>
+            <p><code>SwThermal</code> in 67% of samples against 0&ndash;34% for the others; clocks to 960 MHz at 75
+              &deg;C while an 83 &deg;C card holds 1,305 MHz. A permanently slow card <em>is</em> a permanent load
+              imbalance &mdash; which is the mechanism under test, paid unequally by load-aware and load-blind policies.
+              Excluded; the fleet is five cards.</p>
+          </div>
+          <div class="panel">
+            <h3>Replica symmetry is load-dependent</h3>
+            <p>Driven one at a time the replicas agree to 1.5&ndash;2.3%; driven all six at once the spread is 12.7% and
+              grows with time on load. The spec&rsquo;s symmetry check drives them one at a time &mdash; the one
+              configuration in which the effect cannot appear.</p>
+          </div>
+          <div class="panel">
+            <h3>Disaggregation is not ruled out, but the margin is six times thinner than the spec assumed</h3>
+            <p>Moving a 2,048-token request&rsquo;s KV costs <b>36.7 ms</b> against <b>490.7 ms</b> of prefilling it:
+              <b>7.5%</b>, where the spec predicted ~20 ms against a ~1.5 s prefill, or 1.3%. Prefill is three times
+              faster than assumed, and a token&rsquo;s KV is 131,072 bytes exactly, read off the model config. No pair
+              of cards can reach another directly &mdash; the driver reports peer access unsupported on all <b>30
+                ordered pairs</b> &mdash; so every copy bounces through host memory at about 7.9 GB/s; CUDA&rsquo;s own
+              peer copy is <em>slower</em> than bouncing by hand (15.6% of prefill against 7.8%). Nothing was built; the
+              arithmetic settled it.</p>
+            <p><b>And the two ideas pull against each other.</b> Once prefix-cache-aware routing is working, a hit means
+              only the 512 new tokens need prefilling &mdash; 124.1 ms &mdash; so the same 36.7 ms transfer is
+              <b>30%</b> of the work it would save, not 7.5%.</p>
+          </div>
+          <div class="panel">
+            <h3>The engine is at the roof</h3>
+            <p>Nsight roofline on an RTX 3090: measured ceilings 844 GB/s and 62.0 TFLOP/s against a 936 GB/s and 71.0
+              TFLOP/s datasheet, ridge 73.5 FLOP/byte. Prefill runs at <b>95&ndash;100% of the measured compute roof</b>
+              at every shape from 128 to 2,048 tokens; decode is bandwidth-bound at 87&ndash;92% of the memory roof up
+              to batch 16 and crosses to compute-bound at batch 32. There is no headroom a better kernel would find
+              &mdash; which is why routing is the lever.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 09 NULLS ============ -->
+    <section id="nulls">
+      <div class="sec-head">
+        <div class="eyebrow">09 &middot; Findings in the same voice as the positive ones</div>
+        <h2>Null, negative and withdrawn results</h2>
+      </div>
+      <ul class="findings">
+        <li><b>The index and its spill rule do not pay at WS 0.25 / skew 0.</b> Prefix affinity is 6.8% <em>below</em>
+          session affinity there (32.04 against 34.37), inside the run-to-run spread &mdash; the two ranges overlap.
+          With the whole working set in cache and no imbalance to correct, every spill only moves a turn to a replica
+          that does not hold it: spill-off scores 35.16, <b>+9.7% above spill-on</b>, with a hit rate 2.3 pp better.
+          <span style="color:var(--warn-ink)">Two corrections to how this is stated in the repository&rsquo;s own
+            README: it reports the spill-off arm as &ldquo;8.9% higher,&rdquo; which is the reciprocal &mdash; 8.9% is
+            how far spill-<em>on</em> sits below spill-off, and the two are not the same number. And it files this under
+            &ldquo;cache-aware routing does not pay,&rdquo; which is too broad a scope: at this cell the best score of
+            all (35.16) is itself a cache-aware arm, and the cache-blind policies score 5.40 and 11.23.</span></li>
+        <li><b>The first memory-pressure branch measured load, and the one that replaced it is harmful.</b> The spill
+          rule&rsquo;s KV branch read <code>vllm:kv_cache_usage_perc</code>, which counts blocks held by
+          <em>running</em> requests, so on this host it was the load branch in other units and stayed off for every
+          map cell. Rebuilt on each replica&rsquo;s prefix cache hit rate, and swept alone by #18&rsquo;s residency arm,
+          it showed the two pressures <em>are</em> separable &mdash; the two branches fire in opposite directions up the
+          working-set axis &mdash; and it lost to the load branch at every usable point at every mark. Declining a
+          match because a replica is evicting sends the request somewhere that never held it, which lowers the hit
+          rate and fires the rule again. It stays off.</li>
+        <li><b>An earlier headline was an artefact and is withdrawn.</b> The first two-policy comparison, on six cards,
+          concluded that balancing load <em>cost</em> goodput &mdash; least outstanding losing 16&ndash;32%. GPU 3
+          throttles whenever all six cards draw power at once, so round robin was feeding a sacrificial queue that
+          passed nothing while the others passed everything. On five symmetric cards the same pair inverts and <b>least
+            outstanding wins by 100&ndash;120%</b>.</li>
+        <li><b>The column that was supposed to show imbalance recorded nothing, for the life of the policy.</b> Every
+          <code>session_affinity</code> row written before commit 9311e68 carries inflight 0 &mdash; the hash ring
+          stored candidates rather than replicas and is rebuilt only when the replica <em>set</em> changes, so the load
+          it reported was frozen at whichever request first built it, on an idle fleet. Nothing routed differently,
+          because the hash weighs no load by design, so every published comparison stands. What was lost is the evidence
+          for the balance half of the spec &mdash; recovered only because the per-request rows name the replica that
+          served each request: counting those at 64 users gives session affinity a busiest replica on 24.6&ndash;26.6%
+          of requests against a 20% fair share, where round robin sits at 20.0&ndash;20.2%.</li>
+        <li><b>Redundant prefill compared absolute tokens, so in a closed loop it rewarded the slower policy.</b> A
+          faster policy offers more prompts in the same window, so a column of totals credits whoever served less. Every
+          such figure is now per request, with the token total printed beside it only so the two can be told apart.</li>
+        <li><b>The index&rsquo;s decay curve was withheld once, and then published.</b> Every cell of the first recency
+          run flagged as still warming up &mdash; precisely the condition that manufactures under-prediction &mdash; so
+          the curve was not published. Re-run at a geometry whose cells do not flag, it holds.</li>
+        <li><b>The characterization run itself is flagged, and everything scales off it.</b> Replica symmetry is
+          unresolved at concurrency 32: a 22.1% TTFT p50 spread over an 8.0% tolerance, and one replica varying 36.3%
+          against itself between repetitions &mdash; so the difference between replicas is inside the
+          measurement&rsquo;s own noise. Four of 36 probes flagged for warm-up drift. The numbers are used anyway, with
+          the flag carried.</li>
+        <li><b>The comparison this project runs has already been published at datacentre scale</b>, by Anyscale,
+          CacheRoute and llm-d, and saying otherwise would be wrong and instantly caught. What is left is narrower and
+          it is what the project claims: the comparison at single-host consumer-GPU scale; a two-axis pressure map over
+          <em>measured</em> fleet KV crossed with Zipf skew; and belief divergence, which nobody publishes at any scale.
+        </li>
+      </ul>
+    </section>
+
+    <!-- ============ 10 STORY (filled in below) ============ -->
+    <section id="story">
+      <div class="sec-head">
+        <div class="eyebrow">10 &middot; How the project got here</div>
+        <h2>The ticket story</h2>
+      </div>
+      <p class="prose" style="margin-bottom:26px">Thirty-three tickets in five acts. The shape is not accidental: a
+        frame written before any code, a tracer bullet that failed on first contact with real hardware and was supposed
+        to, a ladder of policies each built to isolate one thing, a grid that measured them, and a long tail of
+        corrections &mdash; most of which took something away from the project&rsquo;s claims rather than adding to
+        them.</p>
+
+      <div class="acts">
+
+        <!-- ACT I -->
+        <div class="act">
+          <div class="act-rail">
+            <div class="an">ACT I</div>
+            <div class="at">The frame, and the restart</div>
+            <div class="ad">#1&ndash;#7 &middot; 2026-09-06</div>
+          </div>
+          <div class="act-body">
+            <div class="tk">
+              <div class="id">#1</div>
+              <div class="body">
+                <div class="tt">KV-cache-aware inference router: v1 <span class="pill open">open epic</span></div>
+                <div class="tx">The constitution, not code. A 6&times; RTX 3090 host and a claim that could not be
+                  supported. The body&rsquo;s hard problem is that the claim is <em>cheap to assert</em> &mdash; SGLang,
+                  Dynamo, llm-d, AIBrix, Mooncake and OpenAI all ship cache-aware routing, and Anyscale, CacheRoute and
+                  llm-d each published the same sticky-vs-cache-aware ablation during the project&rsquo;s own research
+                  window. So #1 defines the narrow thing genuinely missing, and fixes three decisions that held for the
+                  whole project: <em>the deliverable is a characterization, not a win</em> (&ldquo;there is no losing
+                  outcome, but the grounds are narrow&rdquo;); inflight is counted locally and exactly, never scraped,
+                  with &ldquo;queue depth&rdquo; declared banned vocabulary; and the SLO is derived as a multiple of a
+                  measured floor rather than chosen. It also wrote the spill rule verbatim, before any of it existed.
+                </div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#2&ndash;#7</div>
+              <div class="body">
+                <div class="tt">Six tickets, closed unexecuted within ten seconds of each other</div>
+                <div class="tx">Fleet bring-up, router core, the four policies, the harness, the chaos test, the
+                  analysis. All closed with one identical comment: they had been written as horizontal <em>layer</em>
+                  slices when the correct cut was vertical, end-to-end tickets. Nothing was lost &mdash; their 100-odd
+                  user stories were re-cut into #8&ndash;#21 and their design decisions all shipped. But the restart is
+                  why the project&rsquo;s first real ticket is a tracer bullet rather than a layer.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ACT II -->
+        <div class="act">
+          <div class="act-rail">
+            <div class="an">ACT II</div>
+            <div class="at">From one replica to a measured fleet</div>
+            <div class="ad">#8&ndash;#13 &middot; 2026-09-06 &rarr; 09-08</div>
+          </div>
+          <div class="act-body">
+            <div class="tk">
+              <div class="id">#8</div>
+              <div class="body">
+                <div class="tt">Streaming path through the router</div>
+                <div class="tx">The thinnest complete path through every layer: client &rarr; router &rarr; a real vLLM
+                  replica &rarr; one row on disk. <em>The contract test failed on first contact with the real replica,
+                    which is exactly what it exists for</em>, and corrected four things that would otherwise have
+                  silently corrupted every downstream number. Router overhead came in at p50 94 &micro;s / p99 516
+                  &micro;s, inside the &lt; 1 ms gate.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#9</div>
+              <div class="body">
+                <div class="tt">Six-replica fleet, round-robin sweep and outcome taxonomy</div>
+                <div class="tx">Scaled the bullet to the whole fleet and proved the apparatus before any policy claim
+                  rested on it. Produced the discrepancy that redirected the next ticket: <em>KV capacity moved</em>
+                  &mdash; 119,408 tokens from one replica at first contact, 125,952 from all six with identical
+                  settings. Capacity is now always read off every running replica and summed, never extrapolated.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#10</div>
+              <div class="body">
+                <div class="tt">Characterization gates</div>
+                <div class="tx">Fixed the capacity, floor and SLO every later table is judged against: <em>755,712
+                    tokens, TTFT p50 329 ms, SLO 990 ms / 24 ms</em>. And it discovered that every measurement had been
+                  re-sending every other measurement&rsquo;s prompts and reading them back out of the prefix caches
+                  &mdash; a sevenfold head start on the primary metric. That became ADR-0004 and the rule that the fleet
+                  is cycled cold between every policy. It also first saw the persistent slow replica that later became
+                  #25.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#11</div>
+              <div class="body">
+                <div class="tt">Multi-turn workload generator with both pressure knobs</div>
+                <div class="tx">Defined the two pressure axes as physically independent quantities &mdash; working-set
+                  ratio against <em>measured</em> capacity, and Zipf skew &mdash; which is the framing the headline
+                  pressure map and the &ldquo;no published version does this&rdquo; claim both rest on.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#13</div>
+              <div class="body">
+                <div class="tt">Open-loop driver</div>
+                <div class="tx">Created the axis the headline claim is stated on. A closed loop cannot show a fleet
+                  falling over, because a virtual user waits; the open-loop panel is where round robin and least
+                  outstanding reach <em>zero</em> goodput at 8 req/s while session affinity still serves 7.63/s.
+                  Requests in flight are deliberately unbounded &mdash; a cap would be a closed-loop driver wearing an
+                  arrival rate.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ACT III -->
+        <div class="act">
+          <div class="act-rail">
+            <div class="an">ACT III</div>
+            <div class="at">The policy ladder</div>
+            <div class="ad">#12, #14&ndash;#16, #24, #26 &middot; 09-08 &rarr; 09-12</div>
+          </div>
+          <div class="act-body">
+            <div class="tk">
+              <div class="id">#12</div>
+              <div class="body">
+                <div class="tt">Inflight accounting and least-outstanding routing</div>
+                <div class="tx">Exact, locally-owned load counters &mdash; verified to return to exactly zero across all
+                  six replicas after ~122,500 requests, with three separate anti-stampede tests. Its headline conclusion
+                  was <em>later withdrawn</em>: &ldquo;balancing load costs goodput&rdquo; was an artefact of one
+                  thermally throttling card acting as a sacrificial queue.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#14</div>
+              <div class="body">
+                <div class="tt">Session identity and consistent-hash session affinity</div>
+                <div class="tx">Built the baseline that actually matters &mdash; session stickiness is the shipped
+                  default in the vLLM ecosystem and the baseline published work compares against. It moved the
+                  project&rsquo;s reference point: after this, round robin stops being the thing to beat and <em>session
+                    affinity becomes the bar</em>, which is what makes the eventual prefix-affinity margin a real claim.
+                </div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#15</div>
+              <div class="body">
+                <div class="tt">Prefix index and prefix-affinity routing</div>
+                <div class="tx">The central artefact: one running FNV state sampled at each 64-byte boundary,
+                  longest-chain matching that stops at the first block nobody holds, a TTL and a bounded index &mdash;
+                  and no tokenizer anywhere on the request path. It simultaneously <em>narrowed</em> the project&rsquo;s
+                  claim: cache-awareness is the dividing line, and the margin between the two cache-aware policies is
+                  real at only some load points.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#16</div>
+              <div class="body">
+                <div class="tt">KV utilization scraping and the spill rule</div>
+                <div class="tx">Completed policy 4 with its escape hatch, and turned up the project&rsquo;s most
+                  consequential negative result: <em>the KV branch correlates with inflight at r = 0.973</em>. The two
+                  pressures the project set out to separate collapse into one condition in two units on this host, so
+                  the pressure map ships with the KV branch off for every cell &mdash; declared, not hidden.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#24</div>
+              <div class="body">
+                <div class="tt">Event-driven exact residency policy</div>
+                <div class="tx">108 cells, KV events on for all three arms, not one flagged cell in either affinity arm.
+                  The ladder came out <em>none &lt; exact &lt; believed</em> rather than the expected none &lt; believed
+                  &lt; exact &mdash; an inversion of llm-d&rsquo;s published ordering, with a mechanism attached and the
+                  honest caveat that even a free in-process tokenizer would not close it.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#26</div>
+              <div class="body">
+                <div class="tt">Stateless prefix-hash routing with a load term</div>
+                <div class="tx">The control that isolates the index, and the only policy modelling what a frontier lab
+                  documents running in production. 51 cells, all clean; 206,368 routing decisions with zero
+                  <code>PROMPT_UNHASHED</code> and zero <code>UNDECIDED</code>. It <em>re-sized the project&rsquo;s own
+                    contribution</em>: the trie, its calibration, its TTL, its node cap and its divergence measurement
+                  account for roughly a tenth of what cache-aware routing is worth here, and a hash plus a ring holding
+                  no state accounts for the rest. The ticket was written with a decision rule attached &mdash; build it
+                  only if the margin over session affinity turned out small enough that the <em>why</em> mattered.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ACT IV -->
+        <div class="act">
+          <div class="act-rail">
+            <div class="an">ACT IV</div>
+            <div class="at">The measurements</div>
+            <div class="ad">#17&ndash;#23 &middot; 2026-09-10 &rarr; 09-12</div>
+          </div>
+          <div class="act-body">
+            <div class="tk">
+              <div class="id">#17</div>
+              <div class="body">
+                <div class="tt">Belief divergence measurement</div>
+                <div class="tx">The result the project claims as unpublished anywhere else, at any scale: how wrong the
+                  router&rsquo;s model of cache residency actually is, per request. Complete coverage &mdash; 16,752 of
+                  16,752 requests carrying both the router&rsquo;s prediction and the engine&rsquo;s own account. It
+                  also closed the loop on the index&rsquo;s sizing: ADR-0006&rsquo;s node cap, chosen before any of this
+                  could be measured, was confirmed to within <em>0.3%</em>. Its recency arm was withheld and became #29.
+                </div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#18</div>
+              <div class="body">
+                <div class="tt">Pressure grid and the pressure map <span class="pill">closed</span></div>
+                <div class="tx">The headline deliverable. 144 cells plus a 36-cell spill-off arm, run overnight. <em>Its
+                    pre-run measurements overturned two inherited parameters before a single cell ran</em> &mdash; the
+                  load-imbalance factor moved from 8 to 2, and the first pass had been reading a censored goodput
+                  metric. It produced the map, the spill ablation, and the load-balance evidence (busiest replica
+                  predicts goodput at r = &minus;0.797 across 23 cells). It closed on its last criterion,
+                  separability, answered by a third arm: 108 cells of prefix affinity with only the rebuilt residency
+                  branch armed, at three marks. <em>The branch fires in the opposite direction to the load branch up the
+                    working-set axis, and loses to it at every usable point</em> &mdash; so the pressures separate, and
+                  the memory branch stays off on measurement rather than for want of one.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#19</div>
+              <div class="body">
+                <div class="tt">Health, ejection, drain and chaos recovery</div>
+                <div class="tx">Four open-loop runs, replica-2 SIGKILLed at 100 s and restarted at 160 s. Ejection
+                  0.4&ndash;0.5 s; readmission +111 s; drain dropped 0 of 1,501 against 1 of 1,501 per kill run. The
+                  finding is that the two policies <em>pay at opposite moments</em>, not that one recovers better. It
+                  also discovered the spill rule misfiring at low open-loop load, which became #31.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#22</div>
+              <div class="body">
+                <div class="tt">PCIe bandwidth arithmetic</div>
+                <div class="tx">Closed a whole branch of the spec by arithmetic and built nothing: disaggregating
+                  prefill and decode is off the table for this host, and the spec&rsquo;s own margin estimate was
+                  <em>six times too generous</em> (7.5% against a predicted 1.3%).</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#23</div>
+              <div class="body">
+                <div class="tt">Nsight roofline</div>
+                <div class="tx">1,001 engine steps captured, 740 pooled into 21 drawn points. Nsight Compute was
+                  unusable without root, so FLOPs and bytes are counted from model shapes and the write-up states
+                  plainly that a point&rsquo;s height is a lower bound. It sharpened a project premise rather than
+                  changing direction: the bandwidth-bound claim is a property of <em>this workload&rsquo;s long
+                    sessions</em>, not of decode as such.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#20, #21</div>
+              <div class="body">
+                <div class="tt">Observability panels; analysis, pressure map and README</div>
+                <div class="tx">Five Grafana panels that no sweep reads &mdash; the rows stay the system of record,
+                  because a panel&rsquo;s p99 is interpolated and the rows&rsquo; is exact. And the figure pipeline:
+                  <code>make figures</code> regenerates every plot from <code>docs/measurements</code> with no fleet and
+                  no GPU, matplotlib pinned and SVGs carrying no timestamp, so a clean checkout reproduces them byte for
+                  byte.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ACT V -->
+        <div class="act">
+          <div class="act-rail">
+            <div class="an">ACT V</div>
+            <div class="at">The corrections</div>
+            <div class="ad">#25, #27&ndash;#33 &middot; 09-11 &rarr; 09-13</div>
+          </div>
+          <div class="act-body">
+            <p class="tx" style="color:var(--muted);font-size:.86rem;margin-bottom:4px">Eight tickets, and every one of
+              them took something away. This is the half of the project that decides whether the other half can be
+              believed.</p>
+            <div class="tk">
+              <div class="id">#25</div>
+              <div class="body">
+                <div class="tt">GPU 3 throttles thermally</div>
+                <div class="tx"><em>The largest turning point.</em> A permanently slow card is a permanent load
+                  imbalance &mdash; the exact mechanism under test, present in every measurement taken so far and paid
+                  unequally by load-aware and load-blind policies. It changed the fleet from six cards to five, forced
+                  capacity to be re-measured, and <em>forced the withdrawal of a published headline</em>. The deficit
+                  also grows with time on load (1.1% &rarr; 12.7% &rarr; 17.2% across three repetitions over ~3
+                  minutes), so driving the replicas one at a time &mdash; the spec&rsquo;s own symmetry check &mdash; is
+                  the one configuration in which it cannot appear.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#27</div>
+              <div class="body">
+                <div class="tt">Session affinity recorded inflight 0 on every row</div>
+                <div class="tx">For the entire life of the policy. The ring stored a candidate carrying load as well as
+                  identity, and rebuilds only when the replica <em>set</em> changes &mdash; so it reported whatever load
+                  its replica had when the first request built it, on an idle fleet. Routing was unaffected, because the
+                  hash weighs no load by design, so every published comparison stands. The fix makes the staleness
+                  unrepresentable rather than merely fixed, and imbalance is now <em>counted from the served rows</em>
+                  on every cell rather than read off the router&rsquo;s own bookkeeping.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#28</div>
+              <div class="body">
+                <div class="tt">The KV spill condition is measuring load, not memory pressure</div>
+                <div class="tx">Retired the project&rsquo;s stated premise that the two pressures were separable <em>in
+                    the results</em>, downgraded #16&rsquo;s KV axis from a result to evidence, and forced a replacement
+                  signal to be built and priced rather than a threshold to be re-tuned. Two of three swept levels were
+                  arithmetically unreachable &mdash; 0.85 needed inflight &ge; 38.8 against a fleet of 32 users. The
+                  replacement reads the share of its own claims each replica honours: r = 0.138 with inflight, against r
+                  = 0.979 for the gauge it replaced.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#29</div>
+              <div class="body">
+                <div class="tt">Re-run belief divergence&rsquo;s recency axis on a warmed fleet</div>
+                <div class="tx">Converted the project&rsquo;s most exposed withheld result into a published one. Drift
+                  went from +0.936 / +2.311 / +1.933 to &minus;0.079 / &minus;0.115 / &minus;0.145, with the measured
+                  window spanning exactly 2.00 visit periods on every cell; 18 of 18 clean, no flag of any kind. The
+                  decay is real. Its first design pass also found that the acceptance criterion it had been
+                  <em>given</em> was wrong, which is what opened #33.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#30</div>
+              <div class="body">
+                <div class="tt">Redundant prefill compares absolute tokens</div>
+                <div class="tx">So in a closed loop it rewarded the slower policy. Session affinity has the lowest
+                  <em>absolute</em> recomputed prefill at all 12 grid points but the lowest <em>per-request</em> figure
+                  at only 6, while prefix affinity served 1.2&ndash;2.3&times; the requests at 11 of 12. Two published
+                  verdicts inverted. It turned the headline from &ldquo;prefix affinity wins goodput but looks
+                  wasteful&rdquo; into &ldquo;prefix affinity wins goodput <em>and</em> wastes least.&rdquo;</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#31</div>
+              <div class="body">
+                <div class="tt">The spill rule fires on a fifth of turns at low open-loop load</div>
+                <div class="tx">19&ndash;20% of later turns at 6 req/s, against 0.674% at the rung the factor was
+                  settled at. Spilled turns missed the SLO 42.0% of the time with 11.9% of prompt cached and TTFT p50
+                  970 ms, against 7.6%, 73.9% and 372 ms for honoured matches. <em>Both proposed repairs were measured
+                    and both rejected</em>; the rule was bounded instead. It converted a tuning question into a scope
+                  bound: the factor is not mistuned at that rung, it is answering a question the fleet is not posing,
+                  and no setting of either axis there beats declining nothing.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#32</div>
+              <div class="body">
+                <div class="tt">Every run target needs a Go toolchain, so none of them run on the fleet host</div>
+                <div class="tx">Modest but real. The most load-bearing file in the project &mdash; the sweep library
+                  holding the frozen values <code>compare</code> hard-checks &mdash; lived only on an untracked box.
+                  Closing this made &ldquo;a run on the box can be reproduced from the repo alone&rdquo; true rather
+                  than aspirational.</div>
+              </div>
+            </div>
+            <div class="tk">
+              <div class="id">#33</div>
+              <div class="body">
+                <div class="tt">The warm-up drift check is one-sided, splits on the wrong window, and is blind to the
+                  workload&rsquo;s period <span class="pill">closed</span></div>
+                <div class="tx">The last correction, and the one that re-judged everything before it. Three located
+                  defects: the flag tested only for a <em>slowing</em> first half, so #29&rsquo;s <code>think75</code>
+                  cells recording a second half 2.3&times; slower than the first were published carrying no flag; the
+                  split was taken on the wrong window; and the check was blind to the workload&rsquo;s own period. The
+                  rebuilt check is two-sided, compares each turn index with itself and names its cause. <em>All 744
+                    recorded cells were re-judged from their own rows, with no GPU</em>, and every one reproduced its
+                  record. Its biggest decision: an open-loop cell past the knee is flagged <em>past saturation</em> and
+                  keeps its goodput, or the collapse the open-loop table exists to show would have become a gap. What
+                  moved: the map&rsquo;s WS 3 / skew 1 (+41.3% &rarr; +51.4%), exact residency&rsquo;s WS 1 / skew 1
+                  (now a hole), five points of the residency arm, and the three-policy sweep at 256 users.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ============ 11 OPEN ============ -->
+    <section id="open">
+      <div class="sec-head">
+        <div class="eyebrow">11 &middot; At close</div>
+        <h2>What is still open, and what the project does not claim</h2>
+      </div>
+      <div class="stack">
+        <div class="two">
+          <div class="panel">
+            <h3>#18 &mdash; pressure grid <span class="pill">closed</span></h3>
+            <p>Closed 2026-09-13 with all seven criteria met. The map stands on 144 cells, the mechanism on a 36-cell
+              spill-off arm, and separability on a 108-cell residency arm. Its open questions are not criteria: why
+              least-loaded placement of a <em>new</em> conversation unbalances an even draw, and whether a residency
+              rule with a different target would work.</p>
+          </div>
+          <div class="panel">
+            <h3>#33 &mdash; warm-up drift check <span class="pill">closed</span></h3>
+            <p>Closed 2026-09-14. Every recorded cell now carries the rebuilt check&rsquo;s verdict, and the figures in
+              this report are the re-judged ones. Two known limits were kept by decision: a cell is called past
+              saturation only when its latency also moved, and the 20% backlog line sits in a narrow gap (16% below,
+              28% above). The re-score report prints each cell&rsquo;s backlog, so a cell in the gap will show.</p>
+          </div>
+          <div class="panel">
+            <h3>Separability &mdash; answered</h3>
+            <p>Measured, not blocked. The engine&rsquo;s KV gauge reads the running batch, so the branch was rebuilt on
+              each replica&rsquo;s prefix cache hit rate and swept alone by #18&rsquo;s residency arm. It fires
+              three- to tenfold more up the working-set axis while the load branch halves: two pressures, not one. It is
+              also harmful at every mark, which is why it stays off.</p>
+          </div>
+          <div class="panel">
+            <h3>#1 &mdash; the epic <span class="pill open">open</span></h3>
+            <p>The only open ticket, and all 19 of its sub-issues are closed. Five of its six policies were measured on
+              the fleet; the sixth, <code>prefix_hash</code>, was outside its five and was measured anyway. One check it
+              names was never run: the router&rsquo;s <em>derived</em> session identity is built and unit-tested, but
+              every cell sent <code>X-Session-Id</code>, so the sensitivity check that session affinity&rsquo;s
+              baseline was not handicapped by a perfect oracle does not exist.</p>
+          </div>
+        </div>
+
+        <h3 style="margin-top:12px">One promised table that does not exist</h3>
+        <p class="prose">The spec asked the spill rule&rsquo;s thresholds to be justified by a swept grid &mdash;
+          &ldquo;a second results table, and where the affinity-versus-balance tradeoff becomes a curve rather than an
+          assertion.&rdquo; #16 ran that sweep: three KV high-water levels (0.70 / 0.85 / 0.95) at WS 3 / skew 0 and 32
+          users, 13,658 router rows. <b>No results table for it exists anywhere in the repository.</b> The run has no
+          measurement directory; its only surviving trace is the correlation that killed it &mdash; kv = 0.02128 +
+          0.02135 &times; inflight, r = 0.973 &mdash; quoted in ADR-0011 and repeated as a footnote in four generated
+          pressure maps. Two of the three levels were later shown to be arithmetically unreachable at that rung.</p>
+        <p class="prose"><b>So the KV branch is known only by its own refutation.</b> There is no goodput figure for any
+          of its three levels, and the affinity-versus-balance curve the spec asked for exists only on the <em>load</em>
+          axis, where #18&rsquo;s pre-run factor sweep supplied it. That is still a real hole in the record for the gauge
+          #16 swept. Its replacement is not in the same state: #18&rsquo;s residency arm priced the rebuilt branch at
+          three marks across all twelve points, and every mark lost to the load branch wherever it had a usable cell, by
+          5&ndash;91% &mdash; so the memory half of the rule now has a measured answer, and the answer is to leave it
+          off.</p>
+
+        <h3 style="margin-top:12px">What the project does not claim</h3>
+        <ul class="plain">
+          <li><b>It does not claim the mechanism.</b> Cache-aware routing is an active production pattern across SGLang,
+            NVIDIA Dynamo, llm-d, AIBrix, Mooncake, MiniMax-M2 and OpenAI, and the field is convergent: every one of
+            them scores replicas by predicted prefix reuse and penalises by load. Policy 4 is that same shape.</li>
+          <li><b>It does not claim the ablation.</b> Anyscale benchmarked a consistent-hash router against a KV-aware
+            one and found the KV-aware router best on p99 <em>despite a lower hit rate</em>; CacheRoute reached 176
+            &plusmn; 11 QPS against sticky hashing&rsquo;s 30 at a 3.5 s p99 SLO on 60 H100s, with sticky taking the
+            highest hit rate of its baselines; llm-d publishes a numeric threshold at which it abandons stickiness. All
+            three landed during this project&rsquo;s own research window.</li>
+          <li><b>It does not reproduce OpenAI&rsquo;s router.</b> <code>prefix_hash</code> is inferred from public
+            documentation. The 16-block window, the weight of 4, the ring and the rank ordering are decisions made here,
+            and every write-up of that comparison says so in the same sentence that names the inference.</li>
+          <li><b>What is left, and is claimed:</b> the comparison at single-host consumer-GPU scale, where a working set
+            can be pushed past fleet capacity deliberately and the crossover sits somewhere else entirely; a two-axis
+            pressure map over <em>measured</em> aggregate fleet KV crossed with Zipf skew; and belief divergence &mdash;
+            the per-request gap between a router&rsquo;s model of cache residency and the engine&rsquo;s own account of
+            what it computed &mdash; which nobody publishes at any scale.</li>
+        </ul>
+
+        <div class="verdict" style="margin-top:8px">
+          <p><b>The answer to the question on the masthead.</b> Cache-aware routing stops paying for itself &mdash;
+            against the consistent-hash session affinity you get for free &mdash; when the working set fits in cache and
+            the traffic is uniform. At WS 0.25 / skew 0 prefix affinity is 6.8% <em>below</em> that free baseline,
+            inside the spread. Everywhere else it pays, by +21% to +373%. Note the baseline carefully: session affinity
+            is itself a locality policy, and against routing that ignores locality entirely it wins at that corner by
+            3.1&ndash;6.4&times;.</p>
+          <p><b>But the expensive part is not what pays.</b> Reading the prompt at all &mdash; a hash of its leading
+            blocks onto a ring, weighed against inflight, holding no state &mdash; captures +4.8% to +362% of that. The
+            trie, the TTL, the node cap, the calibration and the divergence measurement that check it add a further
+            <b>median +11.0%</b>, and only where eviction is real. And a valve firing on 0.2&ndash;2.5% of decisions is
+            worth more than all of the belief-tracking above it.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="checked">
+      <div class="sec-head">
+        <div class="eyebrow">Provenance</div>
+        <h2>How this report was checked</h2>
+      </div>
+      <div class="stack">
+        <p class="prose">Every table here is transcribed from the measurement files in <code>docs/measurements/</code>
+          rather than from the project README, and ten of the headline claims were independently re-derived from the raw
+          per-cell records &mdash; medians recomputed from <code>cells.parquet</code> and the per-cell JSON, repetition
+          ranges checked for overlap, flagged cells checked for inclusion, and denominators checked against the row
+          counts.</p>
+        <p class="prose">A separate pass audited the repository for measured results that exist in the files but appear
+          in no write-up. It found three, and they are reported where they belong: the twelve per-point spill-off cell
+          tables (aggregated in &sect;05), the router&rsquo;s worst-case dispatch column, and #16&rsquo;s KV-axis sweep,
+          which has no measurement directory at all (&sect;11). It also found one uncommitted change in the working tree
+          that supersedes a published number &mdash; the working-set axis realisation, corrected in &sect;01.</p>
+        <p class="prose">Nine of the ten claims held exactly. <b>One did not, and the correction is carried in
+            &sect;09:</b> the README reports the spill-off arm at WS 0.25 / skew 0 as &ldquo;8.9% higher,&rdquo; which
+          is the reciprocal of the figure in its own table &mdash; spill-off is +9.7% above spill-on, and spill-on is
+          8.9% below spill-off. The same bullet files the result under &ldquo;cache-aware routing does not pay,&rdquo;
+          where the cell&rsquo;s own top score is a cache-aware arm. Two further discrepancies surfaced and are noted
+          where they matter: the session-affinity column differs between the ladder and the map by whether three
+          warm-up-flagged cells are included, and the headline map and its earlier draft differ at WS 1 / skew 1.4
+          (+171.2% final against +179.5%), where this report uses the final.</p>
+        <p class="prose"><b>Updated 2026-09-14 for #18 and #33.</b> Both tickets closed after this report was first
+          compiled. #33 rebuilt the warm-up drift check and re-judged all 744 recorded cells from their own rows; every
+          figure in this report that the re-judged records move has been changed, with the published value beside it
+          (the map&rsquo;s WS 3 / skew 1, four n=2 cells behind it, one spill-ablation point, and exact
+          residency&rsquo;s WS 1 / skew 1). Figures computed from every repetition&rsquo;s rows, flagged or not &mdash;
+          the ladder, the pooled TTFT and hit rates &mdash; do not move. #18&rsquo;s separability result replaces
+          what this report had called blocked.</p>
+      </div>
+    </section>
+
+    <footer>
+      <div>Every figure here is recomputable from JSONL rows kept in the repository; <code>make figures</code>
+        regenerates the plots with no GPU in the path. Go computes every number and writes it as JSON, and the plotting
+        script only draws &mdash; so a figure cannot disagree with the table beside it.</div>
+      <div>kvroute &middot; <code>yuchia329/kvroute</code> &middot; report compiled 2026-09-13, updated 2026-09-14</div>
+    </footer>
+
+  </div>
+
+</body>
+
+</html>
