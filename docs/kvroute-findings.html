@@ -945,8 +945,7 @@
       <div class="eyebrow">kvroute &middot; final measurement report &middot; 2026-09-13</div>
       <h1>Where cache-aware routing stops paying for itself</h1>
       <p class="lede">Six routing policies, five RTX&nbsp;3090s, one 4-bit Llama&nbsp;3.1&nbsp;8B per card. The question
-        was whether a router that models KV-cache residency beats the consistent-hash session affinity any load balancer
-        gives you for free &mdash; and where it stops being worth the machinery. It does beat it, by up to +373%. The
+        was whether a router that models KV-cache residency beats plain consistent-hash session affinity &mdash; and where it stops being worth the machinery. It does beat it, by up to +373%. The
         machinery is worth about a tenth of the win.</p>
       <div class="meta-row">
         <span><b>33</b> tickets</span>
@@ -2830,7 +2829,7 @@
           <p><b>Exact residency also reaches a lower hit rate than the belief it replaced</b> &mdash; 0.8973 against
             0.9088 &mdash; and makes the engines compute <b>12.7% more new tokens per request</b>. Its predictions were
             near-exact, so this is placement, not accuracy.</p>
-          <p><b>A belief is predictive and a fact is not.</b> The index records what it <em>sent</em> &mdash; intent
+          <p><b>Knowing what is cached loses to remembering what was sent.</b> The index records what it <em>sent</em> &mdash; intent
             &mdash; so several requests arriving at once that share a new prefix are herded onto one replica and the
             prefix is computed once. Exact residency records only what an engine has finished computing and reported:
             while the first request is still prefilling, the others are told, correctly, that no replica holds that
@@ -2911,7 +2910,10 @@
           exactness itself. A router that tokenized in-process would pay perhaps 1&ndash;2 ms &mdash; rejected in
           ADR-0010 as needing cgo or an unofficial chat-template port, and as failing silently when a template byte
           drifts. Even granting a free tokenizer, the 12.7% redundant prefill and the 1.15 pp hit-rate deficit remain,
-          and those are what would still have to be answered.</p>
+          and those are what would still have to be answered. They are the in-flight gap, and llm-d has a knob aimed at
+          exactly it: optional speculative indexing, which also records what the router just sent for 2 s &mdash; the
+          belief, layered on the facts. Exact residency here has nothing like it, so what was measured is that an
+          event-fed index <em>without</em> that layer loses; an exact index with it is not measured here.</p>
 
         <div class="tw">
           <table>
@@ -3750,13 +3752,26 @@
             can be pushed past fleet capacity deliberately and the crossover sits somewhere else entirely; a two-axis
             pressure map over <em>measured</em> aggregate fleet KV crossed with Zipf skew; and belief divergence &mdash;
             the per-request gap between a router&rsquo;s model of cache residency and the engine&rsquo;s own account of
-            what it computed &mdash; which nobody publishes at any scale.</li>
+            what it computed &mdash; which nobody publishes at any scale. Also new, and smaller: a spill threshold whose
+            firing rate depends on load (0.674% of later turns at 32 users, 19% at 6 req/s open-loop, where llm-d
+            publishes one fixed threshold); what an index buys over a load-weighted prefix hash (+11.0% median); and
+            where recovery costs land &mdash; after a replica kill for session affinity, during it for prefix
+            affinity.</li>
+          <li><b>It reproduces, rather than discovers,</b> the two findings Anyscale and CacheRoute already published:
+            the win comes from load balance rather than extra cache hits, and pure stickiness takes the highest hit rate
+            and the lowest capacity.</li>
+          <li><b>It does not yet test the strongest cheap baseline.</b> Session affinity here has no load bound. Envoy
+            (<code>hash_balance_factor</code>) and HAProxy (<code>hash-balance-factor</code>) turn on consistent hashing
+            with bounded loads with one setting, and CacheRoute uses it as a baseline. Since the mechanism is load, every
+            margin on this page is against load-blind stickiness, not against the best a plain load balancer offers.
+            Putting that policy on the pressure grid is the test of whether the index or just a load bound carries the
+            +66%.</li>
         </ul>
 
         <div class="verdict" style="margin-top:8px">
           <p><b>The answer to the question on the masthead.</b> Cache-aware routing stops paying for itself &mdash;
-            against the consistent-hash session affinity you get for free &mdash; when the working set fits in cache and
-            the traffic is uniform. At WS 0.25 / skew 0 prefix affinity is 6.8% <em>below</em> that free baseline,
+            against plain consistent-hash session affinity &mdash; when the working set fits in cache and
+            the traffic is uniform. At WS 0.25 / skew 0 prefix affinity is 6.8% <em>below</em> that baseline,
             inside the spread. Everywhere else it pays, by +21% to +373%. Note the baseline carefully: session affinity
             is itself a locality policy, and against routing that ignores locality entirely it wins at that corner by
             3.1&ndash;6.4&times;.</p>

@@ -1,7 +1,7 @@
 # kvroute
 
-**Where does cache-aware routing stop paying for itself against the consistent-hash session
-affinity any load balancer already gives you for free?**
+**Where does cache-aware routing stop paying for itself against plain consistent-hash session
+affinity?**
 
 kvroute is a KV-cache-aware router in front of six single-GPU vLLM replicas, built to answer that
 question and nothing else. The deliverable is a measured comparison of routing policies, not a
@@ -76,7 +76,7 @@ robin under even traffic and nothing under skewed traffic; prefix affinity is th
 or tied everywhere, because it is both affinity and load balancing.
 [Measurement](docs/measurements/2026-09-11-pressure-grid/regimemap.md).
 
-### A belief is predictive and a fact is not
+### Knowing what is cached loses to remembering what was sent
 
 The ladder is **none < exact < believed**: a router that knows nothing (a stateless hash of the
 prompt's leading blocks) trails one that believes what its replicas hold (the prefix index), which
@@ -94,6 +94,13 @@ The index records what the router *sent* and herds concurrent requests sharing a
 one replica; exact residency knows only what has been *reported*, so they scatter while the first
 prefills — twice the deficit on first turns as on later ones. Near-exact predictions: a placement
 failure, not an accuracy one.
+
+This is narrower than "beliefs beat facts", and llm-d measured the opposite: its event-fed precise
+index beat its approximate one, P90 TTFT 0.542 s against 31.083 s (2025-09-24). Two things differ.
+kvroute's exact residency pays a 26 ms `/tokenize` round trip, and it has nothing like llm-d's
+optional speculative indexing, which also records what the router just sent for 2 s — the belief,
+layered on the facts. So the result says an event-fed index *without* that layer loses; an exact
+index with it is not measured here.
 
 [Stateless hash](docs/measurements/2026-09-12-stateless-hash/), [exact residency](docs/measurements/2026-09-12-exact-residency/).
 
@@ -162,8 +169,28 @@ elsewhere, copied from the report:
 - **CacheRoute** (arXiv 2608.19677): sticky consistent hashing reaches the highest KV hit rate of its baselines and the lowest capacity — 0.50–0.67× on one workload.
 - **llm-d** (2026-08-17): publishes the threshold at which it abandons stickiness, τ = 286,720 tokens.
 
-Narrower here: the comparison at single-host, consumer-GPU scale; a two-axis pressure map
-separating memory pressure from load imbalance; belief divergence, published nowhere else. See
+Already published, and reproduced here rather than discovered: the win comes from load balance
+rather than extra cache hits (Anyscale, CacheRoute), and pure stickiness has the high hit rate and
+the low capacity (CacheRoute).
+
+Narrower here:
+
+- **Belief divergence** — how often and by how much a router's index is wrong, per request. Published
+  nowhere else.
+- **The comparison at single-host, consumer-GPU scale**, as a two-axis pressure map separating
+  memory pressure from load imbalance. CacheRoute found a region where affinity *loses* capacity;
+  here the low-pressure corner only ties.
+- **A fixed spill threshold is load-dependent** — tuned at one load, it fires 28× as often at
+  another. llm-d publishes a single fixed threshold.
+- **What an index buys over a load-weighted prefix hash** (+11% median), the family OpenAI's default
+  routing belongs to.
+- **Where recovery costs land**: after the kill for session affinity, during it for prefix affinity.
+
+Not yet measured, and the most likely objection: the session-affinity baseline has **no load
+bound**. Envoy (`hash_balance_factor`) and HAProxy (`hash-balance-factor`) turn on consistent
+hashing with bounded loads with one setting, CacheRoute uses it as a baseline, and the second
+finding says the win is load. Until that policy is on the grid, the margins above are against
+load-blind stickiness, not against the best a plain load balancer offers. See
 [`docs/research/prior-art-routing.md`](docs/research/prior-art-routing.md), carrying a permanent
 re-verify warning — three of its claims moved within four weeks of research.
 

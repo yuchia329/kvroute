@@ -2,8 +2,8 @@
 
 > This is the full report. The short version is the repository [README](../README.md).
 
-**Where does cache-aware routing stop paying for itself against the consistent-hash session
-affinity any load balancer already gives you for free?**
+**Where does cache-aware routing stop paying for itself against plain consistent-hash session
+affinity?**
 
 kvroute is a KV-cache-aware router in front of six single-GPU vLLM replicas, built to answer that
 question and nothing else. The deliverable is a measured comparison of routing policies, not a
@@ -258,12 +258,18 @@ and were set aside by #33's re-score — with complete
   quarter of this fleet's TTFT budget spent before anything is routed. But that round-trip does not
   explain the p90 gap, which is four to seven times larger: exact residency also reaches a **lower**
   hit rate than the index (0.8973 against 0.9088) and makes the engines compute **12.7% more new
-  tokens per request**. Its predictions were near-exact, so this is placement, not accuracy — a
-  belief is predictive and a fact is not. The index records what it *sent*, herding concurrent
+  tokens per request**. Its predictions were near-exact, so this is placement, not accuracy:
+  knowing what is cached loses to remembering what was sent. The index records what it *sent*, herding concurrent
   requests that share a new prefix onto one replica; exact residency knows only what has been
   reported, so they scatter while the first one prefills. The deficit is twice as large on first
   turns, which arrive concurrently, as on later ones, which do not
   ([measurement](measurements/2026-09-12-exact-residency/)).
+  This is narrower than "beliefs beat facts", and llm-d measured the opposite: its event-fed precise
+  index beat its approximate one, P90 TTFT 0.542 s against 31.083 s (2025-09-24). Two things differ.
+  Exact residency here pays the 26 ms `/tokenize` round trip, and it has nothing like llm-d's optional
+  speculative indexing, which also records what the router just sent for 2 s — the belief, layered
+  on the facts. So what was measured is that an event-fed index *without* that layer loses; an exact
+  index with it is not measured here.
 - **Neither is a reproduction of OpenAI's router.** `prefix_hash` is a mechanism inferred from their
   public documentation of a hash of "the initial tokens" plus machine load: the window, the
   weighting and the placement are all choices made here, and no number for any of them has been
@@ -379,6 +385,10 @@ otherwise would be wrong and instantly caught:
 - **llm-d** (2026-08-17) publishes a numeric threshold at which it abandons stickiness: τ = 286,720
   tokens, "35 max-num-batched-tokens chunks of pending uncached prefill work", on 10× Qwen3-32B.
 
+Two of this report's findings are therefore reproductions, not discoveries: the win coming from load
+balance rather than extra cache hits (Anyscale, CacheRoute), and pure stickiness having the highest
+hit rate and the lowest capacity (CacheRoute).
+
 **So what is left is narrower, and it is what this project claims:**
 
 1. **The comparison at single-host, consumer-GPU scale.** Every published version runs at 8–60
@@ -391,6 +401,22 @@ otherwise would be wrong and instantly caught:
    recoverable prefix work and key skew.)
 3. **Belief divergence** — the gap between the router's model of cache residency and the engine's own
    account of what it computed, per request. Nobody publishes this at any scale.
+4. **A spill threshold that depends on load.** Tuned at 32 closed-loop users it fires on 0.674% of
+   later turns; at 6 req/s open-loop, on 19% ([#31](https://github.com/yuchia329/kvroute/issues/31)).
+   llm-d publishes one fixed threshold.
+5. **What an index buys over a load-weighted prefix hash** — +11.0% median goodput — the family
+   OpenAI's documented routing belongs to.
+6. **Where recovery costs land**: after a replica kill for session affinity, when the ring moves
+   sessions back onto an empty cache; during it for prefix affinity, when orphaned conversations
+   land together.
+
+**Not yet measured, and the most likely objection.** The session-affinity baseline has **no load
+bound**. Envoy (`hash_balance_factor`) and HAProxy (`hash-balance-factor`) turn on consistent hashing
+with bounded loads with one setting, and CacheRoute uses it as a baseline. Since the mechanism
+finding says the win is load, every margin in this report is against load-blind stickiness, not
+against the best a plain load balancer offers. Putting that policy on the pressure grid — at least the
+frozen point and the skew-1.4 column — is the test of whether the index or just a load bound carries
+the +66%.
 
 ## Reproduce
 
