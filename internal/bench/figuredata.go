@@ -298,6 +298,91 @@ func (m PressureMap) Figure() PressureMapFigure {
 	return f
 }
 
+// RegimeMapFigure is what the regime map draws: the winner and its margin at
+// each recorded point of the map's two axes, and the goodput each policy
+// scored there.
+type RegimeMapFigure struct {
+	SLO      FigureSLO          `json:"slo"`
+	Policies []string           `json:"policies"`
+	XAxis    RegimeAxis         `json:"x_axis"`
+	YAxis    RegimeAxis         `json:"y_axis"`
+	Tiles    []RegimeTileFigure `json:"tiles"`
+	// Missing, Refused, Excluded and Surfaced are what the figure does not
+	// rest on, or rests on marked — printed with it, as the report prints them.
+	Missing  []string `json:"missing"`
+	Refused  []string `json:"refused"`
+	Excluded []string `json:"excluded"`
+	Surfaced []string `json:"surfaced"`
+}
+
+// RegimeTileFigure is one tile's verdict, in the units a plot draws it in.
+//
+// Label carries the margin worded exactly as the report's headline table
+// prints it — the margin, then "within spread" or "⚠" as applicable — so a
+// plot and the table it sits beside cannot disagree about either phrase.
+type RegimeTileFigure struct {
+	X         string `json:"x"`
+	Y         string `json:"y"`
+	LoadLabel string `json:"load_label"`
+	Winner    string `json:"winner"`
+	RunnerUp  string `json:"runner_up"`
+	// MarginPercent is meaningless when RunnerUpZero: see RegimeTile.
+	MarginPercent float64 `json:"margin_percent"`
+	RunnerUpZero  bool    `json:"runner_up_zero"`
+	Measured      bool    `json:"measured"`
+	Replicated    bool    `json:"replicated"`
+	WithinSpread  bool    `json:"within_spread"`
+	Marked        bool    `json:"marked"`
+	Label         string  `json:"label"`
+	// Missing is which of the map's policies had no usable cell at this tile.
+	Missing []string `json:"missing"`
+	// Goodput is every present policy's full point at this tile — latency,
+	// prefix cache, prefill, redundant prefill — built through the same
+	// row.point helper the plain comparison figure uses, so the two can never
+	// disagree about what one policy did at one point.
+	Goodput []PolicyPoint `json:"goodput"`
+}
+
+// Figure is the regime map's figure data.
+func (m RegimeMap) Figure() RegimeMapFigure {
+	f := RegimeMapFigure{
+		SLO:      figureSLO(m.SLO),
+		Policies: orEmpty(m.Policies),
+		XAxis:    m.XAxis,
+		YAxis:    m.YAxis,
+		Tiles:    []RegimeTileFigure{},
+		Missing:  orEmpty(m.Missing),
+		Refused:  orEmpty(m.Refused),
+		Excluded: orEmpty(m.Excluded),
+		Surfaced: orEmpty(m.Surfaced),
+	}
+	for _, t := range m.Tiles {
+		tf := RegimeTileFigure{
+			X:             t.X,
+			Y:             t.Y,
+			LoadLabel:     t.LoadLabel,
+			Winner:        t.Winner,
+			RunnerUp:      t.RunnerUp,
+			MarginPercent: t.MarginPercent,
+			RunnerUpZero:  t.RunnerUpZero,
+			Measured:      t.Measured,
+			Replicated:    t.Replicated,
+			WithinSpread:  t.WithinSpread,
+			Marked:        t.Marked,
+			Label:         t.Label,
+			Missing:       orEmpty(t.Missing),
+			Goodput:       []PolicyPoint{},
+		}
+		for _, name := range m.Policies {
+			if p, ok := t.row.point(name); ok {
+				tf.Goodput = append(tf.Goodput, p)
+			}
+		}
+		f.Tiles = append(f.Tiles, tf)
+	}
+	return f
+}
+
 // RecoveryFigure is what the recovery graph draws: each policy's goodput through
 // one failure, against time from the fault, with what happened to the replica
 // marked along it.

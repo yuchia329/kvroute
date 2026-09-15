@@ -156,6 +156,40 @@ func TestThePressureMapFigureCarriesEachDeltaQualifiedAsTheTableIs(t *testing.T)
 	}
 }
 
+// TestTheRegimeMapFigureCarriesTheTilesLabelAndFlagsAsTheReportDoes. The
+// regime map's figure is a view over the same comparison the report reads, so
+// its tile's label and flags have to be the words the report's headline
+// prints — the same discipline the pressure map figure above is held to.
+func TestTheRegimeMapFigureCarriesTheTilesLabelAndFlagsAsTheReportDoes(t *testing.T) {
+	m := buildMap(t, bothPolicies(highPressure, []float64{8, 8, 8}, []float64{20, 21, 22}))
+	regime := m.Regime()
+	f := regime.Figure()
+
+	if len(f.Tiles) != 1 {
+		t.Fatalf("%d tiles, want one", len(f.Tiles))
+	}
+	tile := f.Tiles[0]
+	report := regime.Report()
+	if !strings.Contains(report, tile.Label) {
+		t.Errorf("the figure's label %q does not appear in the report", tile.Label)
+	}
+	if tile.Winner != policy.PrefixAffinityName || !tile.Measured || tile.WithinSpread {
+		t.Errorf("tile = %+v, want prefix affinity measured and not within spread", tile)
+	}
+	if len(tile.Goodput) != 2 {
+		t.Errorf("%d goodput points, want both policies' full points", len(tile.Goodput))
+	}
+	encoded, err := json.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"x":"0"`, `"y":"8"`, `"winner":"prefix_affinity"`, `"within_spread":false`} {
+		if !strings.Contains(string(encoded), want) {
+			t.Errorf("encoded figure does not carry %q: %s", want, encoded)
+		}
+	}
+}
+
 // TestTheRecoveryFigureCarriesEachCurveAndWhatHappenedAlongIt. The recovery
 // graph is the curves against time from the fault, with the replica's events
 // marked on them and each run's drops beside it.
