@@ -175,9 +175,11 @@ All values below are **measured on the box**, not assumed. Host: `nlp-gpu-01.be.
 | Serving | 6 × single-GPU vLLM replicas, ports 8000–8005 — one per card, no tensor parallelism |
 | vLLM | **0.28.0**, project-dedicated venv via `uv` (0.11.21). torch 2.13.0+cu130, arch list includes `sm_86` |
 | Model | `hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4`, from the HF cache (5.4 GB, complete) |
-| AWQ kernel | **force `backend='awq:marlin'`.** 0.28.0's `auto_awq.py` auto-selects Marlin; pin it so it cannot flip between runs |
+| AWQ kernel | **force both switches.** 0.28.0 auto-selects in two independent places: `--quantization awq_marlin` pins the config class, and `--linear-backend marlin` pins the GEMM kernel, which otherwise defaults to `auto`. Pinning one leaves the other free. Verified 2026-09-06; see [ADR-0001](docs/adr/0001-engine-pin-and-forced-kernel-selection.md) |
+| Sampler | **`VLLM_USE_FLASHINFER_SAMPLER=0`.** The FlashInfer sampler JIT-compiles a CUDA kernel at startup, which needs `nvcc` on `PATH` and puts a compile step plus a JIT cache inside every replica launch |
+| KV residency metrics | **`--kv-cache-metrics`**, off by default. Without it the `kv_block_*` histograms below are absent entirely, not zero |
 | Router | Go, cross-compiled `GOOS=linux GOARCH=amd64` on the Mac, scp'd |
-| Observability | Prometheus on the box at **:9091** (9090 is another user's); Grafana on the Mac via `ssh -L 9091:localhost:9091 nlp` |
+| Observability | Prometheus on the box at **127.0.0.1:19091** (9090 is another user's, and 9091 had been taken by a third by 2026-09-10); Grafana on the Mac via `ssh -L 19091:127.0.0.1:19091 nlp`. `ops/prometheus.sh` and `ops/dashboards.sh` |
 | Orchestration | **Bare processes.** No Docker, Podman or Apptainer on the box, and no permission to install |
 
 ⚠️ **Do not use `~/Meta-Llama-3.1-8B-Instruct-AWQ-INT4`** — those safetensors are 135-byte git-lfs
@@ -205,9 +207,27 @@ and ~1.5–2 GB of activations and CUDA graphs ≈ **14 GiB KV**:
 ÷ 2k per session  = ~344 resident sessions
 ```
 
-⚠️ **That is the estimate; `num_gpu_blocks` is the truth.** Read it off vLLM at startup and
-compute `num_gpu_blocks × block_size × 128 KiB`. Every working set ratio in §6 scales off the
-measured number. Publish both, and the gap between them — it is a good interview story.
+✅ **Measured 2026-09-06 on all six replicas: 7,872 `num_gpu_blocks` × 16 = 125,952 tokens each,
+755,712 fleet-wide** — read off every replica's own `vllm:cache_config_info`, not extrapolated from
+one, and identical on all six. That is **9.8% above** the ~114,700 estimated above, and the gap is
+entirely in the one soft input: the estimate assumed ~14 GiB was left for KV after weights,
+activations and CUDA graphs, and the engine actually left 15.375 GiB. The per-token arithmetic is
+exact. See [the characterization](docs/measurements/2026-09-07-characterization/).
+
+A single replica reported **119,408 tokens** at first contact (ADR-0001) and every replica has
+reported 125,952 on every bring-up since. That gap is the `torch.compile` cache, and it reproduces
+to the token: starting one replica with `VLLM_CACHE_ROOT` pointed at an empty directory — same card,
+same settings — gives **119,408 tokens with 19.2 s of compilation**, against 125,952 with 0.26 s on
+the warm cache. vLLM sizes the KV cache from what is free after its profiling pass, and on a cold
+cache `torch.compile` is still holding ~0.8 GiB while that pass runs.
+
+⚠️ **So KV capacity is not a property of the engine settings alone**, and a constant for it would be
+wrong on the first bring-up after any change that invalidates the compile cache. Read it off every
+replica at runtime, every run.
+
+⚠️ **The estimate is the estimate; `num_gpu_blocks` is the truth**, and it is read at runtime rather
+than off the startup log: the log says it once and then it is gone, while the engine publishes it
+for as long as it is up. Every working set ratio in §6 scales off the measured number.
 
 ---
 
@@ -290,7 +310,11 @@ Replays workloads across two sweeps against four policies, emitting per-request 
    whose cache no longer has the data is strictly worse than least-loaded. Sizing the cap to model
    the fleet makes it a defensible modelling decision rather than an arbitrary constant, and
    `vllm:kv_block_lifetime_seconds` / `kv_block_idle_before_evict_seconds` let you calibrate it
-   empirically instead of guessing.
+   empirically instead of guessing — **but only if the replica was started with
+   `--kv-cache-metrics`**, which is off by default. Without it those families do not appear at
+   all, so a scrape finds nothing rather than zeros. It is enabled in `ops/versions.env` from the
+   first cell onward, because turning it on later would change the engine configuration every
+   cell is supposed to share.
 
 4. **Belief divergence** — the router models state it does not own. Log **prefix match** against
    `vllm:request_prefill_kv_computed_tokens` for the same request and plot the divergence. Nobody
@@ -311,21 +335,28 @@ Replays workloads across two sweeps against four policies, emitting per-request 
    router's inflight are different quantities; conflating them is what the herding argument
    exists to prevent.
 
-6. **Metric names — verified against vLLM 0.28.0**, not assumed:
+6. **Metric names — read off a live vLLM 0.28.0 replica on 2026-09-06**, not assumed. An earlier
+   draft of this table dropped the `_total` suffix on every counter and was wrong; the names below
+   are what the engine actually serves. `internal/vllmmetrics` is the executable copy, and
+   `test/contract` is what re-checks it against a replica.
 
    | Signal | Metric |
    |---|---|
    | KV utilization | `vllm:kv_cache_usage_perc` ⚠️ *not* `gpu_cache_usage_perc` |
    | Running / waiting | `vllm:num_requests_running`, `vllm:num_requests_waiting` |
-   | Prefix cache | `vllm:prefix_cache_hits`, `vllm:prefix_cache_queries` |
-   | Redundant prefill | `vllm:prompt_tokens` − `vllm:prompt_tokens_cached` ⚠️ `prompt_tokens_recomputed` was **removed** in 0.28.0 |
-   | Belief ground truth | `vllm:request_prefill_kv_computed_tokens` |
-   | Cache residency | `vllm:kv_block_lifetime_seconds`, `kv_block_idle_before_evict_seconds`, `kv_block_reuse_gap_seconds` |
-   | Engine preemption | `vllm:num_preemptions` — vLLM's own, **never call this spill** |
+   | Prefix cache | `vllm:prefix_cache_hits_total`, `vllm:prefix_cache_queries_total` |
+   | Redundant prefill | `vllm:prompt_tokens_total` − `vllm:prompt_tokens_cached_total` ⚠️ `prompt_tokens_recomputed` was **removed** in 0.28.0 |
+   | Belief ground truth | `vllm:request_prefill_kv_computed_tokens` (histogram) |
+   | Cache residency | `vllm:kv_block_lifetime_seconds`, `kv_block_idle_before_evict_seconds`, `kv_block_reuse_gap_seconds` — **require `--kv-cache-metrics`** |
+   | Engine preemption | `vllm:num_preemptions_total` — vLLM's own, **never call this spill** |
    | Server-side latency | `vllm:time_to_first_token_seconds`, `vllm:inter_token_latency_seconds`, `vllm:e2e_request_latency_seconds` |
 
+   ⚠️ **Counters carry `_total`; gauges and histograms do not.** The Prometheus client appends it
+   on exposition. This is the single most likely thing to be wrong again after a version bump.
+
    The Phase 1 gate asserts every one of these exists on a live replica, so a version drift fails
-   loudly instead of silently producing zeros.
+   loudly instead of silently producing zeros. It has been run: it caught the `_total` error and
+   the missing `--kv-cache-metrics` flag on first contact.
 
 7. **Health & ejection** — active health checks + passive failure tracking, eject, drain, reroute,
    re-admit on recovery.
@@ -336,7 +367,12 @@ Replays workloads across two sweeps against four policies, emitting per-request 
 
 All policies run against an **identical vLLM configuration**. Only the router varies. Hold
 constant: prefix caching enabled, `--gpu-memory-utilization`, chunked prefill setting,
-`--max-num-seqs`, CUDA graph settings, model, quantization, and the forced `awq:marlin` backend.
+`--max-num-seqs`, CUDA graph settings, model, both quantization switches (`--quantization
+awq_marlin` **and** `--linear-backend marlin`), `VLLM_USE_FLASHINFER_SAMPLER=0`, and
+`--kv-cache-metrics`.
+
+All of these live in `ops/versions.env`, which is the single source of truth; this list is a
+description of that file, not a second copy of it.
 
 | # | Policy | Represents |
 |---|---|---|
@@ -397,8 +433,10 @@ table, and where the affinity-vs-balance tradeoff becomes a curve rather than an
 vLLM 0.28.0 ships `vllm/distributed/kv_events.py` with `BlockStored`, `BlockRemoved`,
 `AllBlocksCleared` and `EventPublisher` — the exact mechanism Dynamo and llm-d use. Policy 5
 consumes that stream for exact residency instead of an approximate trie. Running 4 and 5
-head-to-head answers a question **none of the prior-art systems publish**: what does the
-approximation actually cost? Build it only after policy 4 is measured; it must not delay the
+head-to-head is a **replication** of llm-d's precise-versus-approximate comparison (P90 TTFT
+0.54 s vs 31.1 s, §1) at a scale it does not cover: what does the approximation cost on one host
+of consumer cards, where aggregate KV is far smaller and eviction far more frequent? Claiming the
+question is unpublished would be caught (#24, ADR-0010). Build it only after policy 4 is measured; it must not delay the
 clean-window sweeps.
 
 ---
@@ -438,9 +476,10 @@ each policy's latency degrade as offered load rises.
 physically different things and act on different parts of the policy:
 
 **Axis 2 — working set ratio**: **WS ∈ {0.25, 1, 3, 8}** — offered session tokens over measured
-aggregate KV. Against a measured ~688k-token fleet capacity that is roughly 86 / 344 / 1,030 /
-2,750 sessions; rescale off the real `num_gpu_blocks`. WS creates **memory pressure**, which is
-what drives eviction and fires the `KV_HIGH_WATER` branch of the spill rule.
+aggregate KV. Against the **measured 755,712-token** fleet capacity (§2) that is **92 / 369 / 1,107
+/ 2,952** sessions of 2k. The 86 / 344 / 1,030 / 2,750 this said before was computed off the
+*estimate*, not off a measurement. WS creates **memory pressure**, which is what drives eviction and
+fires the `KV_HIGH_WATER` branch of the spill rule.
 
 **Axis 3 — skew**: **Zipf α ∈ {0.0, 1.0, 1.4}**, from near-uniform to heavily concentrated. Skew
 creates **load imbalance**, which is what fires the `LOAD_IMBALANCE_FACTOR` branch.
@@ -595,6 +634,22 @@ and the prediction is shaky: 2k tokens × 128 KiB = **256 MiB of KV per request*
 the killer. The real costs are more likely halving decode capacity and adding a hop — and on this
 box, the `SYS` link between NUMA nodes, which is the one transfer path that genuinely might hurt.
 
+> ⚠️ **Measured, 2026-09-11 (#22): bandwidth is not the killer, and the prediction above was
+> optimistic by six times.** Moving a 2,048-token request's KV costs **36.7 ms** against a measured
+> **490.7 ms** prefill — **7.5%**, not the 1.3% this paragraph estimates. Two measured reasons: no
+> pair of cards on this host has peer access at all (the driver reports the chipset unsupported on
+> all 30 pairs), so every card-to-card copy is staged through host memory at 7.4–7.8 GB/s rather
+> than moving over a 12–13 GB/s direct link; and prefill is three times faster than the ~1.5 s
+> assumed here. CUDA's own peer copy gets half that: 3.7 GB/s, because the driver's staging is not
+> pipelined. The `SYS` link is **not** the one that hurts — every class lands within 5% of the
+> others when a pair copies alone; what halves bandwidth is two cards behind one PCIe switch sending
+> at once, since they share its single x16 uplink.
+>
+> The verdict still falls the way this section leans, on the costs the arithmetic cannot remove
+> rather than on bandwidth — and one it can: with prefix caching, a later turn's prefill shrinks
+> while the KV to ship does not, which puts the transfer at 30% of the prefill it would replace.
+> See [the measurement](docs/measurements/2026-09-11-pcie-arithmetic/).
+
 Standing up a real KV transfer path on 3090s is a multi-week yak shave, and a negative result
 from a setup you fought for a week is **indistinguishable from a misconfiguration**.
 
@@ -665,6 +720,37 @@ concurrency with identical load; compare TTFT and ITL. If all six match within n
 and you have a symmetry check for the README. If not, pin with `numactl --cpunodebind` and cap
 every replica to the same core count. If pinning doesn't fix it, **drop to GPUs 0–3 only**: four
 symmetric replicas beat six confounded ones.
+
+> ⚠️ **Measured, 2026-09-07: this method cannot detect the asymmetry this host actually has, and
+> the escalation ladder above is the wrong ladder.** Both corrections matter more than the NUMA
+> hypothesis they replace.
+>
+> **The method's blind spot.** "Drive each replica individually" is the one configuration in which
+> the effect cannot appear. Driven one at a time the six agree to **1.5%**, and two further
+> independent runs agree — 2.1% at bring-up, 2.3% in the solo characterization. Driven *all six at
+> once*, the spread is **12.7%** and grows with time on load. Whatever is asymmetric here is only
+> asymmetric when the whole fleet is busy, which is also the only condition the sweep ever runs in.
+> **Drive all six simultaneously, or the check passes vacuously.**
+>
+> **The cause is thermal, not topological.** GPU 3 is the only card predominantly limited by heat —
+> `SwThermal` in 67% of samples against 0–34% for the other five — clocking down to 960 MHz while
+> the rest hold 1305 MHz or better, and doing so at a *lower* core temperature (75 °C) than GPU 4
+> tolerates without throttling at all (83 °C). Its deficit grows 1.1% → 12.7% → 17.2% over three
+> minutes of sustained load. NUMA is ruled out: the effect does not follow the node boundary, and
+> pinning every replica to twelve disjoint local threads left it slowest in 39 of 41 five-second
+> slices, unchanged from unpinned's 38 of 41. See
+> [the measurement](measurements/2026-09-07-gpu3-thermal/).
+>
+> **So the fallback above is wrong for this box: GPUs 0–3 *includes* the bad card.** A symmetric
+> subset here is 0,1,2,4,5 or 0,1,4,5. The better escalation, which this ladder does not contain,
+> is a **uniform power cap** — `nvidia-smi -pl` at a wattage every card sustains, which equalises
+> the six by construction the way pinning was supposed to. It needs root, which we do not have on
+> this host.
+>
+> **And the asymmetry is time-varying**, which no rung of this ladder anticipates. A cell's result
+> depends on the thermal history of what ran before it, so it correlates with sweep order rather
+> than cancelling across policies. A throttled cell is as invalid as a contaminated one and must be
+> recorded as such — see the follow-up issue.
 
 **Phase 2 gate — the one that saves a wasted week:**
 - **Prefix cache hit rate differs measurably between policies.** If not, **the workload is wrong.
@@ -763,7 +849,8 @@ arithmetic justifies it, a clock abstraction before flakiness demands one.
 - `make up` **refuses to start** unless all six GPUs are below a memory threshold. The same probe
   backs the per-cell contamination check — one preflight, two jobs. It protects you from
   lab-mates *and* from your own leftovers, which have already been the actual problem once.
-- Prometheus on **:9091**; 9090 belongs to another user.
+- Prometheus on **127.0.0.1:19091**; 9090 and 9091 belong to other users, and `ops/prometheus.sh`
+  refuses any port someone already holds.
 - Stagger replica startup against the NFS home.
 
 **Do not wait for this project to start applying.** A December offer needs loops starting in

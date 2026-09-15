@@ -1,0 +1,20 @@
+preflight: 6 GPUs clean, all below 256 MiB
+starting replica-0 on GPU 0, port 8000, vLLM 0.28.0, quantization awq_marlin, linear backend marlin, pinned: numactl --physcpubind=0,1,2,3,4,5,48,49,50,51,52,53 --membind=0
+replica-0 is up: http://127.0.0.1:8000 (PID 144659)
+fleet: settling for 15s before the next replica
+starting replica-1 on GPU 1, port 8001, vLLM 0.28.0, quantization awq_marlin, linear backend marlin, pinned: numactl --physcpubind=6,7,8,9,10,11,54,55,56,57,58,59 --membind=0
+replica-1 is up: http://127.0.0.1:8001 (PID 145915)
+fleet: settling for 15s before the next replica
+starting replica-2 on GPU 2, port 8002, vLLM 0.28.0, quantization awq_marlin, linear backend marlin, pinned: numactl --physcpubind=12,13,14,15,16,17,60,61,62,63,64,65 --membind=0
+replica-2 is up: http://127.0.0.1:8002 (PID 146553)
+fleet: settling for 15s before the next replica
+starting replica-3 on GPU 3, port 8003, vLLM 0.28.0, quantization awq_marlin, linear backend marlin, pinned: numactl --physcpubind=18,19,20,21,22,23,66,67,68,69,70,71 --membind=0
+replica-3 is up: http://127.0.0.1:8003 (PID 147272)
+fleet: settling for 15s before the next replica
+starting replica-4 on GPU 4, port 8004, vLLM 0.28.0, quantization awq_marlin, linear backend marlin, pinned: numactl --physcpubind=24,25,26,27,28,29,72,73,74,75,76,77 --membind=1
+replica-4 is up: http://127.0.0.1:8004 (PID 147939)
+fleet: settling for 15s before the next replica
+starting replica-5 on GPU 5, port 8005, vLLM 0.28.0, quantization awq_marlin, linear backend marlin, pinned: numactl --physcpubind=30,31,32,33,34,35,78,79,80,81,82,83 --membind=1
+replica-5 is up: http://127.0.0.1:8005 (PID 148644)
+fleet: 6 replicas up
+replica-0=http://127.0.0.1:8000,replica-1=http://127.0.0.1:8001,replica-2=http://127.0.0.1:8002,replica-3=http://127.0.0.1:8003,replica-4=http://127.0.0.1:8004,replica-5=http://127.0.0.1:8005

@@ -10,6 +10,16 @@
 //
 //	KVROUTE_CONTRACT_REPLICA=http://127.0.0.1:8000 go test ./test/contract/
 //
+// It takes the whole fleet as well, comma-separated, and asserts the contract
+// against each replica in turn:
+//
+//	KVROUTE_CONTRACT_REPLICA="$(ops/fleet.sh replicas)" go test ./test/contract/
+//
+// The fleet form is what the characterization pass runs, because one replica
+// answering the contract says nothing about the other five: the KV residency
+// histograms are gated behind a flag, and a fleet where one replica was started
+// without it would scrape as zeros rather than fail.
+//
 // Without that variable the live half skips, so the suite still runs on a
 // laptop with no GPU.
 package contract_test
@@ -30,6 +40,7 @@ import (
 	"time"
 
 	"github.com/yuchia329/kvroute/internal/fakereplica"
+	"github.com/yuchia329/kvroute/internal/fleet"
 	"github.com/yuchia329/kvroute/internal/vllmmetrics"
 )
 
@@ -44,12 +55,12 @@ const (
 // TestFakeReplicaHonoursTheContract runs the contract against the fake.
 func TestFakeReplicaHonoursTheContract(t *testing.T) {
 	replica := fakereplica.New(fakereplica.Config{
-		ID:            "contract",
-		Model:         defaultModel,
-		TTFT:          5 * time.Millisecond,
-		InterToken:    5 * time.Millisecond,
-		OutputTokens:  maxTokens,
-		KVUtilization: 0.42,
+		ID:               "contract",
+		Model:            defaultModel,
+		TTFT:             5 * time.Millisecond,
+		InterToken:       5 * time.Millisecond,
+		OutputTokens:     maxTokens,
+		BatchKVOccupancy: 0.42,
 	})
 	srv := httptest.NewServer(replica.Handler())
 	t.Cleanup(srv.Close)
@@ -57,19 +68,33 @@ func TestFakeReplicaHonoursTheContract(t *testing.T) {
 	runContract(t, srv.URL, defaultModel)
 }
 
-// TestLiveReplicaHonoursTheContract runs the same contract against a replica of
-// the pinned engine version. This is what makes every test above the seam mean
-// something.
+// TestLiveReplicaHonoursTheContract runs the same contract against every
+// replica named in the environment. This is what makes every test above the
+// seam mean something.
 func TestLiveReplicaHonoursTheContract(t *testing.T) {
-	baseURL := os.Getenv(replicaEnv)
-	if baseURL == "" {
-		t.Skipf("set %s to a live replica base URL to run the contract against the engine", replicaEnv)
+	specs := os.Getenv(replicaEnv)
+	if specs == "" {
+		t.Skipf("set %s to a live replica base URL, or to the whole fleet's spec, to run the contract against the engine", replicaEnv)
 	}
 	model := os.Getenv(modelEnv)
 	if model == "" {
 		model = defaultModel
 	}
-	runContract(t, strings.TrimSuffix(baseURL, "/"), model)
+	replicas, err := fleet.ParseSpecs(strings.Split(specs, ","))
+	if err != nil {
+		t.Fatalf("parse %s: %v", replicaEnv, err)
+	}
+	if len(replicas) == 0 {
+		t.Fatalf("%s names no replicas", replicaEnv)
+	}
+	// Sequentially, not in parallel: the metrics assertions read counters that
+	// a concurrent request on the same replica would move under them, and six
+	// engines answering at once is load the box has not agreed to.
+	for _, replica := range replicas {
+		t.Run(replica.ID, func(t *testing.T) {
+			runContract(t, replica.BaseURL, model)
+		})
+	}
 }
 
 // runContract is the contract itself: the behaviour the router relies on,
@@ -252,12 +277,29 @@ func runContract(t *testing.T, baseURL, model string) {
 			t.Errorf("status = %d, want a 4xx", resp.StatusCode)
 		}
 		body := readAll(t, resp.Body)
-		var got map[string]any
+		// The engine nests the error, and the router forwards this body to the
+		// client untouched, so the shape is part of the contract.
+		var got struct {
+			Error *struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+				Code    int    `json:"code"`
+			} `json:"error"`
+		}
 		if err := json.Unmarshal(body, &got); err != nil {
 			t.Fatalf("error body %q is not JSON: %v", body, err)
 		}
-		if _, ok := got["message"]; !ok {
-			t.Errorf("error body carries no message: %s", body)
+		if got.Error == nil {
+			t.Fatalf("error body is not nested under an \"error\" key: %s", body)
+		}
+		if got.Error.Message == "" {
+			t.Errorf("error carries no message: %s", body)
+		}
+		if got.Error.Type == "" {
+			t.Errorf("error carries no type: %s", body)
+		}
+		if got.Error.Code != resp.StatusCode {
+			t.Errorf("error code %d disagrees with HTTP status %d", got.Error.Code, resp.StatusCode)
 		}
 	})
 
@@ -290,6 +332,49 @@ func runContract(t *testing.T, baseURL, model string) {
 			}
 		}
 	})
+
+	t.Run("cache config carries a KV capacity that can be read", func(t *testing.T) {
+		resp, err := http.Get(baseURL + "/metrics")
+		if err != nil {
+			t.Fatalf("get /metrics: %v", err)
+		}
+		defer resp.Body.Close()
+
+		labels, ok := vllmmetrics.Labels(string(readAll(t, resp.Body)), vllmmetrics.CacheConfigInfo)
+		if !ok {
+			t.Fatalf("%s is absent, so this replica's KV capacity cannot be read and the fleet aggregate cannot be computed",
+				vllmmetrics.CacheConfigInfo)
+		}
+		blocks := numericLabel(t, labels, vllmmetrics.LabelNumGPUBlocks)
+		blockSize := numericLabel(t, labels, vllmmetrics.LabelBlockSize)
+		tokens := numericLabel(t, labels, vllmmetrics.LabelKVCacheSizeTokens)
+		// Every working set ratio scales off this number, and it is derived
+		// from the block count. If the two disagree the block size in the
+		// labels is not the one the engine sized its cache with, and the whole
+		// pressure grid would be wrong by that factor.
+		if blocks*blockSize != tokens {
+			t.Errorf("%d blocks of %d tokens is %d, but the engine reports a cache of %d tokens",
+				blocks, blockSize, blocks*blockSize, tokens)
+		}
+	})
+}
+
+// numericLabel reads one label that has to be a positive number, because a
+// capacity of zero is not a capacity.
+func numericLabel(t *testing.T, labels map[string]string, name string) int {
+	t.Helper()
+	raw, ok := labels[name]
+	if !ok {
+		t.Fatalf("%s carries no %s label", vllmmetrics.CacheConfigInfo, name)
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		t.Fatalf("%s label %s is %q, not a number: %v", vllmmetrics.CacheConfigInfo, name, raw, err)
+	}
+	if value <= 0 {
+		t.Fatalf("%s label %s is %d, so the replica reports no KV cache at all", vllmmetrics.CacheConfigInfo, name, value)
+	}
+	return value
 }
 
 // assertHistogramIsConsistent checks a histogram's exposition holds together:

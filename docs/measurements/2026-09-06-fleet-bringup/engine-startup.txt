@@ -1,0 +1,36 @@
+### replica-0
+  (EngineCore pid=4150404) INFO 09-06 21:50:07 [auto_awq.py:448] Using MarlinLinearKernel for AutoAWQMarlinLinearMethod
+  (EngineCore pid=4150404) INFO 09-06 21:50:11 [model_runner.py:380] Model loading took 5.39 GiB memory and 5.046629 seconds
+  (EngineCore pid=4150404) INFO 09-06 21:50:11 [topk_topp_sampler.py:46] FlashInfer top-p/top-k sampling disabled via VLLM_USE_FLASHINFER_SAMPLER=0.
+  (EngineCore pid=4150404) INFO 09-06 21:50:15 [kv_cache_utils.py:1869] GPU KV cache size: 125,952 tokens, Maximum concurrency for 8,192 tokens per request: 15.38x
+  (EngineCore pid=4150404) INFO 09-06 21:50:25 [core.py:347] init engine (profile, create kv cache, warmup model) took 13.16 s (compilation: 0.79 s)
+### replica-1
+  (EngineCore pid=4151455) INFO 09-06 21:51:10 [auto_awq.py:448] Using MarlinLinearKernel for AutoAWQMarlinLinearMethod
+  (EngineCore pid=4151455) INFO 09-06 21:51:14 [model_runner.py:380] Model loading took 5.39 GiB memory and 4.736113 seconds
+  (EngineCore pid=4151455) INFO 09-06 21:51:14 [topk_topp_sampler.py:46] FlashInfer top-p/top-k sampling disabled via VLLM_USE_FLASHINFER_SAMPLER=0.
+  (EngineCore pid=4151455) INFO 09-06 21:51:18 [kv_cache_utils.py:1869] GPU KV cache size: 125,952 tokens, Maximum concurrency for 8,192 tokens per request: 15.38x
+  (EngineCore pid=4151455) INFO 09-06 21:51:27 [core.py:347] init engine (profile, create kv cache, warmup model) took 12.77 s (compilation: 0.28 s)
+### replica-2
+  (EngineCore pid=4152505) INFO 09-06 21:52:14 [auto_awq.py:448] Using MarlinLinearKernel for AutoAWQMarlinLinearMethod
+  (EngineCore pid=4152505) INFO 09-06 21:52:19 [model_runner.py:380] Model loading took 5.39 GiB memory and 5.168996 seconds
+  (EngineCore pid=4152505) INFO 09-06 21:52:19 [topk_topp_sampler.py:46] FlashInfer top-p/top-k sampling disabled via VLLM_USE_FLASHINFER_SAMPLER=0.
+  (EngineCore pid=4152505) INFO 09-06 21:52:22 [kv_cache_utils.py:1869] GPU KV cache size: 125,952 tokens, Maximum concurrency for 8,192 tokens per request: 15.38x
+  (EngineCore pid=4152505) INFO 09-06 21:52:31 [core.py:347] init engine (profile, create kv cache, warmup model) took 12.18 s (compilation: 0.29 s)
+### replica-3
+  (EngineCore pid=4153540) INFO 09-06 21:53:17 [auto_awq.py:448] Using MarlinLinearKernel for AutoAWQMarlinLinearMethod
+  (EngineCore pid=4153540) INFO 09-06 21:53:22 [model_runner.py:380] Model loading took 5.39 GiB memory and 5.204371 seconds
+  (EngineCore pid=4153540) INFO 09-06 21:53:22 [topk_topp_sampler.py:46] FlashInfer top-p/top-k sampling disabled via VLLM_USE_FLASHINFER_SAMPLER=0.
+  (EngineCore pid=4153540) INFO 09-06 21:53:25 [kv_cache_utils.py:1869] GPU KV cache size: 125,952 tokens, Maximum concurrency for 8,192 tokens per request: 15.38x
+  (EngineCore pid=4153540) INFO 09-06 21:53:34 [core.py:347] init engine (profile, create kv cache, warmup model) took 12.24 s (compilation: 0.27 s)
+### replica-4
+  (EngineCore pid=4154593) INFO 09-06 21:54:22 [auto_awq.py:448] Using MarlinLinearKernel for AutoAWQMarlinLinearMethod
+  (EngineCore pid=4154593) INFO 09-06 21:54:26 [model_runner.py:380] Model loading took 5.39 GiB memory and 4.905840 seconds
+  (EngineCore pid=4154593) INFO 09-06 21:54:26 [topk_topp_sampler.py:46] FlashInfer top-p/top-k sampling disabled via VLLM_USE_FLASHINFER_SAMPLER=0.
+  (EngineCore pid=4154593) INFO 09-06 21:54:30 [kv_cache_utils.py:1869] GPU KV cache size: 125,952 tokens, Maximum concurrency for 8,192 tokens per request: 15.38x
+  (EngineCore pid=4154593) INFO 09-06 21:54:39 [core.py:347] init engine (profile, create kv cache, warmup model) took 12.67 s (compilation: 0.32 s)
+### replica-5
+  (EngineCore pid=4155671) INFO 09-06 21:55:25 [auto_awq.py:448] Using MarlinLinearKernel for AutoAWQMarlinLinearMethod
+  (EngineCore pid=4155671) INFO 09-06 21:55:29 [model_runner.py:380] Model loading took 5.39 GiB memory and 4.668088 seconds
+  (EngineCore pid=4155671) INFO 09-06 21:55:29 [topk_topp_sampler.py:46] FlashInfer top-p/top-k sampling disabled via VLLM_USE_FLASHINFER_SAMPLER=0.
+  (EngineCore pid=4155671) INFO 09-06 21:55:32 [kv_cache_utils.py:1869] GPU KV cache size: 125,952 tokens, Maximum concurrency for 8,192 tokens per request: 15.38x
+  (EngineCore pid=4155671) INFO 09-06 21:55:48 [core.py:347] init engine (profile, create kv cache, warmup model) took 18.93 s (compilation: 0.22 s)

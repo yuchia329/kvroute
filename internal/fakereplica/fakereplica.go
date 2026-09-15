@@ -41,8 +41,52 @@ type Config struct {
 	// it with max_tokens. Defaults to 8.
 	OutputTokens int
 
-	// KVUtilization is reported as vllm:kv_cache_usage_perc.
-	KVUtilization float64
+	// BatchKVOccupancy is reported as vllm:kv_cache_usage_perc: the share of the
+	// cache held by the running batch. A load signal nothing routes on since
+	// ADR-0011, kept because runs still record the column.
+	BatchKVOccupancy float64
+
+	// CachedPromptFraction is the share of each request's prompt tokens the
+	// replica reports having served out of its KV cache rather than prefilled.
+	//
+	// It is a knob rather than a model of a cache, for the reason the fake exists
+	// at all: what is being exercised above this seam is the harness reading the
+	// engine's own per-request account of what it did not have to compute, and a
+	// belief divergence measured against a fake's guess at prefix caching would
+	// be a measurement of the fake. Zero — the default — is a replica that
+	// prefills everything, which is what the fake modelled before.
+	//
+	// The same fraction drives usage.prompt_tokens_details.cached_tokens and the
+	// vllm:prompt_tokens_cached_total counter, so the per-request account and the
+	// fleet-wide one agree, as they do on a real replica and as the divergence
+	// report checks.
+	CachedPromptFraction float64
+
+	// OmitPromptTokensDetails models a replica started *without*
+	// --enable-prompt-tokens-details: vLLM 0.28.0 returns usage with
+	// prompt_tokens_details null however the request asks for it, because
+	// _make_prompt_tokens_details short-circuits before it looks at anything
+	// else.
+	//
+	// It exists so that failure has a stand-in. It is the one belief divergence
+	// cannot survive and the one nothing else catches: a sweep against such a
+	// fleet records a divergence column of nulls and looks exactly like a sweep
+	// that worked, hours later. ops/probe-usage.sh is the check, and a check
+	// whose primary failure path has never executed is not one worth trusting.
+	//
+	// Default off — the field is published — because that is what the fleet is
+	// configured for and what every other test wants. The engine's own default is
+	// the opposite, which is precisely why the flag has to be set explicitly in
+	// ops/versions.env rather than assumed.
+	OmitPromptTokensDetails bool
+
+	// NumGPUBlocks and BlockSize are the KV cache geometry reported through
+	// vllm:cache_config_info, which is where aggregate fleet KV capacity is
+	// read from. They default to what a replica of the pinned engine on a 3090
+	// actually reports, so a fake fleet has a capacity the same arithmetic
+	// applies to rather than a zero the reader would have to special-case.
+	NumGPUBlocks int
+	BlockSize    int
 
 	// Now supplies the `created` timestamp. Defaults to time.Now.
 	//
@@ -74,9 +118,19 @@ type Replica struct {
 }
 
 type counters struct {
-	requests         int64
-	promptTokens     int64
-	completionTokens int64
+	requests     int64
+	promptTokens int64
+	// cachedPromptTokens is the share of those the replica reports having served
+	// out of cache, behind vllm:prompt_tokens_cached_total. It is driven by the
+	// same fraction as the per-request usage, so the two accounts agree.
+	cachedPromptTokens int64
+	completionTokens   int64
+	// running is how many chat completions are in flight right now. It backs
+	// vllm:num_requests_running, which is the engine's actual batch — the one
+	// number that says what the replica is doing rather than what was asked of
+	// it. A fake that always reported zero would let a sampler for it look like
+	// it worked while measuring nothing.
+	running int64
 }
 
 // New builds a fake replica from cfg, filling in defaults.
@@ -92,6 +146,12 @@ func New(cfg Config) *Replica {
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
+	}
+	if cfg.NumGPUBlocks <= 0 {
+		cfg.NumGPUBlocks = 7872
+	}
+	if cfg.BlockSize <= 0 {
+		cfg.BlockSize = 16
 	}
 	return &Replica{cfg: cfg, histograms: newHistograms()}
 }
@@ -139,7 +199,11 @@ type completion struct {
 	model        string
 	tokens       int
 	promptTokens int
+	cachedTokens int
 	includeUsage bool
+	// omitPromptTokensDetails withholds the cached-token breakdown, modelling an
+	// engine started without --enable-prompt-tokens-details.
+	omitPromptTokensDetails bool
 }
 
 func (c completion) chunk(choices []chunkChoice, u *usage) chunk {
@@ -154,10 +218,25 @@ func (c completion) chunk(choices []chunkChoice, u *usage) chunk {
 }
 
 func (c completion) usage() *usage {
+	if c.omitPromptTokensDetails {
+		// A replica without --enable-prompt-tokens-details: usage arrives, the
+		// breakdown does not.
+		return &usage{
+			PromptTokens:     c.promptTokens,
+			CompletionTokens: c.tokens,
+			TotalTokens:      c.promptTokens + c.tokens,
+		}
+	}
 	return &usage{
 		PromptTokens:     c.promptTokens,
 		CompletionTokens: c.tokens,
 		TotalTokens:      c.promptTokens + c.tokens,
+		// Always present, never omitted when it is zero. A replica that served
+		// nothing out of cache and a replica that does not report caching at all
+		// are different things, and the harness distinguishes them: this is the
+		// per-request ground truth belief divergence is measured against, so an
+		// absent field has to mean absent.
+		PromptTokensDetails: &promptTokensDetails{CachedTokens: c.cachedTokens},
 	}
 }
 
@@ -186,6 +265,11 @@ func (r *Replica) handleChatCompletions(w http.ResponseWriter, req *http.Request
 		return
 	}
 
+	// Counted from here to the last byte written, which is what the engine's
+	// own gauge means: a request the replica is currently serving.
+	r.enter()
+	defer r.leave()
+
 	// The completion id is derived from the request rather than randomised, so
 	// that the same request produces byte-identical responses whether it was
 	// sent directly or through the router.
@@ -202,6 +286,8 @@ func (r *Replica) handleChatCompletions(w http.ResponseWriter, req *http.Request
 		promptTokens: estimateTokens(parsed.Messages),
 		includeUsage: parsed.StreamOptions != nil && parsed.StreamOptions.IncludeUsage,
 	}
+	c.cachedTokens = int(float64(c.promptTokens) * r.cfg.CachedPromptFraction)
+	c.omitPromptTokensDetails = r.cfg.OmitPromptTokensDetails
 	r.observe(c)
 
 	if parsed.Stream {
@@ -209,6 +295,20 @@ func (r *Replica) handleChatCompletions(w http.ResponseWriter, req *http.Request
 		return
 	}
 	r.blockingCompletion(w, req, c)
+}
+
+// enter and leave maintain the in-flight count behind
+// vllm:num_requests_running.
+func (r *Replica) enter() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.counters.running++
+}
+
+func (r *Replica) leave() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.counters.running--
 }
 
 // observe folds one completion into the counters and histograms /metrics
@@ -222,11 +322,12 @@ func (r *Replica) observe(c completion) {
 	defer r.mu.Unlock()
 	r.counters.requests++
 	r.counters.promptTokens += int64(c.promptTokens)
+	r.counters.cachedPromptTokens += int64(c.cachedTokens)
 	r.counters.completionTokens += int64(c.tokens)
 
 	r.histograms["vllm:time_to_first_token_seconds"].observe(ttft)
 	r.histograms["vllm:e2e_request_latency_seconds"].observe(ttft + float64(c.tokens-1)*itl)
-	r.histograms["vllm:request_prefill_kv_computed_tokens"].observe(float64(c.promptTokens))
+	r.histograms["vllm:request_prefill_kv_computed_tokens"].observe(float64(c.promptTokens - c.cachedTokens))
 	for range c.tokens - 1 {
 		r.histograms["vllm:inter_token_latency_seconds"].observe(itl)
 	}
@@ -361,6 +462,16 @@ type usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+	// PromptTokensDetails carries the engine's per-request account of how much
+	// of the prompt it did not have to compute. It is the only place that figure
+	// is published per request — vllm:request_prefill_kv_computed_tokens is a
+	// histogram and carries no request id — so it is what the router's prefix
+	// match is checked against.
+	PromptTokensDetails *promptTokensDetails `json:"prompt_tokens_details,omitempty"`
+}
+
+type promptTokensDetails struct {
+	CachedTokens int `json:"cached_tokens"`
 }
 
 func writeError(w http.ResponseWriter, status int, typ, message string) {
@@ -372,12 +483,16 @@ func writeError(w http.ResponseWriter, status int, typ, message string) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	// The engine nests its error under an "error" key. The router forwards an
+	// upstream error body verbatim, so the fake has to produce the real shape
+	// or every test above the seam is asserting against fiction.
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"object":  "error",
-		"message": message,
-		"type":    typ,
-		"param":   nil,
-		"code":    status,
+		"error": map[string]any{
+			"message": message,
+			"type":    typ,
+			"param":   nil,
+			"code":    status,
+		},
 	})
 }
 

@@ -1,0 +1,4 @@
+time=2026-09-08T03:38:06.993-07:00 level=INFO msg="router listening" addr=127.0.0.1:8080 policy=least_outstanding replicas=5 records=runs/mt-comparison/router-least_outstanding.jsonl
+time=2026-09-08T03:54:29.324-07:00 level=ERROR msg="dropped request" request_id=BXUDH4PIOT3COG7MJMWHLFBKII status=502 err="dispatch to replica-5: Post \"http://127.0.0.1:8005/v1/chat/completions\": read tcp 127.0.0.1:42364->127.0.0.1:8005: read: connection reset by peer"
+time=2026-09-08T05:28:09.965-07:00 level=INFO msg=draining grace=30s
+time=2026-09-08T05:28:09.975-07:00 level=INFO msg="router overhead" requests=41323 p50_us=217.965 p99_us=485.57 max_us=17074.965

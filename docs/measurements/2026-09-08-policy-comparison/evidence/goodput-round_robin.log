@@ -1,0 +1,76 @@
+time=2026-09-07T21:51:51.898-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)" measured_at=2026-09-07T07:50:38.074Z
+time=2026-09-07T21:51:51.899-07:00 level=WARN msg="the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy" record=slo/characterization.json
+time=2026-09-07T21:51:51.899-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="replica symmetry is unresolved at one or more levels: at concurrency 32, TTFT p50 spread 22.1% over the 8.0% tolerance: replica-5 at 1.292s against replica-4 at 1.058s; at concurrency 32 that spread is not resolvable: one replica varies 36.3% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+time=2026-09-07T21:51:51.899-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="4 of 36 probes flagged: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-5-c32-r1 and 1 more)"
+time=2026-09-07T21:51:51.899-07:00 level=INFO msg="sampling GPUs for contamination" gpus=6 replica_pids="[166800 167945 169166 170428 171642 172846]" interval=5s
+time=2026-09-07T21:51:51.899-07:00 level=INFO msg=offering workload="fixed(prompt=2048B,output=64t,seed=1)"
+time=2026-09-07T21:51:51.906-07:00 level=INFO msg="router is up and running the policy these cells will name" router=http://127.0.0.1:8080 policy=round_robin replicas=6
+time=2026-09-07T21:51:51.920-07:00 level=INFO msg="fleet is up" replicas=6
+time=2026-09-07T21:51:54.629-07:00 level=INFO msg="fleet warmed" replicas=6 requests_each=3
+time=2026-09-07T21:51:54.630-07:00 level=INFO msg="running cell" cell=round_robin-a4-r1 driver=open_loop load="4 req/s" duration=1m30s
+time=2026-09-07T21:53:25.228-07:00 level=INFO msg="cell complete" cell=round_robin-a4-r1 driver=open_loop requests=260 successes=260 dropped=0 failed=0 slo_violations=0 goodput_rps=4 clean=true flagged=false
+time=2026-09-07T21:53:35.233-07:00 level=INFO msg="running cell" cell=round_robin-a4-r2 driver=open_loop load="4 req/s" duration=1m30s
+time=2026-09-07T21:55:05.828-07:00 level=INFO msg="cell complete" cell=round_robin-a4-r2 driver=open_loop requests=260 successes=260 dropped=0 failed=0 slo_violations=0 goodput_rps=4 clean=true flagged=false
+time=2026-09-07T21:55:15.833-07:00 level=INFO msg="running cell" cell=round_robin-a4-r3 driver=open_loop load="4 req/s" duration=1m30s
+time=2026-09-07T21:56:46.427-07:00 level=INFO msg="cell complete" cell=round_robin-a4-r3 driver=open_loop requests=260 successes=260 dropped=0 failed=0 slo_violations=0 goodput_rps=4 clean=true flagged=false
+time=2026-09-07T21:56:56.432-07:00 level=INFO msg="running cell" cell=round_robin-a8-r1 driver=open_loop load="8 req/s" duration=1m30s
+time=2026-09-07T21:58:27.381-07:00 level=INFO msg="cell complete" cell=round_robin-a8-r1 driver=open_loop requests=520 successes=520 dropped=0 failed=0 slo_violations=0 goodput_rps=8 clean=true flagged=false
+time=2026-09-07T21:58:37.391-07:00 level=INFO msg="running cell" cell=round_robin-a8-r2 driver=open_loop load="8 req/s" duration=1m30s
+time=2026-09-07T22:00:08.331-07:00 level=INFO msg="cell complete" cell=round_robin-a8-r2 driver=open_loop requests=520 successes=520 dropped=0 failed=0 slo_violations=0 goodput_rps=8 clean=true flagged=false
+time=2026-09-07T22:00:18.337-07:00 level=INFO msg="running cell" cell=round_robin-a8-r3 driver=open_loop load="8 req/s" duration=1m30s
+time=2026-09-07T22:01:49.285-07:00 level=INFO msg="cell complete" cell=round_robin-a8-r3 driver=open_loop requests=520 successes=520 dropped=0 failed=0 slo_violations=0 goodput_rps=8 clean=true flagged=false
+time=2026-09-07T22:01:59.291-07:00 level=INFO msg="running cell" cell=round_robin-a12-r1 driver=open_loop load="12 req/s" duration=1m30s
+time=2026-09-07T22:03:30.264-07:00 level=INFO msg="cell complete" cell=round_robin-a12-r1 driver=open_loop requests=781 successes=781 dropped=0 failed=0 slo_violations=0 goodput_rps=12.000000047999999 clean=true flagged=false
+time=2026-09-07T22:03:40.270-07:00 level=INFO msg="running cell" cell=round_robin-a12-r2 driver=open_loop load="12 req/s" duration=1m30s
+time=2026-09-07T22:05:11.312-07:00 level=INFO msg="cell complete" cell=round_robin-a12-r2 driver=open_loop requests=781 successes=781 dropped=0 failed=0 slo_violations=0 goodput_rps=12.000000047999999 clean=true flagged=false
+time=2026-09-07T22:05:21.318-07:00 level=INFO msg="running cell" cell=round_robin-a12-r3 driver=open_loop load="12 req/s" duration=1m30s
+time=2026-09-07T22:06:52.247-07:00 level=INFO msg="cell complete" cell=round_robin-a12-r3 driver=open_loop requests=781 successes=781 dropped=0 failed=0 slo_violations=0 goodput_rps=12.000000047999999 clean=true flagged=false
+time=2026-09-07T22:07:02.253-07:00 level=INFO msg="running cell" cell=round_robin-a16-r1 driver=open_loop load="16 req/s" duration=1m30s
+time=2026-09-07T22:08:58.778-07:00 level=INFO msg="cell complete" cell=round_robin-a16-r1 driver=open_loop requests=1040 successes=1040 dropped=0 failed=0 slo_violations=1039 goodput_rps=0.015384615384615385 clean=true flagged=false
+time=2026-09-07T22:09:08.784-07:00 level=INFO msg="running cell" cell=round_robin-a16-r2 driver=open_loop load="16 req/s" duration=1m30s
+time=2026-09-07T22:11:01.301-07:00 level=INFO msg="cell complete" cell=round_robin-a16-r2 driver=open_loop requests=1040 successes=1040 dropped=0 failed=0 slo_violations=815 goodput_rps=3.4615384615384617 clean=true flagged=false
+time=2026-09-07T22:11:11.307-07:00 level=INFO msg="running cell" cell=round_robin-a16-r3 driver=open_loop load="16 req/s" duration=1m30s
+time=2026-09-07T22:13:02.973-07:00 level=INFO msg="cell complete" cell=round_robin-a16-r3 driver=open_loop requests=1040 successes=1040 dropped=0 failed=0 slo_violations=865 goodput_rps=2.6923076923076925 clean=true flagged=false
+time=2026-09-07T22:13:12.975-07:00 level=INFO msg="running cell" cell=round_robin-a24-r1 driver=open_loop load="24 req/s" duration=1m30s
+time=2026-09-07T22:16:03.029-07:00 level=INFO msg="cell complete" cell=round_robin-a24-r1 driver=open_loop requests=1561 successes=1561 dropped=0 failed=0 slo_violations=1561 goodput_rps=0 clean=true flagged=false
+time=2026-09-07T22:16:13.034-07:00 level=INFO msg="running cell" cell=round_robin-a24-r2 driver=open_loop load="24 req/s" duration=1m30s
+time=2026-09-07T22:19:01.359-07:00 level=INFO msg="cell complete" cell=round_robin-a24-r2 driver=open_loop requests=1561 successes=1561 dropped=0 failed=0 slo_violations=1561 goodput_rps=0 clean=true flagged=false
+time=2026-09-07T22:19:11.362-07:00 level=INFO msg="running cell" cell=round_robin-a24-r3 driver=open_loop load="24 req/s" duration=1m30s
+time=2026-09-07T22:21:59.542-07:00 level=INFO msg="cell complete" cell=round_robin-a24-r3 driver=open_loop requests=1561 successes=1561 dropped=0 failed=0 slo_violations=1561 goodput_rps=0 clean=true flagged=false
+time=2026-09-07T22:22:09.545-07:00 level=INFO msg="running cell" cell=round_robin-a32-r1 driver=open_loop load="32 req/s" duration=1m30s
+time=2026-09-07T22:25:56.853-07:00 level=INFO msg="cell complete" cell=round_robin-a32-r1 driver=open_loop requests=2080 successes=2080 dropped=0 failed=0 slo_violations=2080 goodput_rps=0 clean=true flagged=false
+time=2026-09-07T22:26:06.854-07:00 level=INFO msg="running cell" cell=round_robin-a32-r2 driver=open_loop load="32 req/s" duration=1m30s
+time=2026-09-07T22:29:52.775-07:00 level=INFO msg="cell complete" cell=round_robin-a32-r2 driver=open_loop requests=2080 successes=2080 dropped=0 failed=0 slo_violations=2080 goodput_rps=0 clean=true flagged=false
+time=2026-09-07T22:30:02.776-07:00 level=INFO msg="running cell" cell=round_robin-a32-r3 driver=open_loop load="32 req/s" duration=1m30s
+time=2026-09-07T22:33:48.434-07:00 level=INFO msg="cell complete" cell=round_robin-a32-r3 driver=open_loop requests=2080 successes=2080 dropped=0 failed=0 slo_violations=2080 goodput_rps=0 clean=true flagged=false
+time=2026-09-07T22:33:58.435-07:00 level=INFO msg="running cell" cell=round_robin-a48-r1 driver=open_loop load="48 req/s" duration=1m30s
+time=2026-09-07T22:39:41.245-07:00 level=INFO msg="cell complete" cell=round_robin-a48-r1 driver=open_loop requests=3121 successes=3121 dropped=0 failed=0 slo_violations=3121 goodput_rps=0 clean=true flagged=false
+time=2026-09-07T22:39:51.247-07:00 level=INFO msg="running cell" cell=round_robin-a48-r2 driver=open_loop load="48 req/s" duration=1m30s
+time=2026-09-07T22:45:33.612-07:00 level=INFO msg="cell complete" cell=round_robin-a48-r2 driver=open_loop requests=3121 successes=3121 dropped=0 failed=0 slo_violations=3121 goodput_rps=0 clean=true flagged=false
+time=2026-09-07T22:45:43.613-07:00 level=INFO msg="running cell" cell=round_robin-a48-r3 driver=open_loop load="48 req/s" duration=1m30s
+time=2026-09-07T22:51:25.950-07:00 level=INFO msg="cell complete" cell=round_robin-a48-r3 driver=open_loop requests=3121 successes=3121 dropped=0 failed=0 slo_violations=3121 goodput_rps=0 clean=true flagged=false
+
+| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|
+| open-loop | 4 req/s | 1 | 4.00 | 4.00 | 332ms | 351ms | 8ms | 260 | 260 | 0 | 0 | 0 | yes |  |
+| open-loop | 4 req/s | 2 | 4.00 | 4.00 | 331ms | 347ms | 8ms | 260 | 260 | 0 | 0 | 0 | yes |  |
+| open-loop | 4 req/s | 3 | 4.00 | 4.00 | 333ms | 347ms | 8ms | 260 | 260 | 0 | 0 | 0 | yes |  |
+| open-loop | 8 req/s | 1 | 8.00 | 8.00 | 366ms | 470ms | 8ms | 520 | 520 | 0 | 0 | 0 | yes |  |
+| open-loop | 8 req/s | 2 | 8.00 | 8.00 | 366ms | 481ms | 8ms | 520 | 520 | 0 | 0 | 0 | yes |  |
+| open-loop | 8 req/s | 3 | 8.00 | 8.00 | 367ms | 483ms | 8ms | 520 | 520 | 0 | 0 | 0 | yes |  |
+| open-loop | 12 req/s | 1 | 12.00 | 12.00 | 371ms | 505ms | 9ms | 781 | 781 | 0 | 0 | 0 | yes |  |
+| open-loop | 12 req/s | 2 | 12.00 | 12.00 | 371ms | 495ms | 9ms | 781 | 781 | 0 | 0 | 0 | yes |  |
+| open-loop | 12 req/s | 3 | 12.00 | 12.00 | 370ms | 478ms | 9ms | 781 | 781 | 0 | 0 | 0 | yes |  |
+| open-loop | 16 req/s | 1 | 0.02 | 16.00 | 1669ms | 23462ms | 395ms | 1040 | 1040 | 0 | 0 | 1039 | yes |  |
+| open-loop | 16 req/s | 2 | 3.46 | 16.00 | 586ms | 19697ms | 55ms | 1040 | 1040 | 0 | 0 | 815 | yes |  |
+| open-loop | 16 req/s | 3 | 2.69 | 16.00 | 689ms | 18650ms | 55ms | 1040 | 1040 | 0 | 0 | 865 | yes |  |
+| open-loop | 24 req/s | 1 | 0.00 | 24.00 | 31649ms | 74504ms | 622ms | 1561 | 1561 | 0 | 0 | 1561 | yes |  |
+| open-loop | 24 req/s | 2 | 0.00 | 24.00 | 31039ms | 72775ms | 617ms | 1561 | 1561 | 0 | 0 | 1561 | yes |  |
+| open-loop | 24 req/s | 3 | 0.00 | 24.00 | 30988ms | 72380ms | 619ms | 1561 | 1561 | 0 | 0 | 1561 | yes |  |
+| open-loop | 32 req/s | 1 | 0.00 | 32.00 | 63247ms | 129155ms | 623ms | 2080 | 2080 | 0 | 0 | 2080 | yes |  |
+| open-loop | 32 req/s | 2 | 0.00 | 32.00 | 62558ms | 128179ms | 623ms | 2080 | 2080 | 0 | 0 | 2080 | yes |  |
+| open-loop | 32 req/s | 3 | 0.00 | 32.00 | 62250ms | 127880ms | 623ms | 2080 | 2080 | 0 | 0 | 2080 | yes |  |
+| open-loop | 48 req/s | 1 | 0.00 | 48.00 | 126949ms | 240867ms | 625ms | 3121 | 3121 | 0 | 0 | 3121 | yes |  |
+| open-loop | 48 req/s | 2 | 0.00 | 48.00 | 125916ms | 240329ms | 622ms | 3121 | 3121 | 0 | 0 | 3121 | yes |  |
+| open-loop | 48 req/s | 3 | 0.00 | 48.00 | 126248ms | 240373ms | 627ms | 3121 | 3121 | 0 | 0 | 3121 | yes |  |
+time=2026-09-07T22:51:26.783-07:00 level=INFO msg="compacted the run" requests=38889 cells=21 requests_parquet=runs/comparison/goodput/requests.parquet cells_parquet=runs/comparison/goodput/cells.parquet results=runs/comparison/goodput/results.md

@@ -1,0 +1,169 @@
+{
+  "id": "prefix_affinity-c32-r1",
+  "policy": "prefix_affinity",
+  "driver": "closed_loop",
+  "concurrency": 32,
+  "arrival_rate": 0,
+  "repetition": 1,
+  "workload": "multiturn(sessions=922,ws=3,skew=1.4,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on)",
+  "hit_rate_low_water": 0.55,
+  "load_imbalance_factor": 0,
+  "mean_inflight_denominator": false,
+  "hash_leading_blocks": 0,
+  "hash_weight": 0,
+  "arrival_plan": "",
+  "think_time_ns": 0,
+  "kv_events": false,
+  "cell_duration_ns": 300000000000,
+  "warmup_ns": 50000000000,
+  "started_at_ns": 1789293956875953997,
+  "ended_at_ns": 1789294257878401814,
+  "prefix_cache_hits": 20704336,
+  "prefix_cache_queries": 21816411,
+  "prefix_cache_read": true,
+  "prompt_tokens": 21822990,
+  "prompt_tokens_cached": 20708416,
+  "prefill_read": true,
+  "working_set": 3,
+  "skew": 1.4,
+  "prefix_index_nodes": 16311,
+  "prefix_index_cap": 16311,
+  "ejections": 0,
+  "ejections_read": true,
+  "residency_lost": 0,
+  "residency_resets": 0,
+  "residency_reconnects": 0,
+  "residency_orphaned": 0,
+  "residency_read": false,
+  "summary": {
+    "requests": 7171,
+    "warmup": 684,
+    "successes": 7171,
+    "failed": 0,
+    "dropped": 0,
+    "cancelled": 0,
+    "slo_violations": 26,
+    "rerouted": 0,
+    "window_ns": 250701062279,
+    "throughput_rps": 28.603787853198416,
+    "goodput_rps": 28.50007867955692,
+    "ttft_p50_ns": 97549665,
+    "ttft_p90_ns": 415048566,
+    "ttft_p95_ns": 446475507,
+    "ttft_p99_ns": 731764289,
+    "total_p50_ns": 1065768138,
+    "total_p99_ns": 2253505948,
+    "itl_p50_ns": 12163213,
+    "itl_p95_ns": 15776063,
+    "slo_applied": true,
+    "slo_ttft_ns": 990000000,
+    "slo_itl_ns": 24000000,
+    "warmup_drift": 0.012220358509327133,
+    "warmup_drift_basis": "turn",
+    "warmup_drift_turns_compared": 4,
+    "scheduled": 0,
+    "schedule_lag_p50_ns": 0,
+    "schedule_lag_p99_ns": 0,
+    "schedule_lag_max_ns": 0,
+    "schedule_lag_threshold_ns": 100000000,
+    "prompt_bytes": 37035839,
+    "decisions": {
+      "round_robin": 0,
+      "least_outstanding": 0,
+      "session_affinity": 0,
+      "session_unidentified": 0,
+      "prefix_affinity": 7059,
+      "cold": 112,
+      "prefix_hash": 0,
+      "hash_deflected": 0,
+      "prompt_unhashed": 0,
+      "spill_hit_rate": 0,
+      "spill_load": 0,
+      "prompt_untokenized": 0,
+      "undecided": 0
+    },
+    "placement": {
+      "counted": true,
+      "requests": 7171,
+      "unplaced": 0,
+      "replicas": 5,
+      "busiest": "replica-2",
+      "busiest_requests": 1661,
+      "quietest": "replica-1",
+      "quietest_requests": 1270
+    },
+    "failure_rate": 0,
+    "failure_threshold": 0.01,
+    "flagged": false
+  },
+  "contamination": {
+    "gpu_samples": 61,
+    "probe_errors": 0,
+    "max_foreign_gpu_mem_mib": 0,
+    "clean": true
+  },
+  "throttle": {
+    "clock_samples": 61,
+    "gpus": [
+      {
+        "gpu": 0,
+        "samples": 57,
+        "thermal_share": 0,
+        "power_cap_share": 1,
+        "min_sm_clock_mhz": 1305,
+        "max_sm_clock_mhz": 1860,
+        "reasons": [
+          "SwPowerCap"
+        ]
+      },
+      {
+        "gpu": 1,
+        "samples": 55,
+        "thermal_share": 0,
+        "power_cap_share": 1,
+        "min_sm_clock_mhz": 1440,
+        "max_sm_clock_mhz": 1920,
+        "reasons": [
+          "SwPowerCap"
+        ]
+      },
+      {
+        "gpu": 2,
+        "samples": 59,
+        "thermal_share": 0.01694915254237288,
+        "power_cap_share": 1,
+        "min_sm_clock_mhz": 1260,
+        "max_sm_clock_mhz": 1890,
+        "reasons": [
+          "SwPowerCap",
+          "SwThermal"
+        ]
+      },
+      {
+        "gpu": 4,
+        "samples": 56,
+        "thermal_share": 0,
+        "power_cap_share": 1,
+        "min_sm_clock_mhz": 1275,
+        "max_sm_clock_mhz": 1650,
+        "reasons": [
+          "SwPowerCap"
+        ]
+      },
+      {
+        "gpu": 5,
+        "samples": 61,
+        "thermal_share": 0,
+        "power_cap_share": 1,
+        "min_sm_clock_mhz": 1425,
+        "max_sm_clock_mhz": 1710,
+        "reasons": [
+          "SwPowerCap"
+        ]
+      }
+    ],
+    "max_thermal_share": 0.01694915254237288,
+    "thermal_share_threshold": 0.5,
+    "throttled": false
+  }
+}

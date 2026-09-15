@@ -1,0 +1,346 @@
+replica-5 is not running
+replica-4 is not running
+replica-2 is not running
+replica-1 is not running
+replica-0 is not running
+preflight: 5 GPUs clean, all below 256 MiB
+preflight: 5 GPUs clean, all below 256 MiB
+starting replica-0 on GPU 0, port 8000, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-0 is up: http://127.0.0.1:8000 (PID 1722409)
+fleet: settling for 15s before the next replica
+starting replica-1 on GPU 1, port 8001, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-1 is up: http://127.0.0.1:8001 (PID 1723915)
+fleet: settling for 15s before the next replica
+starting replica-2 on GPU 2, port 8002, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-2 is up: http://127.0.0.1:8002 (PID 1725155)
+fleet: settling for 15s before the next replica
+starting replica-4 on GPU 4, port 8004, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-4 is up: http://127.0.0.1:8004 (PID 1727119)
+fleet: settling for 15s before the next replica
+starting replica-5 on GPU 5, port 8005, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-5 is up: http://127.0.0.1:8005 (PID 1728374)
+fleet: 5 replicas up on GPUs 0 1 2 4 5
+replica-0=http://127.0.0.1:8000,replica-1=http://127.0.0.1:8001,replica-2=http://127.0.0.1:8002,replica-4=http://127.0.0.1:8004,replica-5=http://127.0.0.1:8005
+probe-usage: http://127.0.0.1:8000
+  cold  → PRESENT 575 0
+  warm  → PRESENT 575 560
+probe-usage: OK — cached_tokens reported, and the warm request reused 560 tokens
+time=2026-09-11T10:51:37.268-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)" measured_at=2026-09-07T07:50:38.074Z
+time=2026-09-11T10:51:37.268-07:00 level=WARN msg="the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy" record=slo/characterization.json
+time=2026-09-11T10:51:37.268-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="replica symmetry is unresolved at one or more levels: at concurrency 32, TTFT p50 spread 22.1% over the 8.0% tolerance: replica-5 at 1.292s against replica-4 at 1.058s; at concurrency 32 that spread is not resolvable: one replica varies 36.3% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+time=2026-09-11T10:51:37.268-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="4 of 36 probes flagged: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-5-c32-r1 and 1 more)"
+time=2026-09-11T10:51:37.269-07:00 level=INFO msg="sampling GPUs for contamination" gpus=0,1,2,4,5 replica_pids="[1722409 1723915 1725155 1727119 1728374]" interval=5s
+time=2026-09-11T10:51:37.269-07:00 level=INFO msg=offering workload="multiturn(sessions=76,ws=0.25,skew=0,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on)"
+time=2026-09-11T10:51:37.271-07:00 level=INFO msg="router is up and running the policy these cells will name" router=http://127.0.0.1:8080 policy=prefix_affinity spill=off replicas=5
+time=2026-09-11T10:51:37.281-07:00 level=INFO msg="fleet is up" replicas=5
+time=2026-09-11T10:51:39.951-07:00 level=INFO msg="fleet warmed" replicas=5 requests_each=3
+time=2026-09-11T10:51:39.952-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r1 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T10:56:40.981-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r1 driver=closed_loop requests=8862 successes=8862 dropped=0 failed=0 slo_violations=43 goodput_rps=35.161700335823234 clean=true flagged=false
+time=2026-09-11T10:56:50.986-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r2 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T11:01:52.039-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r2 driver=closed_loop requests=8857 successes=8857 dropped=0 failed=0 slo_violations=2 goodput_rps=35.315326341212156 clean=true flagged=false
+time=2026-09-11T11:02:02.044-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r3 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T11:07:03.180-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r3 driver=closed_loop requests=8831 successes=8831 dropped=0 failed=0 slo_violations=42 goodput_rps=35.041026492153165 clean=true flagged=false
+
+| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|
+| closed-loop | 32 users | 1 | 35.16 | 35.33 | 83ms | 145ms | 12ms | 8862 | 8862 | 0 | 0 | 43 | yes |  |
+| closed-loop | 32 users | 2 | 35.32 | 35.32 | 85ms | 142ms | 13ms | 8857 | 8857 | 0 | 0 | 2 | yes |  |
+| closed-loop | 32 users | 3 | 35.04 | 35.21 | 84ms | 143ms | 13ms | 8831 | 8831 | 0 | 0 | 42 | yes |  |
+time=2026-09-11T11:07:04.024-07:00 level=INFO msg="compacted the run" requests=30129 cells=3 requests_parquet=runs/pressure-spilloff/ws0.25-skew0/requests.parquet cells_parquet=runs/pressure-spilloff/ws0.25-skew0/cells.parquet results=runs/pressure-spilloff/ws0.25-skew0/results.md
+time=2026-09-11T11:07:04.047-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)" measured_at=2026-09-07T07:50:38.074Z
+time=2026-09-11T11:07:04.047-07:00 level=WARN msg="the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy" record=slo/characterization.json
+time=2026-09-11T11:07:04.047-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="replica symmetry is unresolved at one or more levels: at concurrency 32, TTFT p50 spread 22.1% over the 8.0% tolerance: replica-5 at 1.292s against replica-4 at 1.058s; at concurrency 32 that spread is not resolvable: one replica varies 36.3% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+time=2026-09-11T11:07:04.048-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="4 of 36 probes flagged: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-5-c32-r1 and 1 more)"
+time=2026-09-11T11:07:04.048-07:00 level=INFO msg="sampling GPUs for contamination" gpus=0,1,2,4,5 replica_pids="[1722409 1723915 1725155 1727119 1728374]" interval=5s
+time=2026-09-11T11:07:04.048-07:00 level=INFO msg=offering workload="multiturn(sessions=76,ws=0.25,skew=1,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on)"
+time=2026-09-11T11:07:04.057-07:00 level=INFO msg="router is up and running the policy these cells will name" router=http://127.0.0.1:8080 policy=prefix_affinity spill=off replicas=5
+time=2026-09-11T11:07:04.066-07:00 level=INFO msg="fleet is up" replicas=5
+time=2026-09-11T11:07:06.639-07:00 level=INFO msg="fleet warmed" replicas=5 requests_each=3
+time=2026-09-11T11:07:06.639-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r1 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T11:12:07.879-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r1 driver=closed_loop requests=8328 successes=8328 dropped=0 failed=0 slo_violations=374 goodput_rps=31.696887865024138 clean=true flagged=false
+time=2026-09-11T11:12:17.880-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r2 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T11:17:19.023-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r2 driver=closed_loop requests=8105 successes=8105 dropped=0 failed=0 slo_violations=187 goodput_rps=31.561761071209457 clean=true flagged=false
+time=2026-09-11T11:17:29.029-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r3 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T11:22:30.148-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r3 driver=closed_loop requests=8579 successes=8579 dropped=0 failed=0 slo_violations=70 goodput_rps=33.93213472073756 clean=true flagged=false
+
+| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|
+| closed-loop | 32 users | 1 | 31.70 | 33.19 | 86ms | 409ms | 12ms | 8328 | 8328 | 0 | 0 | 374 | yes |  |
+| closed-loop | 32 users | 2 | 31.56 | 32.31 | 88ms | 442ms | 12ms | 8105 | 8105 | 0 | 0 | 187 | yes |  |
+| closed-loop | 32 users | 3 | 33.93 | 34.21 | 86ms | 420ms | 13ms | 8579 | 8579 | 0 | 0 | 70 | yes |  |
+time=2026-09-11T11:22:31.024-07:00 level=INFO msg="compacted the run" requests=28484 cells=3 requests_parquet=runs/pressure-spilloff/ws0.25-skew1/requests.parquet cells_parquet=runs/pressure-spilloff/ws0.25-skew1/cells.parquet results=runs/pressure-spilloff/ws0.25-skew1/results.md
+time=2026-09-11T11:22:31.051-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)" measured_at=2026-09-07T07:50:38.074Z
+time=2026-09-11T11:22:31.051-07:00 level=WARN msg="the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy" record=slo/characterization.json
+time=2026-09-11T11:22:31.051-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="replica symmetry is unresolved at one or more levels: at concurrency 32, TTFT p50 spread 22.1% over the 8.0% tolerance: replica-5 at 1.292s against replica-4 at 1.058s; at concurrency 32 that spread is not resolvable: one replica varies 36.3% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+time=2026-09-11T11:22:31.051-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="4 of 36 probes flagged: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-5-c32-r1 and 1 more)"
+time=2026-09-11T11:22:31.051-07:00 level=INFO msg="sampling GPUs for contamination" gpus=0,1,2,4,5 replica_pids="[1722409 1723915 1725155 1727119 1728374]" interval=5s
+time=2026-09-11T11:22:31.052-07:00 level=INFO msg=offering workload="multiturn(sessions=76,ws=0.25,skew=1.4,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on)"
+time=2026-09-11T11:22:31.071-07:00 level=INFO msg="router is up and running the policy these cells will name" router=http://127.0.0.1:8080 policy=prefix_affinity spill=off replicas=5
+time=2026-09-11T11:22:31.080-07:00 level=INFO msg="fleet is up" replicas=5
+time=2026-09-11T11:22:33.614-07:00 level=INFO msg="fleet warmed" replicas=5 requests_each=3
+time=2026-09-11T11:22:33.615-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r1 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T11:27:35.018-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r1 driver=closed_loop requests=6361 successes=6361 dropped=0 failed=0 slo_violations=2119 goodput_rps=16.89481899572207 clean=true flagged=false
+time=2026-09-11T11:27:45.022-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r2 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T11:32:46.274-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r2 driver=closed_loop requests=6291 successes=6291 dropped=0 failed=0 slo_violations=2165 goodput_rps=16.440651285067048 clean=true flagged=false
+time=2026-09-11T11:32:56.279-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r3 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T11:37:57.543-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r3 driver=closed_loop requests=6953 successes=6953 dropped=0 failed=0 slo_violations=2029 goodput_rps=19.618898044743478 clean=true flagged=false
+
+| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|
+| closed-loop | 32 users | 1 | 16.89 | 25.33 | 96ms | 429ms | 12ms | 6361 | 6361 | 0 | 0 | 2119 | yes |  |
+| closed-loop | 32 users | 2 | 16.44 | 25.07 | 98ms | 425ms | 12ms | 6291 | 6291 | 0 | 0 | 2165 | yes |  |
+| closed-loop | 32 users | 3 | 19.62 | 27.70 | 95ms | 435ms | 13ms | 6953 | 6953 | 0 | 0 | 2029 | yes |  |
+time=2026-09-11T11:37:58.224-07:00 level=INFO msg="compacted the run" requests=23539 cells=3 requests_parquet=runs/pressure-spilloff/ws0.25-skew1.4/requests.parquet cells_parquet=runs/pressure-spilloff/ws0.25-skew1.4/cells.parquet results=runs/pressure-spilloff/ws0.25-skew1.4/results.md
+time=2026-09-11T11:37:58.244-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)" measured_at=2026-09-07T07:50:38.074Z
+time=2026-09-11T11:37:58.244-07:00 level=WARN msg="the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy" record=slo/characterization.json
+time=2026-09-11T11:37:58.245-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="replica symmetry is unresolved at one or more levels: at concurrency 32, TTFT p50 spread 22.1% over the 8.0% tolerance: replica-5 at 1.292s against replica-4 at 1.058s; at concurrency 32 that spread is not resolvable: one replica varies 36.3% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+time=2026-09-11T11:37:58.245-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="4 of 36 probes flagged: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-5-c32-r1 and 1 more)"
+time=2026-09-11T11:37:58.245-07:00 level=INFO msg="sampling GPUs for contamination" gpus=0,1,2,4,5 replica_pids="[1722409 1723915 1725155 1727119 1728374]" interval=5s
+time=2026-09-11T11:37:58.245-07:00 level=INFO msg=offering workload="multiturn(sessions=307,ws=1,skew=0,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on)"
+time=2026-09-11T11:37:58.267-07:00 level=INFO msg="router is up and running the policy these cells will name" router=http://127.0.0.1:8080 policy=prefix_affinity spill=off replicas=5
+time=2026-09-11T11:37:58.277-07:00 level=INFO msg="fleet is up" replicas=5
+time=2026-09-11T11:38:00.990-07:00 level=INFO msg="fleet warmed" replicas=5 requests_each=3
+time=2026-09-11T11:38:00.990-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r1 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T11:43:03.030-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r1 driver=closed_loop requests=2594 successes=2594 dropped=0 failed=0 slo_violations=796 goodput_rps=7.143863759208357 clean=true flagged=false
+time=2026-09-11T11:43:13.036-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r2 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T11:48:14.584-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r2 driver=closed_loop requests=3198 successes=3198 dropped=0 failed=0 slo_violations=738 goodput_rps=9.80271969588886 clean=true flagged=false
+time=2026-09-11T11:48:24.589-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r3 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T11:53:26.880-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r3 driver=closed_loop requests=2785 successes=2785 dropped=0 failed=0 slo_violations=737 goodput_rps=8.126923826531572 clean=true flagged=false
+
+| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|
+| closed-loop | 32 users | 1 | 7.14 | 10.31 | 381ms | 1791ms | 10ms | 2594 | 2594 | 0 | 0 | 796 | yes |  |
+| closed-loop | 32 users | 2 | 9.80 | 12.74 | 394ms | 1431ms | 11ms | 3198 | 3198 | 0 | 0 | 738 | yes |  |
+| closed-loop | 32 users | 3 | 8.13 | 11.05 | 386ms | 1507ms | 10ms | 2785 | 2785 | 0 | 0 | 737 | yes |  |
+time=2026-09-11T11:53:27.272-07:00 level=INFO msg="compacted the run" requests=10519 cells=3 requests_parquet=runs/pressure-spilloff/ws1-skew0/requests.parquet cells_parquet=runs/pressure-spilloff/ws1-skew0/cells.parquet results=runs/pressure-spilloff/ws1-skew0/results.md
+time=2026-09-11T11:53:27.291-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)" measured_at=2026-09-07T07:50:38.074Z
+time=2026-09-11T11:53:27.291-07:00 level=WARN msg="the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy" record=slo/characterization.json
+time=2026-09-11T11:53:27.291-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="replica symmetry is unresolved at one or more levels: at concurrency 32, TTFT p50 spread 22.1% over the 8.0% tolerance: replica-5 at 1.292s against replica-4 at 1.058s; at concurrency 32 that spread is not resolvable: one replica varies 36.3% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+time=2026-09-11T11:53:27.291-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="4 of 36 probes flagged: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-5-c32-r1 and 1 more)"
+time=2026-09-11T11:53:27.292-07:00 level=INFO msg="sampling GPUs for contamination" gpus=0,1,2,4,5 replica_pids="[1722409 1723915 1725155 1727119 1728374]" interval=5s
+time=2026-09-11T11:53:27.292-07:00 level=INFO msg=offering workload="multiturn(sessions=307,ws=1,skew=1,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on)"
+time=2026-09-11T11:53:27.318-07:00 level=INFO msg="router is up and running the policy these cells will name" router=http://127.0.0.1:8080 policy=prefix_affinity spill=off replicas=5
+time=2026-09-11T11:53:27.327-07:00 level=INFO msg="fleet is up" replicas=5
+time=2026-09-11T11:53:29.891-07:00 level=INFO msg="fleet warmed" replicas=5 requests_each=3
+time=2026-09-11T11:53:29.892-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r1 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T11:58:30.936-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r1 driver=closed_loop requests=5568 successes=5568 dropped=0 failed=0 slo_violations=298 goodput_rps=21.02313871394534 clean=true flagged=false
+time=2026-09-11T11:58:40.940-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r2 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T12:03:42.393-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r2 driver=closed_loop requests=4049 successes=4049 dropped=0 failed=0 slo_violations=1399 goodput_rps=10.551112198401587 clean=true flagged=false
+time=2026-09-11T12:03:52.398-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r3 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T12:08:53.496-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r3 driver=closed_loop requests=5494 successes=5494 dropped=0 failed=0 slo_violations=278 goodput_rps=20.795279789891495 clean=true flagged=false
+
+| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|
+| closed-loop | 32 users | 1 | 21.02 | 22.21 | 98ms | 1104ms | 12ms | 5568 | 5568 | 0 | 0 | 298 | yes |  |
+| closed-loop | 32 users | 2 | 10.55 | 16.12 | 142ms | 1074ms | 11ms | 4049 | 4049 | 0 | 0 | 1399 | yes |  |
+| closed-loop | 32 users | 3 | 20.80 | 21.90 | 97ms | 1088ms | 12ms | 5494 | 5494 | 0 | 0 | 278 | yes |  |
+time=2026-09-11T12:08:54.053-07:00 level=INFO msg="compacted the run" requests=17781 cells=3 requests_parquet=runs/pressure-spilloff/ws1-skew1/requests.parquet cells_parquet=runs/pressure-spilloff/ws1-skew1/cells.parquet results=runs/pressure-spilloff/ws1-skew1/results.md
+time=2026-09-11T12:08:54.071-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)" measured_at=2026-09-07T07:50:38.074Z
+time=2026-09-11T12:08:54.072-07:00 level=WARN msg="the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy" record=slo/characterization.json
+time=2026-09-11T12:08:54.072-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="replica symmetry is unresolved at one or more levels: at concurrency 32, TTFT p50 spread 22.1% over the 8.0% tolerance: replica-5 at 1.292s against replica-4 at 1.058s; at concurrency 32 that spread is not resolvable: one replica varies 36.3% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+time=2026-09-11T12:08:54.072-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="4 of 36 probes flagged: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-5-c32-r1 and 1 more)"
+time=2026-09-11T12:08:54.072-07:00 level=INFO msg="sampling GPUs for contamination" gpus=0,1,2,4,5 replica_pids="[1722409 1723915 1725155 1727119 1728374]" interval=5s
+time=2026-09-11T12:08:54.072-07:00 level=INFO msg=offering workload="multiturn(sessions=307,ws=1,skew=1.4,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on)"
+time=2026-09-11T12:08:54.101-07:00 level=INFO msg="router is up and running the policy these cells will name" router=http://127.0.0.1:8080 policy=prefix_affinity spill=off replicas=5
+time=2026-09-11T12:08:54.110-07:00 level=INFO msg="fleet is up" replicas=5
+time=2026-09-11T12:08:56.687-07:00 level=INFO msg="fleet warmed" replicas=5 requests_each=3
+time=2026-09-11T12:08:56.688-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r1 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T12:13:57.869-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r1 driver=closed_loop requests=5787 successes=5787 dropped=0 failed=0 slo_violations=1680 goodput_rps=16.370571735751756 clean=true flagged=false
+time=2026-09-11T12:14:07.874-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r2 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T12:19:09.270-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r2 driver=closed_loop requests=5291 successes=5291 dropped=0 failed=0 slo_violations=2247 goodput_rps=12.12536946247721 clean=true flagged=true
+time=2026-09-11T12:19:19.275-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r3 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T12:24:20.438-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r3 driver=closed_loop requests=6119 successes=6119 dropped=0 failed=0 slo_violations=1290 goodput_rps=19.252196503568253 clean=true flagged=false
+
+| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|
+| closed-loop | 32 users | 1 | 16.37 | 23.07 | 106ms | 530ms | 12ms | 5787 | 5787 | 0 | 0 | 1680 | yes |  |
+| closed-loop | 32 users | 2 | 12.13 | 21.08 | 114ms | 594ms | 11ms | 5291 | 5291 | 0 | 0 | 2247 | yes | **1** |
+| closed-loop | 32 users | 3 | 19.25 | 24.40 | 101ms | 559ms | 13ms | 6119 | 6119 | 0 | 0 | 1290 | yes |  |
+
+Flagged cells — these are not averaged in without being read first:
+
+- `prefix_affinity-c32-r2`: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+time=2026-09-11T12:24:21.065-07:00 level=INFO msg="compacted the run" requests=20522 cells=3 requests_parquet=runs/pressure-spilloff/ws1-skew1.4/requests.parquet cells_parquet=runs/pressure-spilloff/ws1-skew1.4/cells.parquet results=runs/pressure-spilloff/ws1-skew1.4/results.md
+time=2026-09-11T12:24:21.083-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)" measured_at=2026-09-07T07:50:38.074Z
+time=2026-09-11T12:24:21.083-07:00 level=WARN msg="the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy" record=slo/characterization.json
+time=2026-09-11T12:24:21.083-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="replica symmetry is unresolved at one or more levels: at concurrency 32, TTFT p50 spread 22.1% over the 8.0% tolerance: replica-5 at 1.292s against replica-4 at 1.058s; at concurrency 32 that spread is not resolvable: one replica varies 36.3% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+time=2026-09-11T12:24:21.083-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="4 of 36 probes flagged: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-5-c32-r1 and 1 more)"
+time=2026-09-11T12:24:21.084-07:00 level=INFO msg="sampling GPUs for contamination" gpus=0,1,2,4,5 replica_pids="[1722409 1723915 1725155 1727119 1728374]" interval=5s
+time=2026-09-11T12:24:21.084-07:00 level=INFO msg=offering workload="multiturn(sessions=922,ws=3,skew=0,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on)"
+time=2026-09-11T12:24:21.119-07:00 level=INFO msg="router is up and running the policy these cells will name" router=http://127.0.0.1:8080 policy=prefix_affinity spill=off replicas=5
+time=2026-09-11T12:24:21.128-07:00 level=INFO msg="fleet is up" replicas=5
+time=2026-09-11T12:24:23.667-07:00 level=INFO msg="fleet warmed" replicas=5 requests_each=3
+time=2026-09-11T12:24:23.668-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r1 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T12:29:25.578-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r1 driver=closed_loop requests=2142 successes=2142 dropped=0 failed=0 slo_violations=639 goodput_rps=5.974802049391029 clean=true flagged=false
+time=2026-09-11T12:29:35.584-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r2 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T12:34:38.945-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r2 driver=closed_loop requests=2224 successes=2224 dropped=0 failed=0 slo_violations=653 goodput_rps=6.207936592183256 clean=true flagged=false
+time=2026-09-11T12:34:48.950-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r3 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T12:39:51.398-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r3 driver=closed_loop requests=2127 successes=2127 dropped=0 failed=0 slo_violations=677 goodput_rps=5.751958806451638 clean=true flagged=false
+
+| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|
+| closed-loop | 32 users | 1 | 5.97 | 8.51 | 403ms | 2183ms | 9ms | 2142 | 2142 | 0 | 0 | 639 | yes |  |
+| closed-loop | 32 users | 2 | 6.21 | 8.79 | 407ms | 2227ms | 10ms | 2224 | 2224 | 0 | 0 | 653 | yes |  |
+| closed-loop | 32 users | 3 | 5.75 | 8.44 | 405ms | 2192ms | 10ms | 2127 | 2127 | 0 | 0 | 677 | yes |  |
+time=2026-09-11T12:39:51.696-07:00 level=INFO msg="compacted the run" requests=8077 cells=3 requests_parquet=runs/pressure-spilloff/ws3-skew0/requests.parquet cells_parquet=runs/pressure-spilloff/ws3-skew0/cells.parquet results=runs/pressure-spilloff/ws3-skew0/results.md
+time=2026-09-11T12:39:51.715-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)" measured_at=2026-09-07T07:50:38.074Z
+time=2026-09-11T12:39:51.716-07:00 level=WARN msg="the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy" record=slo/characterization.json
+time=2026-09-11T12:39:51.716-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="replica symmetry is unresolved at one or more levels: at concurrency 32, TTFT p50 spread 22.1% over the 8.0% tolerance: replica-5 at 1.292s against replica-4 at 1.058s; at concurrency 32 that spread is not resolvable: one replica varies 36.3% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+time=2026-09-11T12:39:51.716-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="4 of 36 probes flagged: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-5-c32-r1 and 1 more)"
+time=2026-09-11T12:39:51.716-07:00 level=INFO msg="sampling GPUs for contamination" gpus=0,1,2,4,5 replica_pids="[1722409 1723915 1725155 1727119 1728374]" interval=5s
+time=2026-09-11T12:39:51.717-07:00 level=INFO msg=offering workload="multiturn(sessions=922,ws=3,skew=1,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on)"
+time=2026-09-11T12:39:51.760-07:00 level=INFO msg="router is up and running the policy these cells will name" router=http://127.0.0.1:8080 policy=prefix_affinity spill=off replicas=5
+time=2026-09-11T12:39:51.770-07:00 level=INFO msg="fleet is up" replicas=5
+time=2026-09-11T12:39:54.443-07:00 level=INFO msg="fleet warmed" replicas=5 requests_each=3
+time=2026-09-11T12:39:54.443-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r1 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T12:44:56.382-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r1 driver=closed_loop requests=4753 successes=4753 dropped=0 failed=0 slo_violations=309 goodput_rps=17.671205112306655 clean=true flagged=false
+time=2026-09-11T12:45:06.388-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r2 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T12:50:08.112-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r2 driver=closed_loop requests=4473 successes=4473 dropped=0 failed=0 slo_violations=464 goodput_rps=15.944455353418208 clean=true flagged=false
+time=2026-09-11T12:50:18.117-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r3 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T12:55:19.729-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r3 driver=closed_loop requests=4494 successes=4494 dropped=0 failed=0 slo_violations=422 goodput_rps=16.20552222036994 clean=true flagged=false
+
+| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|
+| closed-loop | 32 users | 1 | 17.67 | 18.90 | 137ms | 1417ms | 12ms | 4753 | 4753 | 0 | 0 | 309 | yes |  |
+| closed-loop | 32 users | 2 | 15.94 | 17.79 | 186ms | 1216ms | 12ms | 4473 | 4473 | 0 | 0 | 464 | yes |  |
+| closed-loop | 32 users | 3 | 16.21 | 17.88 | 240ms | 1372ms | 12ms | 4494 | 4494 | 0 | 0 | 422 | yes |  |
+time=2026-09-11T12:55:20.236-07:00 level=INFO msg="compacted the run" requests=16040 cells=3 requests_parquet=runs/pressure-spilloff/ws3-skew1/requests.parquet cells_parquet=runs/pressure-spilloff/ws3-skew1/cells.parquet results=runs/pressure-spilloff/ws3-skew1/results.md
+time=2026-09-11T12:55:20.258-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)" measured_at=2026-09-07T07:50:38.074Z
+time=2026-09-11T12:55:20.258-07:00 level=WARN msg="the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy" record=slo/characterization.json
+time=2026-09-11T12:55:20.258-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="replica symmetry is unresolved at one or more levels: at concurrency 32, TTFT p50 spread 22.1% over the 8.0% tolerance: replica-5 at 1.292s against replica-4 at 1.058s; at concurrency 32 that spread is not resolvable: one replica varies 36.3% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+time=2026-09-11T12:55:20.258-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="4 of 36 probes flagged: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-5-c32-r1 and 1 more)"
+time=2026-09-11T12:55:20.259-07:00 level=INFO msg="sampling GPUs for contamination" gpus=0,1,2,4,5 replica_pids="[1722409 1723915 1725155 1727119 1728374]" interval=5s
+time=2026-09-11T12:55:20.260-07:00 level=INFO msg=offering workload="multiturn(sessions=922,ws=3,skew=1.4,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on)"
+time=2026-09-11T12:55:20.307-07:00 level=INFO msg="router is up and running the policy these cells will name" router=http://127.0.0.1:8080 policy=prefix_affinity spill=off replicas=5
+time=2026-09-11T12:55:20.317-07:00 level=INFO msg="fleet is up" replicas=5
+time=2026-09-11T12:55:22.952-07:00 level=INFO msg="fleet warmed" replicas=5 requests_each=3
+time=2026-09-11T12:55:22.952-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r1 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T13:00:24.116-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r1 driver=closed_loop requests=6272 successes=6272 dropped=0 failed=0 slo_violations=802 goodput_rps=21.81042836486516 clean=true flagged=false
+time=2026-09-11T13:00:34.120-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r2 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T13:05:34.887-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r2 driver=closed_loop requests=6498 successes=6498 dropped=0 failed=0 slo_violations=749 goodput_rps=22.94724640887607 clean=true flagged=false
+time=2026-09-11T13:05:44.892-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r3 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T13:10:46.227-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r3 driver=closed_loop requests=5036 successes=5036 dropped=0 failed=0 slo_violations=2331 goodput_rps=10.775742812429316 clean=true flagged=false
+
+| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|
+| closed-loop | 32 users | 1 | 21.81 | 25.01 | 101ms | 794ms | 12ms | 6272 | 6272 | 0 | 0 | 802 | yes |  |
+| closed-loop | 32 users | 2 | 22.95 | 25.94 | 98ms | 691ms | 13ms | 6498 | 6498 | 0 | 0 | 749 | yes |  |
+| closed-loop | 32 users | 3 | 10.78 | 20.06 | 139ms | 690ms | 13ms | 5036 | 5036 | 0 | 0 | 2331 | yes |  |
+time=2026-09-11T13:10:46.902-07:00 level=INFO msg="compacted the run" requests=21276 cells=3 requests_parquet=runs/pressure-spilloff/ws3-skew1.4/requests.parquet cells_parquet=runs/pressure-spilloff/ws3-skew1.4/cells.parquet results=runs/pressure-spilloff/ws3-skew1.4/results.md
+time=2026-09-11T13:10:46.922-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)" measured_at=2026-09-07T07:50:38.074Z
+time=2026-09-11T13:10:46.922-07:00 level=WARN msg="the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy" record=slo/characterization.json
+time=2026-09-11T13:10:46.922-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="replica symmetry is unresolved at one or more levels: at concurrency 32, TTFT p50 spread 22.1% over the 8.0% tolerance: replica-5 at 1.292s against replica-4 at 1.058s; at concurrency 32 that spread is not resolvable: one replica varies 36.3% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+time=2026-09-11T13:10:46.922-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="4 of 36 probes flagged: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-5-c32-r1 and 1 more)"
+time=2026-09-11T13:10:46.922-07:00 level=INFO msg="sampling GPUs for contamination" gpus=0,1,2,4,5 replica_pids="[1722409 1723915 1725155 1727119 1728374]" interval=5s
+time=2026-09-11T13:10:46.923-07:00 level=INFO msg=offering workload="multiturn(sessions=2460,ws=8,skew=0,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on)"
+time=2026-09-11T13:10:46.975-07:00 level=INFO msg="router is up and running the policy these cells will name" router=http://127.0.0.1:8080 policy=prefix_affinity spill=off replicas=5
+time=2026-09-11T13:10:46.984-07:00 level=INFO msg="fleet is up" replicas=5
+time=2026-09-11T13:10:49.562-07:00 level=INFO msg="fleet warmed" replicas=5 requests_each=3
+time=2026-09-11T13:10:49.563-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r1 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T13:15:51.807-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r1 driver=closed_loop requests=2239 successes=2239 dropped=0 failed=0 slo_violations=640 goodput_rps=6.349772248231044 clean=true flagged=false
+time=2026-09-11T13:16:01.812-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r2 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T13:21:04.738-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r2 driver=closed_loop requests=2285 successes=2285 dropped=0 failed=0 slo_violations=641 goodput_rps=6.507073685519782 clean=true flagged=false
+time=2026-09-11T13:21:14.743-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r3 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T13:26:16.552-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r3 driver=closed_loop requests=2292 successes=2292 dropped=0 failed=0 slo_violations=643 goodput_rps=6.559688718412663 clean=true flagged=false
+
+| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|
+| closed-loop | 32 users | 1 | 6.35 | 8.89 | 414ms | 1768ms | 10ms | 2239 | 2239 | 0 | 0 | 640 | yes |  |
+| closed-loop | 32 users | 2 | 6.51 | 9.04 | 412ms | 1945ms | 10ms | 2285 | 2285 | 0 | 0 | 641 | yes |  |
+| closed-loop | 32 users | 3 | 6.56 | 9.12 | 414ms | 1705ms | 10ms | 2292 | 2292 | 0 | 0 | 643 | yes |  |
+time=2026-09-11T13:26:16.858-07:00 level=INFO msg="compacted the run" requests=8383 cells=3 requests_parquet=runs/pressure-spilloff/ws8-skew0/requests.parquet cells_parquet=runs/pressure-spilloff/ws8-skew0/cells.parquet results=runs/pressure-spilloff/ws8-skew0/results.md
+time=2026-09-11T13:26:16.875-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)" measured_at=2026-09-07T07:50:38.074Z
+time=2026-09-11T13:26:16.875-07:00 level=WARN msg="the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy" record=slo/characterization.json
+time=2026-09-11T13:26:16.875-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="replica symmetry is unresolved at one or more levels: at concurrency 32, TTFT p50 spread 22.1% over the 8.0% tolerance: replica-5 at 1.292s against replica-4 at 1.058s; at concurrency 32 that spread is not resolvable: one replica varies 36.3% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+time=2026-09-11T13:26:16.875-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="4 of 36 probes flagged: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-5-c32-r1 and 1 more)"
+time=2026-09-11T13:26:16.875-07:00 level=INFO msg="sampling GPUs for contamination" gpus=0,1,2,4,5 replica_pids="[1722409 1723915 1725155 1727119 1728374]" interval=5s
+time=2026-09-11T13:26:16.876-07:00 level=INFO msg=offering workload="multiturn(sessions=2460,ws=8,skew=1,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on)"
+time=2026-09-11T13:26:16.905-07:00 level=INFO msg="router is up and running the policy these cells will name" router=http://127.0.0.1:8080 policy=prefix_affinity spill=off replicas=5
+time=2026-09-11T13:26:16.913-07:00 level=INFO msg="fleet is up" replicas=5
+time=2026-09-11T13:26:19.592-07:00 level=INFO msg="fleet warmed" replicas=5 requests_each=3
+time=2026-09-11T13:26:19.593-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r1 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T13:31:20.837-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r1 driver=closed_loop requests=4297 successes=4297 dropped=0 failed=0 slo_violations=217 goodput_rps=16.26428300546656 clean=true flagged=false
+time=2026-09-11T13:31:30.842-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r2 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T13:36:32.297-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r2 driver=closed_loop requests=4301 successes=4301 dropped=0 failed=0 slo_violations=287 goodput_rps=15.984322507418433 clean=true flagged=false
+time=2026-09-11T13:36:42.301-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r3 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T13:41:43.474-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r3 driver=closed_loop requests=3867 successes=3867 dropped=0 failed=0 slo_violations=564 goodput_rps=13.174528866086844 clean=true flagged=false
+
+| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|
+| closed-loop | 32 users | 1 | 16.26 | 17.13 | 346ms | 1338ms | 12ms | 4297 | 4297 | 0 | 0 | 217 | yes |  |
+| closed-loop | 32 users | 2 | 15.98 | 17.13 | 347ms | 1256ms | 12ms | 4301 | 4301 | 0 | 0 | 287 | yes |  |
+| closed-loop | 32 users | 3 | 13.17 | 15.42 | 360ms | 1344ms | 12ms | 3867 | 3867 | 0 | 0 | 564 | yes |  |
+time=2026-09-11T13:41:43.951-07:00 level=INFO msg="compacted the run" requests=14796 cells=3 requests_parquet=runs/pressure-spilloff/ws8-skew1/requests.parquet cells_parquet=runs/pressure-spilloff/ws8-skew1/cells.parquet results=runs/pressure-spilloff/ws8-skew1/results.md
+time=2026-09-11T13:41:43.971-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)" measured_at=2026-09-07T07:50:38.074Z
+time=2026-09-11T13:41:43.971-07:00 level=WARN msg="the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy" record=slo/characterization.json
+time=2026-09-11T13:41:43.971-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="replica symmetry is unresolved at one or more levels: at concurrency 32, TTFT p50 spread 22.1% over the 8.0% tolerance: replica-5 at 1.292s against replica-4 at 1.058s; at concurrency 32 that spread is not resolvable: one replica varies 36.3% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+time=2026-09-11T13:41:43.971-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="4 of 36 probes flagged: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-5-c32-r1 and 1 more)"
+time=2026-09-11T13:41:43.971-07:00 level=INFO msg="sampling GPUs for contamination" gpus=0,1,2,4,5 replica_pids="[1722409 1723915 1725155 1727119 1728374]" interval=5s
+time=2026-09-11T13:41:43.972-07:00 level=INFO msg=offering workload="multiturn(sessions=2460,ws=8,skew=1.4,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on)"
+time=2026-09-11T13:41:44.006-07:00 level=INFO msg="router is up and running the policy these cells will name" router=http://127.0.0.1:8080 policy=prefix_affinity spill=off replicas=5
+time=2026-09-11T13:41:44.015-07:00 level=INFO msg="fleet is up" replicas=5
+time=2026-09-11T13:41:46.607-07:00 level=INFO msg="fleet warmed" replicas=5 requests_each=3
+time=2026-09-11T13:41:46.608-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r1 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T13:46:47.852-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r1 driver=closed_loop requests=6539 successes=6539 dropped=0 failed=0 slo_violations=603 goodput_rps=23.658520177220318 clean=true flagged=false
+time=2026-09-11T13:46:57.857-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r2 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T13:51:59.152-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r2 driver=closed_loop requests=6059 successes=6059 dropped=0 failed=0 slo_violations=714 goodput_rps=21.30876209069652 clean=true flagged=false
+time=2026-09-11T13:52:09.157-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r3 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T13:57:10.302-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r3 driver=closed_loop requests=6698 successes=6698 dropped=0 failed=0 slo_violations=531 goodput_rps=24.584833659224195 clean=true flagged=false
+
+| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|
+| closed-loop | 32 users | 1 | 23.66 | 26.06 | 96ms | 761ms | 12ms | 6539 | 6539 | 0 | 0 | 603 | yes |  |
+| closed-loop | 32 users | 2 | 21.31 | 24.16 | 97ms | 756ms | 13ms | 6059 | 6059 | 0 | 0 | 714 | yes |  |
+| closed-loop | 32 users | 3 | 24.58 | 26.70 | 97ms | 752ms | 13ms | 6698 | 6698 | 0 | 0 | 531 | yes |  |
+time=2026-09-11T13:57:10.941-07:00 level=INFO msg="compacted the run" requests=22894 cells=3 requests_parquet=runs/pressure-spilloff/ws8-skew1.4/requests.parquet cells_parquet=runs/pressure-spilloff/ws8-skew1.4/cells.parquet results=runs/pressure-spilloff/ws8-skew1.4/results.md
+stopping replica-5 (PID 1728374)
+stopping replica-4 (PID 1727119)
+stopping replica-2 (PID 1725155)
+stopping replica-1 (PID 1723915)
+stopping replica-0 (PID 1722409)
+preflight: 5 GPUs clean, all below 256 MiB
+starting replica-0 on GPU 0, port 8000, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-0 is up: http://127.0.0.1:8000 (PID 1798384)
+fleet: settling for 15s before the next replica
+starting replica-1 on GPU 1, port 8001, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-1 is up: http://127.0.0.1:8001 (PID 1799696)
+fleet: settling for 15s before the next replica
+starting replica-2 on GPU 2, port 8002, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-2 is up: http://127.0.0.1:8002 (PID 1800930)
+fleet: settling for 15s before the next replica
+starting replica-4 on GPU 4, port 8004, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-4 is up: http://127.0.0.1:8004 (PID 1802217)
+fleet: settling for 15s before the next replica
+starting replica-5 on GPU 5, port 8005, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-5 is up: http://127.0.0.1:8005 (PID 1803451)
+fleet: 5 replicas up on GPUs 0 1 2 4 5
+replica-0=http://127.0.0.1:8000,replica-1=http://127.0.0.1:8001,replica-2=http://127.0.0.1:8002,replica-4=http://127.0.0.1:8004,replica-5=http://127.0.0.1:8005
+probe-usage: http://127.0.0.1:8000
+  cold  → PRESENT 575 0
+  warm  → PRESENT 575 560
+probe-usage: OK — cached_tokens reported, and the warm request reused 560 tokens
+time=2026-09-11T14:02:47.028-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)" measured_at=2026-09-07T07:50:38.074Z
+time=2026-09-11T14:02:47.028-07:00 level=WARN msg="the characterization does not find the replicas interchangeable, so a policy difference in this sweep could be host asymmetry rather than the policy" record=slo/characterization.json
+time=2026-09-11T14:02:47.028-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="replica symmetry is unresolved at one or more levels: at concurrency 32, TTFT p50 spread 22.1% over the 8.0% tolerance: replica-5 at 1.292s against replica-4 at 1.058s; at concurrency 32 that spread is not resolvable: one replica varies 36.3% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it"
+time=2026-09-11T14:02:47.028-07:00 level=WARN msg="the characterization this SLO came from is flagged" reason="4 of 36 probes flagged: still warming up: the first half of the measured window was 26% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-5-c32-r1 and 1 more)"
+time=2026-09-11T14:02:47.029-07:00 level=INFO msg="sampling GPUs for contamination" gpus=0,1,2,4,5 replica_pids="[1798384 1799696 1800930 1802217 1803451]" interval=5s
+time=2026-09-11T14:02:47.029-07:00 level=INFO msg=offering workload="multiturn(sessions=307,ws=1,skew=1.4,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on)"
+time=2026-09-11T14:02:47.031-07:00 level=INFO msg="router is up and running the policy these cells will name" router=http://127.0.0.1:8080 policy=prefix_affinity spill=off replicas=5
+time=2026-09-11T14:02:47.041-07:00 level=INFO msg="fleet is up" replicas=5
+time=2026-09-11T14:02:49.575-07:00 level=INFO msg="fleet warmed" replicas=5 requests_each=3
+time=2026-09-11T14:02:49.575-07:00 level=INFO msg="cell is cached, not re-running" cell=prefix_affinity-c32-r1 goodput_rps=16.370571735751756 flagged=false
+time=2026-09-11T14:02:59.581-07:00 level=INFO msg="running cell" cell=prefix_affinity-c32-r2 driver=closed_loop load="32 users" duration=5m0s
+time=2026-09-11T14:08:01.031-07:00 level=INFO msg="cell complete" cell=prefix_affinity-c32-r2 driver=closed_loop requests=6496 successes=6496 dropped=0 failed=0 slo_violations=1642 goodput_rps=19.32062867160832 clean=true flagged=false
+time=2026-09-11T14:08:01.032-07:00 level=INFO msg="cell is cached, not re-running" cell=prefix_affinity-c32-r3 goodput_rps=19.252196503568253 flagged=false
+
+| driver | load | rep | goodput/s | tput/s | TTFT p50 | TTFT p99 | ITL p50 | reqs | ok | dropped | failed | SLO viol | clean | flagged |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:--:|:--|
+| closed-loop | 32 users | 1 | 16.37 | 23.07 | 106ms | 530ms | 12ms | 5787 | 5787 | 0 | 0 | 1680 | yes |  |
+| closed-loop | 32 users | 2 | 19.32 | 25.86 | 101ms | 513ms | 12ms | 6496 | 6496 | 0 | 0 | 1642 | yes |  |
+| closed-loop | 32 users | 3 | 19.25 | 24.40 | 101ms | 559ms | 13ms | 6119 | 6119 | 0 | 0 | 1290 | yes |  |
+time=2026-09-11T14:08:01.602-07:00 level=INFO msg="compacted the run" requests=21993 cells=3 requests_parquet=runs/pressure-spilloff/ws1-skew1.4/requests.parquet cells_parquet=runs/pressure-spilloff/ws1-skew1.4/cells.parquet results=runs/pressure-spilloff/ws1-skew1.4/results.md
+stopping replica-5 (PID 1803451)
+stopping replica-4 (PID 1802217)
+stopping replica-2 (PID 1800930)
+stopping replica-1 (PID 1799696)
+stopping replica-0 (PID 1798384)

@@ -1,0 +1,232 @@
+{
+  "uid": "kvroute",
+  "title": "kvroute",
+  "description": "The live view of a run. Sampled every few seconds and interpolated inside buckets; the per-request rows are the system of record, and every reported figure comes from them.",
+  "tags": ["kvroute"],
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "annotations": { "list": [] },
+  "templating": { "list": [] },
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Batch KV occupancy and inflight, per replica",
+      "description": "Batch KV occupancy (solid, left axis) is vLLM's own vllm:kv_cache_usage_perc, scraped from each replica. Inflight (dashed, right axis) is the router's exact count of requests dispatched to the replica and not yet complete. The two are the same quantity in different units: the engine's gauge counts blocks held by running requests, so it tracks the active batch rather than what the cache holds, at r = 0.973 against inflight. Nothing routes on it (ADR-0011); the signal the spill rule reads is the per-replica prefix cache hit rate over a moving window.",
+      "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "axisLabel": "Batch KV occupancy"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byFrameRefID", "options": "B" },
+            "properties": [
+              { "id": "unit", "value": "short" },
+              { "id": "decimals", "value": 0 },
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "custom.axisLabel", "value": "inflight" },
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
+          "expr": "max by (replica) (vllm:kv_cache_usage_perc)",
+          "legendFormat": "{{replica}} KV"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
+          "expr": "max by (replica) (kvroute_replica_inflight)",
+          "legendFormat": "{{replica}} inflight"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Prefix cache hit rate",
+      "description": "vLLM's own prefix cache counters, scraped from each replica: hits over queries, per replica and for the whole fleet (bold). This is ground truth. The router's prefix match is its prediction of it, and the gap between the two is measured per request off the rows, not here.",
+      "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 0, "showPoints": "never" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byFrameRefID", "options": "B" },
+            "properties": [{ "id": "custom.lineWidth", "value": 3 }]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
+          "expr": "sum by (replica) (rate(vllm:prefix_cache_hits_total[$__rate_interval])) / sum by (replica) (rate(vllm:prefix_cache_queries_total[$__rate_interval]))",
+          "legendFormat": "{{replica}}"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
+          "expr": "sum(rate(vllm:prefix_cache_hits_total[$__rate_interval])) / sum(rate(vllm:prefix_cache_queries_total[$__rate_interval]))",
+          "legendFormat": "fleet"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "TTFT p50 / p99",
+      "description": "Accept to first response byte as the router saw it, over successful requests only: a fast failure in a latency distribution makes an overloaded fleet look faster. Interpolated inside the router's buckets, which are densest between the 329 ms latency floor and the SLO derived from it (ADR-0003); the rows hold the exact figure. Counted as each request finishes, so the panel trails the fleet by one request's duration.",
+      "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 0, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(kvroute_ttft_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(kvroute_ttft_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Decision mix",
+      "description": "Share of routing decisions by the reason the policy gave. Prefix affinity splits into PREFIX_AFFINITY, COLD, SPILL_HIT_RATE and SPILL_LOAD; session affinity into SESSION_AFFINITY and SESSION_UNIDENTIFIED; the two baselines give one reason each. A prefix affinity run that is nearly all COLD has an index that is not working. Counted as each request finishes, from the decision that placed it, as its row records.",
+      "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 18 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "stacking": { "mode": "normal", "group": "A" }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "table", "placement": "right", "calcs": ["lastNotNull"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
+          "expr": "sum by (reason) (rate(kvroute_decisions_total[$__rate_interval])) / scalar(sum(rate(kvroute_decisions_total[$__rate_interval])))",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Router overhead p50 / p99",
+      "description": "Accept to upstream dispatch: the router's own cost, reported apart from TTFT so it is never hidden inside the fleet's latency. The dashed line is the 1 ms p99 gate. Counted as each request finishes, so the panel trails the fleet by one request's duration.",
+      "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 18 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.001 }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "axisSoftMax": 0.0012,
+            "thresholdsStyle": { "mode": "dashed" }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(kvroute_router_overhead_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "kvroute-prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(kvroute_router_overhead_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p99"
+        }
+      ]
+    }
+  ]
+}

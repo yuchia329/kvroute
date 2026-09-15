@@ -1,0 +1,17 @@
+[21:17:42] === chaos (#19) starting: rate 6, replica-2 ===
+[21:22:51] fleet is up on GPUs 0 1 2 4 5
+[21:22:54] session_affinity: router up
+[21:22:54] session_affinity: kill run into runs/chaos/kill-session_affinity
+[21:27:55] session_affinity: kill run recorded
+[21:27:55] router drained
+[21:27:55] restarting the fleet before the next policy (ADR-0004)
+[21:33:25] fleet is back up
+[21:33:29] prefix_affinity: router up
+[21:33:29] prefix_affinity: kill run into runs/chaos/kill-prefix_affinity
+[21:38:30] prefix_affinity: kill run recorded
+[21:38:30] prefix_affinity: drain run into runs/chaos/drain-prefix_affinity
+[21:43:31] prefix_affinity: drain run recorded
+[21:43:31] router drained
+[21:43:39] fleet down; GPUs released
+[21:43:39] === ALL DONE ===
+[21:43:39] fleet down

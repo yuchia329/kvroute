@@ -24,9 +24,13 @@ func (p *RoundRobin) Choose(_ Request, state fleet.State) (Choice, error) {
 	if len(state.Replicas) == 0 {
 		return Choice{}, ErrNoReplica
 	}
-	i := p.next.Add(1) - 1
+	chosen := state.Replicas[(p.next.Add(1)-1)%uint64(len(state.Replicas))]
+	// The load is reported even though nothing here weighed it: the rows are what
+	// show how balanced each policy left the fleet, and the baseline's imbalance
+	// is half of that comparison.
 	return Choice{
-		Replica: state.Replicas[i%uint64(len(state.Replicas))],
-		Reason:  ReasonRoundRobin,
+		Replica:  chosen.Replica,
+		Reason:   ReasonRoundRobin,
+		Inflight: chosen.Inflight,
 	}, nil
 }

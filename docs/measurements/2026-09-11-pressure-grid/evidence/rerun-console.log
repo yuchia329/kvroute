@@ -1,0 +1,33 @@
+[23:13:07] watching grid-console.log for the grid to finish
+[09:17:11] grid complete; starting the re-run pass
+[09:17:11] flagged cells (policy ws skew id point reasons): 6
+[09:17:11]   session_affinity  0.25  1  session_affinity-c32-r2  ws0.25-skew1  still warming up: the first half of the measured window was 29% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[09:17:11]   least_outstanding  1  0  least_outstanding-c32-r3  ws1-skew0  still warming up: the first half of the measured window was 38% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[09:17:11]   session_affinity  1  1.4  session_affinity-c32-r3  ws1-skew1.4  still warming up: the first half of the measured window was 27% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[09:17:11]   least_outstanding  3  0  least_outstanding-c32-r3  ws3-skew0  still warming up: the first half of the measured window was 28% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[09:17:11]   round_robin  3  1.4  round_robin-c32-r2  ws3-skew1.4  still warming up: the first half of the measured window was 29% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[09:17:11]   least_outstanding  8  0  least_outstanding-c32-r2  ws8-skew0  still warming up: the first half of the measured window was 39% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[09:17:11] incomplete points (policy ws skew): none
+[09:17:11] restarting the fleet before the next policy (ADR-0004)
+[09:22:43] fleet is back up
+[09:22:47] session_affinity: router up
+[09:22:47] session_affinity: re-running WS 0.25 skew 1
+[09:28:03] session_affinity: re-running WS 1 skew 1.4
+[09:33:19] router drained
+[09:33:19] restarting the fleet before the next policy (ADR-0004)
+[09:38:50] fleet is back up
+[09:38:54] round_robin: router up
+[09:38:54] round_robin: re-running WS 3 skew 1.4
+[09:44:10] router drained
+[09:44:10] restarting the fleet before the next policy (ADR-0004)
+[09:49:39] fleet is back up
+[09:49:43] least_outstanding: router up
+[09:49:43] least_outstanding: re-running WS 1 skew 0
+[09:55:00] least_outstanding: re-running WS 3 skew 0
+[10:00:15] least_outstanding: re-running WS 8 skew 0
+[10:05:31] router drained
+[10:05:31] still flagged after re-running -- reported, not retried: 1
+[10:05:31]   session_affinity  0.25  1  session_affinity-c32-r2  ws0.25-skew1  still warming up: the first half of the measured window was 43% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+[10:05:31] still incomplete after re-running: none
+[10:05:31] pressure map written to runs/pressuremap.md (pressuremap exit 0)
+[10:05:31] === pressure grid re-run pass complete ===

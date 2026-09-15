@@ -1,0 +1,74 @@
+2026-09-11T21:54:48Z bandwidth, host buffer on NUMA node 0
+2026-09-11T22:02:21Z bandwidth, host buffer on NUMA node 1
+2026-09-11T22:10:02Z prefill on replica-1
+starting replica-1 on GPU 1, port 8001, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-1 is up: http://127.0.0.1:8001 (PID 1848776)
+  256 tokens  prefill    65.2 ms  client    73.9 ms  cached 0
+  512 tokens  prefill   123.0 ms  client   132.9 ms  cached 0
+ 1024 tokens  prefill   243.2 ms  client   253.2 ms  cached 0
+ 2048 tokens  prefill   487.7 ms  client   500.3 ms  cached 0
+ 4096 tokens  prefill  1018.6 ms  client  1037.3 ms  cached 0
+ 7936 tokens  prefill  2114.1 ms  client  2147.7 ms  cached 0
+ 7936 tokens  prefill  2118.2 ms  client  2149.1 ms  cached 0
+ 4096 tokens  prefill  1024.7 ms  client  1043.8 ms  cached 0
+ 2048 tokens  prefill   490.1 ms  client   503.3 ms  cached 0
+ 1024 tokens  prefill   244.9 ms  client   254.8 ms  cached 0
+  512 tokens  prefill   123.6 ms  client   133.1 ms  cached 0
+  256 tokens  prefill    64.7 ms  client    73.7 ms  cached 0
+  256 tokens  prefill    65.8 ms  client    73.8 ms  cached 0
+  512 tokens  prefill   123.2 ms  client   132.6 ms  cached 0
+ 1024 tokens  prefill   243.8 ms  client   253.8 ms  cached 0
+ 2048 tokens  prefill   490.1 ms  client   503.0 ms  cached 0
+ 4096 tokens  prefill  1021.5 ms  client  1038.8 ms  cached 0
+ 7936 tokens  prefill  2118.5 ms  client  2152.0 ms  cached 0
+ 7936 tokens  prefill  2123.6 ms  client  2158.2 ms  cached 0
+ 4096 tokens  prefill  1024.3 ms  client  1043.1 ms  cached 0
+ 2048 tokens  prefill   491.4 ms  client   504.1 ms  cached 0
+ 1024 tokens  prefill   244.3 ms  client   254.4 ms  cached 0
+  512 tokens  prefill   123.8 ms  client   133.4 ms  cached 0
+  256 tokens  prefill    64.9 ms  client    72.9 ms  cached 0
+  256 tokens  prefill    64.0 ms  client    72.0 ms  cached 0
+  512 tokens  prefill   123.5 ms  client   133.3 ms  cached 0
+ 1024 tokens  prefill   244.7 ms  client   254.6 ms  cached 0
+ 2048 tokens  prefill   491.2 ms  client   504.3 ms  cached 0
+ 4096 tokens  prefill  1023.7 ms  client  1041.8 ms  cached 0
+ 7936 tokens  prefill  2123.8 ms  client  2158.6 ms  cached 0
+ 7936 tokens  prefill  2128.6 ms  client  2163.2 ms  cached 0
+ 4096 tokens  prefill  1030.2 ms  client  1049.3 ms  cached 0
+ 2048 tokens  prefill   490.0 ms  client   503.9 ms  cached 0
+ 1024 tokens  prefill   246.0 ms  client   255.9 ms  cached 0
+  512 tokens  prefill   125.8 ms  client   135.3 ms  cached 0
+  256 tokens  prefill    66.7 ms  client    74.9 ms  cached 0
+  256 tokens  prefill    67.7 ms  client    76.1 ms  cached 0
+  512 tokens  prefill   124.8 ms  client   134.4 ms  cached 0
+ 1024 tokens  prefill   245.5 ms  client   255.4 ms  cached 0
+ 2048 tokens  prefill   490.2 ms  client   503.0 ms  cached 0
+ 4096 tokens  prefill  1025.9 ms  client  1045.6 ms  cached 0
+ 7936 tokens  prefill  2130.8 ms  client  2163.9 ms  cached 0
+ 7936 tokens  prefill  2132.3 ms  client  2168.8 ms  cached 0
+ 4096 tokens  prefill  1030.2 ms  client  1048.7 ms  cached 0
+ 2048 tokens  prefill   491.3 ms  client   504.7 ms  cached 0
+ 1024 tokens  prefill   245.9 ms  client   256.2 ms  cached 0
+  512 tokens  prefill   124.8 ms  client   134.5 ms  cached 0
+  256 tokens  prefill    65.7 ms  client    73.9 ms  cached 0
+  256 tokens  prefill    65.6 ms  client    74.5 ms  cached 0
+  512 tokens  prefill   124.4 ms  client   134.0 ms  cached 0
+ 1024 tokens  prefill   245.5 ms  client   255.6 ms  cached 0
+ 2048 tokens  prefill   492.0 ms  client   505.0 ms  cached 0
+ 4096 tokens  prefill  1028.6 ms  client  1047.8 ms  cached 0
+ 7936 tokens  prefill  2133.9 ms  client  2168.8 ms  cached 0
+ 7936 tokens  prefill  2136.7 ms  client  2174.1 ms  cached 0
+ 4096 tokens  prefill  1031.0 ms  client  1050.0 ms  cached 0
+ 2048 tokens  prefill   494.2 ms  client   507.6 ms  cached 0
+ 1024 tokens  prefill   246.0 ms  client   256.3 ms  cached 0
+  512 tokens  prefill   124.7 ms  client   134.4 ms  cached 0
+  256 tokens  prefill    65.3 ms  client    73.5 ms  cached 0
+stopping replica-1 (PID 1848776)
+index, memory.used [MiB]
+0, 1 MiB
+1, 1 MiB
+2, 1 MiB
+3, 1 MiB
+4, 1 MiB
+5, 1 MiB
+2026-09-11T22:11:37Z done

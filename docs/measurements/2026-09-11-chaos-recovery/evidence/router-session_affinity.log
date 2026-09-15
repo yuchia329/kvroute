@@ -1,0 +1,7 @@
+time=2026-09-11T14:22:51.410-07:00 level=INFO msg="checking replica health" interval=1s eject_after=2 readmit_after=2
+time=2026-09-11T14:22:51.410-07:00 level=INFO msg="router listening" addr=127.0.0.1:8080 policy=session_affinity spill=off replicas=5 records=runs/chaos/evidence/router-session_affinity.jsonl
+time=2026-09-11T14:24:34.849-07:00 level=WARN msg="replica lost mid-stream, request dropped" request_id=3ISFYBI27LTIB3XE4QBUMISXMK replica=replica-2 err="unexpected EOF"
+time=2026-09-11T14:24:34.850-07:00 level=WARN msg="ejected a replica a request could not reach" replica=replica-2 cause="unexpected EOF"
+time=2026-09-11T14:26:25.412-07:00 level=INFO msg="readmitted a replica that is answering its health checks again" replica=replica-2 passed_checks=2
+time=2026-09-11T14:27:55.373-07:00 level=INFO msg=draining grace=30s
+time=2026-09-11T14:27:55.374-07:00 level=INFO msg="router overhead" requests=1801 p50_us=223.292 p99_us=1161.303 max_us=9047.463

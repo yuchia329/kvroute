@@ -1,0 +1,8 @@
+[22:19:56] === chaos (#19): prefix affinity, spill off, rate 6, replica-2 ===
+[22:25:04] fleet is up on GPUs 0 1 2 4 5
+[22:25:07] prefix_affinity: router up
+[22:30:08] spill-off run recorded
+[22:30:08] router drained
+[22:30:14] fleet down; GPUs released
+[22:30:14] === ALL DONE ===
+[22:30:14] fleet down

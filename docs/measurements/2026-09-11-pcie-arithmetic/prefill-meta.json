@@ -1,0 +1,17 @@
+{
+  "started": "2026-09-11T22:10:51.308632+00:00",
+  "finished": "2026-09-11T22:11:36.690563+00:00",
+  "replica": "http://127.0.0.1:8001",
+  "model": "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
+  "lengths": [
+    256,
+    512,
+    1024,
+    2048,
+    4096,
+    7936
+  ],
+  "repetitions": 10,
+  "warmup": 3,
+  "seed": 22
+}

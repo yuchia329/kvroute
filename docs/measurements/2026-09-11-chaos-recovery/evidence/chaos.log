@@ -1,0 +1,401 @@
+replica-5 is not running
+replica-4 is not running
+replica-2 is not running
+replica-1 is not running
+replica-0 is not running
+preflight: 5 GPUs clean, all below 256 MiB
+preflight: 5 GPUs clean, all below 256 MiB
+starting replica-0 on GPU 0, port 8000, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-0 is up: http://127.0.0.1:8000 (PID 1810950)
+fleet: settling for 15s before the next replica
+starting replica-1 on GPU 1, port 8001, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-1 is up: http://127.0.0.1:8001 (PID 1812267)
+fleet: settling for 15s before the next replica
+starting replica-2 on GPU 2, port 8002, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-2 is up: http://127.0.0.1:8002 (PID 1813501)
+fleet: settling for 15s before the next replica
+starting replica-4 on GPU 4, port 8004, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-4 is up: http://127.0.0.1:8004 (PID 1814786)
+fleet: settling for 15s before the next replica
+starting replica-5 on GPU 5, port 8005, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-5 is up: http://127.0.0.1:8005 (PID 1816006)
+fleet: 5 replicas up on GPUs 0 1 2 4 5
+replica-0=http://127.0.0.1:8000,replica-1=http://127.0.0.1:8001,replica-2=http://127.0.0.1:8002,replica-4=http://127.0.0.1:8004,replica-5=http://127.0.0.1:8005
+time=2026-09-11T14:22:54.432-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)"
+time=2026-09-11T14:22:54.436-07:00 level=INFO msg="chaos run starting" id=chaos-kill-replica-2-a6 policy=session_affinity replica=replica-2 fault=kill rate=6 fault_at=1m40s recover_at=2m40s duration=5m0s
+killing replica-2 with SIGKILL: 1813501 1813956 1813957 
+starting replica-2 on GPU 2, port 8002, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-2 is up: http://127.0.0.1:8002 (PID 1818181)
+time=2026-09-11T14:27:55.365-07:00 level=INFO msg="chaos run complete" id=session_affinity-chaos-kill-replica-2-a6 requests=1501 rerouted=0 dropped=1 deficit=36.333333333333336 steady=false
+# Chaos: replica-2 killed under session_affinity
+
+Open-loop at 6 req/s with a 5s think time, offering multiturn(sessions=307,skew=0,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on). SLO: TTFT < 990ms, inter-token p50 < 24ms. The fault came 1m40s in, after a 50s warm-up, and the replica was started again 2m40s in. Goodput is bucketed every 5s by when requests were offered, and read from the fault.
+
+## What happened to replica-2
+
+| from the fault | event | detail |
+|---:|---|---|
+| +0.00s | fault injected | killed |
+| +0.50s | out of rotation | ejected |
+| +0.63s | stopped |  |
+| +60.00s | restart begun |  |
+| +110.88s | restarted |  |
+| +111.00s | back in rotation | readmitted |
+
+## Requests
+
+1 of 1501 measured requests were dropped — 1 was streaming when their replica was lost, and 0 were never placed — and 0 were rerouted before their first token. A reroute is transparent only because nothing had reached its client when replica-2 died. A request already streaming at that instant cannot be rerouted and is counted as dropped, so the drop count reflects how many requests happened to be mid-stream when the replica was killed, and the reroute count is what the router saved.
+
+Of the rest, 1500 succeeded, 8 of them outside the SLO; 0 failed with an error their replica answered with; 0 were cancelled by their client.
+
+## Recovery
+
+- Baseline goodput before the fault: 5.98/s
+- Lowest from the fault on: 0.20/s, in the bucket at +200.00s
+- Deficit: 36 requests that would have met the SLO at the baseline did not
+- Not back within 10% of the baseline for good before the run ended
+
+## Curve
+
+| from the fault | offered | goodput/s | rerouted | dropped | failed | SLO violations |
+|---:|---:|---:|---:|---:|---:|---:|
+| -50.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -45.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -40.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -35.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -30.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -25.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -20.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -15.00s | 30 | 5.80 | 0 | 0 | 0 | 1 |
+| -10.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -5.00s | 30 | 5.80 | 0 | 1 | 0 | 0 |
+| +0.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +5.00s | 30 | 5.80 | 0 | 0 | 0 | 1 |
+| +10.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +15.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +20.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +25.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +30.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +35.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +40.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +45.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +50.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +55.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +60.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +65.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +70.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +75.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +80.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +85.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +90.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +95.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +100.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +105.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +110.00s | 30 | 5.20 | 0 | 0 | 0 | 4 |
+| +115.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +120.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +125.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +130.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +135.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +140.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +145.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +150.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +155.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +160.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +165.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +170.00s | 30 | 5.80 | 0 | 0 | 0 | 1 |
+| +175.00s | 30 | 5.80 | 0 | 0 | 0 | 1 |
+| +180.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +185.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +190.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +195.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +200.00s | 1 | 0.20 | 0 | 0 | 0 | 0 |
+stopping replica-5 (PID 1816006)
+stopping replica-4 (PID 1814786)
+stopping replica-2 (PID 1818181)
+stopping replica-1 (PID 1812267)
+stopping replica-0 (PID 1810950)
+preflight: 5 GPUs clean, all below 256 MiB
+starting replica-0 on GPU 0, port 8000, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-0 is up: http://127.0.0.1:8000 (PID 1820080)
+fleet: settling for 15s before the next replica
+starting replica-1 on GPU 1, port 8001, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-1 is up: http://127.0.0.1:8001 (PID 1821632)
+fleet: settling for 15s before the next replica
+starting replica-2 on GPU 2, port 8002, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-2 is up: http://127.0.0.1:8002 (PID 1822987)
+fleet: settling for 15s before the next replica
+starting replica-4 on GPU 4, port 8004, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-4 is up: http://127.0.0.1:8004 (PID 1824690)
+fleet: settling for 15s before the next replica
+starting replica-5 on GPU 5, port 8005, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-5 is up: http://127.0.0.1:8005 (PID 1826035)
+fleet: 5 replicas up on GPUs 0 1 2 4 5
+replica-0=http://127.0.0.1:8000,replica-1=http://127.0.0.1:8001,replica-2=http://127.0.0.1:8002,replica-4=http://127.0.0.1:8004,replica-5=http://127.0.0.1:8005
+time=2026-09-11T14:33:29.028-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)"
+time=2026-09-11T14:33:29.031-07:00 level=INFO msg="chaos run starting" id=chaos-kill-replica-2-a6 policy=prefix_affinity replica=replica-2 fault=kill rate=6 fault_at=1m40s recover_at=2m40s duration=5m0s
+killing replica-2 with SIGKILL: 1822987 1823319 1823320 
+starting replica-2 on GPU 2, port 8002, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-2 is up: http://127.0.0.1:8002 (PID 1828754)
+time=2026-09-11T14:38:30.001-07:00 level=INFO msg="chaos run complete" id=prefix_affinity-chaos-kill-replica-2-a6 requests=1501 rerouted=2 dropped=1 deficit=118.33333333333334 steady=false
+# Chaos: replica-2 killed under prefix_affinity
+
+Open-loop at 6 req/s with a 5s think time, offering multiturn(sessions=307,skew=0,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on). SLO: TTFT < 990ms, inter-token p50 < 24ms. The fault came 1m40s in, after a 50s warm-up, and the replica was started again 2m40s in. Goodput is bucketed every 5s by when requests were offered, and read from the fault.
+Spill point: KV high-water 0, load imbalance factor 2.
+
+## What happened to replica-2
+
+| from the fault | event | detail |
+|---:|---|---|
+| +0.00s | fault injected | killed |
+| +0.50s | out of rotation | ejected |
+| +0.65s | stopped |  |
+| +60.00s | restart begun |  |
+| +110.86s | restarted |  |
+| +112.00s | back in rotation | readmitted |
+
+## Requests
+
+1 of 1501 measured requests were dropped — 1 was streaming when their replica was lost, and 0 were never placed — and 2 were rerouted before their first token. A reroute is transparent only because nothing had reached its client when replica-2 died. A request already streaming at that instant cannot be rerouted and is counted as dropped, so the drop count reflects how many requests happened to be mid-stream when the replica was killed, and the reroute count is what the router saved.
+
+Of the rest, 1500 succeeded, 184 of them outside the SLO; 0 failed with an error their replica answered with; 0 were cancelled by their client.
+
+## Recovery
+
+- Baseline goodput before the fault: 5.33/s
+- Lowest from the fault on: 0.20/s, in the bucket at +200.00s
+- Deficit: 118 requests that would have met the SLO at the baseline did not
+- Not back within 10% of the baseline for good before the run ended
+
+## Curve
+
+| from the fault | offered | goodput/s | rerouted | dropped | failed | SLO violations |
+|---:|---:|---:|---:|---:|---:|---:|
+| -50.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -45.00s | 30 | 3.00 | 0 | 0 | 0 | 15 |
+| -40.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -35.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -30.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -25.00s | 30 | 4.00 | 0 | 0 | 0 | 10 |
+| -20.00s | 30 | 5.80 | 0 | 0 | 0 | 1 |
+| -15.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -10.00s | 30 | 5.20 | 0 | 0 | 0 | 4 |
+| -5.00s | 30 | 4.00 | 2 | 1 | 0 | 9 |
+| +0.00s | 30 | 5.80 | 0 | 0 | 0 | 1 |
+| +5.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +10.00s | 30 | 5.20 | 0 | 0 | 0 | 4 |
+| +15.00s | 30 | 3.80 | 0 | 0 | 0 | 11 |
+| +20.00s | 30 | 5.80 | 0 | 0 | 0 | 1 |
+| +25.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +30.00s | 30 | 4.60 | 0 | 0 | 0 | 7 |
+| +35.00s | 30 | 2.00 | 0 | 0 | 0 | 20 |
+| +40.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +45.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +50.00s | 30 | 4.40 | 0 | 0 | 0 | 8 |
+| +55.00s | 30 | 2.20 | 0 | 0 | 0 | 19 |
+| +60.00s | 30 | 5.20 | 0 | 0 | 0 | 4 |
+| +65.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +70.00s | 30 | 4.80 | 0 | 0 | 0 | 6 |
+| +75.00s | 30 | 4.20 | 0 | 0 | 0 | 9 |
+| +80.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +85.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +90.00s | 30 | 4.80 | 0 | 0 | 0 | 6 |
+| +95.00s | 30 | 5.00 | 0 | 0 | 0 | 5 |
+| +100.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +105.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +110.00s | 30 | 4.40 | 0 | 0 | 0 | 8 |
+| +115.00s | 30 | 2.80 | 0 | 0 | 0 | 16 |
+| +120.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +125.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +130.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +135.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +140.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +145.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +150.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +155.00s | 30 | 4.60 | 0 | 0 | 0 | 7 |
+| +160.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +165.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +170.00s | 30 | 5.40 | 0 | 0 | 0 | 3 |
+| +175.00s | 30 | 5.40 | 0 | 0 | 0 | 3 |
+| +180.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +185.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +190.00s | 30 | 5.80 | 0 | 0 | 0 | 1 |
+| +195.00s | 30 | 4.80 | 0 | 0 | 0 | 6 |
+| +200.00s | 1 | 0.20 | 0 | 0 | 0 | 0 |
+time=2026-09-11T14:38:30.021-07:00 level=INFO msg="SLO read from the characterization rather than retyped" record=slo/characterization.json slo="TTFT < 990ms, inter-token p50 < 24ms (3x the measured floor of 329ms and 7.8ms)"
+time=2026-09-11T14:38:30.024-07:00 level=INFO msg="chaos run starting" id=chaos-drain-replica-2-a6 policy=prefix_affinity replica=replica-2 fault=drain rate=6 fault_at=1m40s recover_at=2m40s duration=5m0s
+stopping replica-2 (PID 1828754)
+starting replica-2 on GPU 2, port 8002, vLLM 0.28.0, quantization awq_marlin, linear backend marlin
+replica-2 is up: http://127.0.0.1:8002 (PID 1831391)
+time=2026-09-11T14:43:31.905-07:00 level=INFO msg="chaos run complete" id=prefix_affinity-chaos-drain-replica-2-a6 requests=1501 rerouted=0 dropped=0 deficit=172.00000000000003 steady=false
+# Chaos: replica-2 drained under prefix_affinity
+
+Open-loop at 6 req/s with a 5s think time, offering multiturn(sessions=307,skew=0,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on). SLO: TTFT < 990ms, inter-token p50 < 24ms. The fault came 1m40s in, after a 50s warm-up, and the replica was started again 2m40s in. Goodput is bucketed every 5s by when requests were offered, and read from the fault.
+Spill point: KV high-water 0, load imbalance factor 2.
+
+## What happened to replica-2
+
+| from the fault | event | detail |
+|---:|---|---|
+| +0.00s | fault injected | drain requested |
+| +0.10s | out of rotation | draining |
+| +0.51s | drained |  |
+| +1.54s | stopped |  |
+| +60.00s | restart begun |  |
+| +111.00s | restarted |  |
+| +111.10s | back in rotation | restored |
+
+## Requests
+
+0 of 1501 measured requests were dropped and 0 were rerouted before their first token. replica-2 was drained before it was stopped, so every request it was serving finished on it and every request after the drain went elsewhere: the drop count measures the drain, and a kill would not match it.
+
+Of the rest, 1501 succeeded, 235 of them outside the SLO; 0 failed with an error their replica answered with; 0 were cancelled by their client.
+
+## Recovery
+
+- Baseline goodput before the fault: 5.40/s
+- Lowest from the fault on: 0.20/s, in the bucket at +200.00s
+- Deficit: 172 requests that would have met the SLO at the baseline did not
+- Not back within 10% of the baseline for good before the run ended
+
+## Curve
+
+| from the fault | offered | goodput/s | rerouted | dropped | failed | SLO violations |
+|---:|---:|---:|---:|---:|---:|---:|
+| -50.00s | 30 | 4.40 | 0 | 0 | 0 | 8 |
+| -45.00s | 30 | 2.80 | 0 | 0 | 0 | 16 |
+| -40.00s | 30 | 5.80 | 0 | 0 | 0 | 1 |
+| -35.00s | 30 | 5.80 | 0 | 0 | 0 | 1 |
+| -30.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -25.00s | 30 | 5.80 | 0 | 0 | 0 | 1 |
+| -20.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -15.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -10.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| -5.00s | 30 | 2.80 | 0 | 0 | 0 | 16 |
+| +0.00s | 30 | 5.60 | 0 | 0 | 0 | 2 |
+| +5.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +10.00s | 30 | 5.80 | 0 | 0 | 0 | 1 |
+| +15.00s | 30 | 4.20 | 0 | 0 | 0 | 9 |
+| +20.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +25.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +30.00s | 30 | 4.60 | 0 | 0 | 0 | 7 |
+| +35.00s | 30 | 3.60 | 0 | 0 | 0 | 12 |
+| +40.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +45.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +50.00s | 30 | 4.80 | 0 | 0 | 0 | 6 |
+| +55.00s | 30 | 2.20 | 0 | 0 | 0 | 19 |
+| +60.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +65.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +70.00s | 30 | 5.40 | 0 | 0 | 0 | 3 |
+| +75.00s | 30 | 3.00 | 0 | 0 | 0 | 15 |
+| +80.00s | 30 | 5.80 | 0 | 0 | 0 | 1 |
+| +85.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +90.00s | 30 | 5.20 | 0 | 0 | 0 | 4 |
+| +95.00s | 30 | 3.00 | 0 | 0 | 0 | 15 |
+| +100.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +105.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +110.00s | 30 | 2.80 | 0 | 0 | 0 | 16 |
+| +115.00s | 30 | 2.80 | 0 | 0 | 0 | 16 |
+| +120.00s | 30 | 5.80 | 0 | 0 | 0 | 1 |
+| +125.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +130.00s | 30 | 4.80 | 0 | 0 | 0 | 6 |
+| +135.00s | 30 | 3.00 | 0 | 0 | 0 | 15 |
+| +140.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +145.00s | 30 | 5.80 | 0 | 0 | 0 | 1 |
+| +150.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +155.00s | 30 | 5.40 | 0 | 0 | 0 | 3 |
+| +160.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +165.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +170.00s | 30 | 5.00 | 0 | 0 | 0 | 5 |
+| +175.00s | 30 | 3.00 | 0 | 0 | 0 | 15 |
+| +180.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +185.00s | 30 | 6.00 | 0 | 0 | 0 | 0 |
+| +190.00s | 30 | 5.60 | 0 | 0 | 0 | 2 |
+| +195.00s | 30 | 2.40 | 0 | 0 | 0 | 18 |
+| +200.00s | 1 | 0.20 | 0 | 0 | 0 | 0 |
+stopping replica-5 (PID 1826035)
+stopping replica-4 (PID 1824690)
+stopping replica-2 (PID 1831391)
+stopping replica-1 (PID 1821632)
+stopping replica-0 (PID 1820080)
+# Recovery: replica-2 killed, session_affinity against prefix_affinity
+
+Open-loop at 6 req/s with a 5s think time, offering multiturn(sessions=307,skew=0,turns=4,prompt=448t,output=64t,system=0.3x128t,branch=0.3x8fam1t,bpt=4,seed=1,usage=on). SLO: TTFT < 990ms, inter-token p50 < 24ms. The fault came 1m40s in, after a 50s warm-up, and the replica was started again 2m40s in. Goodput is bucketed every 5s by when requests were offered, and read from the fault.
+
+| | session_affinity | prefix_affinity |
+|---|---:|---:|
+| left rotation | +0.50s | +0.50s |
+| back in rotation | +111.00s | +112.00s |
+| goodput before the fault | 5.98/s | 5.33/s |
+| lowest from the fault on | 0.20/s at +200.00s | 0.20/s at +200.00s |
+| deficit | 36 requests | 118 requests |
+| back within 10% for good | not before the run ended | not before the run ended |
+| rerouted | 0 | 2 |
+| dropped mid-stream | 1 | 1 |
+| dropped, never placed | 0 | 0 |
+
+## Drops
+
+- **session_affinity**: 1 of 1501 measured requests were dropped — 1 was streaming when their replica was lost, and 0 were never placed — and 0 were rerouted before their first token. A reroute is transparent only because nothing had reached its client when replica-2 died. A request already streaming at that instant cannot be rerouted and is counted as dropped, so the drop count reflects how many requests happened to be mid-stream when the replica was killed, and the reroute count is what the router saved.
+- **prefix_affinity**: 1 of 1501 measured requests were dropped — 1 was streaming when their replica was lost, and 0 were never placed — and 2 were rerouted before their first token. A reroute is transparent only because nothing had reached its client when replica-2 died. A request already streaming at that instant cannot be rerouted and is counted as dropped, so the drop count reflects how many requests happened to be mid-stream when the replica was killed, and the reroute count is what the router saved.
+
+## Curves
+
+| from the fault | session_affinity goodput/s | prefix_affinity goodput/s |
+|---:|---:|---:|
+| -50.00s | 6.00 | 6.00 |
+| -45.00s | 6.00 | 3.00 |
+| -40.00s | 6.00 | 6.00 |
+| -35.00s | 6.00 | 6.00 |
+| -30.00s | 6.00 | 6.00 |
+| -25.00s | 6.00 | 4.00 |
+| -20.00s | 6.00 | 5.80 |
+| -15.00s | 5.80 | 6.00 |
+| -10.00s | 6.00 | 5.20 |
+| -5.00s | 5.80 | 4.00 |
+| +0.00s | 6.00 | 5.80 |
+| +5.00s | 5.80 | 6.00 |
+| +10.00s | 6.00 | 5.20 |
+| +15.00s | 6.00 | 3.80 |
+| +20.00s | 6.00 | 5.80 |
+| +25.00s | 6.00 | 6.00 |
+| +30.00s | 6.00 | 4.60 |
+| +35.00s | 6.00 | 2.00 |
+| +40.00s | 6.00 | 6.00 |
+| +45.00s | 6.00 | 6.00 |
+| +50.00s | 6.00 | 4.40 |
+| +55.00s | 6.00 | 2.20 |
+| +60.00s | 6.00 | 5.20 |
+| +65.00s | 6.00 | 6.00 |
+| +70.00s | 6.00 | 4.80 |
+| +75.00s | 6.00 | 4.20 |
+| +80.00s | 6.00 | 6.00 |
+| +85.00s | 6.00 | 6.00 |
+| +90.00s | 6.00 | 4.80 |
+| +95.00s | 6.00 | 5.00 |
+| +100.00s | 6.00 | 6.00 |
+| +105.00s | 6.00 | 6.00 |
+| +110.00s | 5.20 | 4.40 |
+| +115.00s | 6.00 | 2.80 |
+| +120.00s | 6.00 | 6.00 |
+| +125.00s | 6.00 | 6.00 |
+| +130.00s | 6.00 | 6.00 |
+| +135.00s | 6.00 | 6.00 |
+| +140.00s | 6.00 | 6.00 |
+| +145.00s | 6.00 | 6.00 |
+| +150.00s | 6.00 | 6.00 |
+| +155.00s | 6.00 | 4.60 |
+| +160.00s | 6.00 | 6.00 |
+| +165.00s | 6.00 | 6.00 |
+| +170.00s | 5.80 | 5.40 |
+| +175.00s | 5.80 | 5.40 |
+| +180.00s | 6.00 | 6.00 |
+| +185.00s | 6.00 | 6.00 |
+| +190.00s | 6.00 | 5.80 |
+| +195.00s | 6.00 | 4.80 |
+| +200.00s | 0.20 | 0.20 |
+replica-5 is not running
+replica-4 is not running
+replica-2 is not running
+replica-1 is not running
+replica-0 is not running

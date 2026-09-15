@@ -1,0 +1,200 @@
+time=2026-09-07T19:33:57.438-07:00 level=INFO msg="fleet KV capacity" tokens=755712 per_replica=125952 estimated=688128 gap=+9.8%
+time=2026-09-07T19:33:57.687-07:00 level=INFO msg="NUMA placement" node=0 gpus="[0 1 2 3]" threads_per_gpu=12
+time=2026-09-07T19:33:57.687-07:00 level=INFO msg="NUMA placement" node=1 gpus="[4 5]" threads_per_gpu=24
+time=2026-09-07T19:34:00.155-07:00 level=INFO msg="fleet warmed" replicas=6 requests_each=3
+time=2026-09-07T19:34:00.156-07:00 level=INFO msg="probing replicas together" replicas=6 concurrency=1 repetition=1 duration=1m30s
+time=2026-09-07T19:35:30.996-07:00 level=INFO msg="probe complete" probe=replica-0-c1-r1 ttft_p50=331.346024ms itl_p50=7.83123ms requests=81 batch_mean=0.6 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:35:30.996-07:00 level=INFO msg="probe complete" probe=replica-1-c1-r1 ttft_p50=329.913182ms itl_p50=7.801048ms requests=81 batch_mean=0.6 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:35:30.996-07:00 level=INFO msg="probe complete" probe=replica-2-c1-r1 ttft_p50=325.385518ms itl_p50=7.755141ms requests=84 batch_mean=0.5 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:35:30.996-07:00 level=INFO msg="probe complete" probe=replica-3-c1-r1 ttft_p50=342.134079ms itl_p50=7.836654ms requests=80 batch_mean=0.6 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:35:30.996-07:00 level=INFO msg="probe complete" probe=replica-4-c1-r1 ttft_p50=334.491027ms itl_p50=7.851584ms requests=83 batch_mean=0.6 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:35:30.996-07:00 level=INFO msg="probe complete" probe=replica-5-c1-r1 ttft_p50=327.994224ms itl_p50=7.788411ms requests=81 batch_mean=0.5 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:35:35.997-07:00 level=INFO msg="probing replicas together" replicas=6 concurrency=1 repetition=2 duration=1m30s
+time=2026-09-07T19:37:06.700-07:00 level=INFO msg="probe complete" probe=replica-0-c1-r2 ttft_p50=367.264892ms itl_p50=8.020796ms requests=78 batch_mean=0.5 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:37:06.700-07:00 level=INFO msg="probe complete" probe=replica-1-c1-r2 ttft_p50=343.220153ms itl_p50=7.979712ms requests=82 batch_mean=0.6 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:37:06.700-07:00 level=INFO msg="probe complete" probe=replica-2-c1-r2 ttft_p50=364.711659ms itl_p50=7.971238ms requests=78 batch_mean=0.5 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:37:06.700-07:00 level=INFO msg="probe complete" probe=replica-3-c1-r2 ttft_p50=398.534426ms itl_p50=8.514383ms requests=75 batch_mean=0.6 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:37:06.700-07:00 level=INFO msg="probe complete" probe=replica-4-c1-r2 ttft_p50=344.417771ms itl_p50=8.026282ms requests=82 batch_mean=0.6 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:37:06.700-07:00 level=INFO msg="probe complete" probe=replica-5-c1-r2 ttft_p50=339.516337ms itl_p50=7.955584ms requests=81 batch_mean=0.6 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:37:11.702-07:00 level=INFO msg="probing replicas together" replicas=6 concurrency=1 repetition=3 duration=1m30s
+time=2026-09-07T19:38:42.504-07:00 level=INFO msg="probe complete" probe=replica-0-c1-r3 ttft_p50=367.105401ms itl_p50=8.02409ms requests=77 batch_mean=0.6 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:38:42.505-07:00 level=INFO msg="probe complete" probe=replica-1-c1-r3 ttft_p50=342.704509ms itl_p50=7.990637ms requests=81 batch_mean=0.5 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:38:42.505-07:00 level=INFO msg="probe complete" probe=replica-2-c1-r3 ttft_p50=369.665086ms itl_p50=8.000951ms requests=81 batch_mean=0.6 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:38:42.505-07:00 level=INFO msg="probe complete" probe=replica-3-c1-r3 ttft_p50=416.421093ms itl_p50=9.037368ms requests=67 batch_mean=0.7 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:38:42.505-07:00 level=INFO msg="probe complete" probe=replica-4-c1-r3 ttft_p50=343.018286ms itl_p50=8.018228ms requests=80 batch_mean=0.6 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:38:42.505-07:00 level=INFO msg="probe complete" probe=replica-5-c1-r3 ttft_p50=340.084073ms itl_p50=7.961633ms requests=81 batch_mean=0.6 queued_max=0 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:38:47.506-07:00 level=INFO msg="probing replicas together" replicas=6 concurrency=32 repetition=1 duration=1m30s
+time=2026-09-07T19:40:19.949-07:00 level=INFO msg="probe complete" probe=replica-0-c32-r1 ttft_p50=1.144607407s itl_p50=52.95061ms requests=164 batch_mean=28.6 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:40:19.949-07:00 level=INFO msg="probe complete" probe=replica-1-c32-r1 ttft_p50=1.412797359s itl_p50=23.411864ms requests=173 batch_mean=28.4 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=true
+time=2026-09-07T19:40:19.949-07:00 level=INFO msg="probe complete" probe=replica-2-c32-r1 ttft_p50=1.17568284s itl_p50=52.204408ms requests=165 batch_mean=28.6 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:40:19.949-07:00 level=INFO msg="probe complete" probe=replica-3-c32-r1 ttft_p50=1.279452006s itl_p50=57.652395ms requests=138 batch_mean=28.5 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=true
+time=2026-09-07T19:40:19.949-07:00 level=INFO msg="probe complete" probe=replica-4-c32-r1 ttft_p50=1.150390588s itl_p50=48.932006ms requests=167 batch_mean=28.6 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:40:19.949-07:00 level=INFO msg="probe complete" probe=replica-5-c32-r1 ttft_p50=1.221146937s itl_p50=51.964696ms requests=173 batch_mean=28.4 queued_max=28 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:40:24.954-07:00 level=INFO msg="probing replicas together" replicas=6 concurrency=32 repetition=2 duration=1m30s
+time=2026-09-07T19:41:57.311-07:00 level=INFO msg="probe complete" probe=replica-0-c32-r2 ttft_p50=1.140303109s itl_p50=56.436873ms requests=166 batch_mean=28.5 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:41:57.312-07:00 level=INFO msg="probe complete" probe=replica-1-c32-r2 ttft_p50=1.217415296s itl_p50=53.401109ms requests=173 batch_mean=28.8 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:41:57.312-07:00 level=INFO msg="probe complete" probe=replica-2-c32-r2 ttft_p50=1.300899861s itl_p50=51.759457ms requests=162 batch_mean=28.3 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:41:57.312-07:00 level=INFO msg="probe complete" probe=replica-3-c32-r2 ttft_p50=1.298147134s itl_p50=52.706769ms requests=139 batch_mean=28.2 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:41:57.312-07:00 level=INFO msg="probe complete" probe=replica-4-c32-r2 ttft_p50=1.105745401s itl_p50=51.54336ms requests=168 batch_mean=28.6 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=true
+time=2026-09-07T19:41:57.312-07:00 level=INFO msg="probe complete" probe=replica-5-c32-r2 ttft_p50=1.32343966s itl_p50=23.044545ms requests=176 batch_mean=28.3 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=true
+time=2026-09-07T19:42:02.314-07:00 level=INFO msg="probing replicas together" replicas=6 concurrency=32 repetition=3 duration=1m30s
+time=2026-09-07T19:43:34.824-07:00 level=INFO msg="probe complete" probe=replica-0-c32-r3 ttft_p50=1.284780923s itl_p50=27.176918ms requests=164 batch_mean=28.5 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:43:34.824-07:00 level=INFO msg="probe complete" probe=replica-1-c32-r3 ttft_p50=1.235543556s itl_p50=52.758891ms requests=169 batch_mean=28.4 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=true
+time=2026-09-07T19:43:34.824-07:00 level=INFO msg="probe complete" probe=replica-2-c32-r3 ttft_p50=1.152525155s itl_p50=51.364337ms requests=168 batch_mean=28.6 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:43:34.824-07:00 level=INFO msg="probe complete" probe=replica-3-c32-r3 ttft_p50=1.561295394s itl_p50=26.071908ms requests=142 batch_mean=28.4 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=false
+time=2026-09-07T19:43:34.824-07:00 level=INFO msg="probe complete" probe=replica-4-c32-r3 ttft_p50=1.080168217s itl_p50=56.26079ms requests=170 batch_mean=28.8 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=true
+time=2026-09-07T19:43:34.824-07:00 level=INFO msg="probe complete" probe=replica-5-c32-r3 ttft_p50=1.195004847s itl_p50=52.099633ms requests=170 batch_mean=28.5 queued_max=27 prefix_hit_rate=1.3% clean=true flagged=true
+time=2026-09-07T19:43:34.862-07:00 level=INFO msg="latency floor measured" ttft_p50=343.08557ms itl_p50=7.965912ms requests=1433 slo="TTFT < 1.03s, inter-token p50 < 24ms (3x the measured floor of 343ms and 8ms)"
+
+# Characterization — 2026-09-07
+
+Model `hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4`, workload `fixed(prompt=2048B,output=64t,seed=1)`, 6 replicas **driven all at once**, so each one's host-side work competed with the others', closed-loop driver.
+
+> ⚠️ **This characterization is flagged.** Every downstream figure scales off these
+> numbers, so read the reasons before using any of them.
+
+> - replica symmetry is unresolved at one or more levels: at concurrency 1, TTFT p50 spread 17.2% over the 8.0% tolerance: replica-3 at 395ms against replica-5 at 337ms; at concurrency 1 that spread is not resolvable: one replica varies 21.7% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it; at concurrency 32, TTFT p50 spread 19.0% over the 8.0% tolerance: replica-3 at 1.321s against replica-4 at 1.111s; at concurrency 32 that spread is not resolvable: one replica varies 22.0% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it
+> - 7 of 36 probes flagged: still warming up: the first half of the measured window was 30% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run (replica-1-c32-r1, replica-3-c32-r1, replica-4-c32-r2 and 4 more)
+
+## Aggregate fleet KV capacity
+
+Read off every replica's own `vllm:cache_config_info`, not extrapolated from one.
+
+| replica | GPU | num_gpu_blocks | block size | tokens | KV bytes |
+|---|---:|---:|---:|---:|---:|
+| `replica-0` | 0 | 7,872 | 16 | 125,952 | 15.38 GiB |
+| `replica-1` | 1 | 7,872 | 16 | 125,952 | 15.38 GiB |
+| `replica-2` | 2 | 7,872 | 16 | 125,952 | 15.38 GiB |
+| `replica-3` | 3 | 7,872 | 16 | 125,952 | 15.38 GiB |
+| `replica-4` | 4 | 7,872 | 16 | 125,952 | 15.38 GiB |
+| `replica-5` | 5 | 7,872 | 16 | 125,952 | 15.38 GiB |
+| **fleet** | | **47,232** | | **755,712** | **92.25 GiB** |
+
+Every replica reports the same figure. At 128 KiB per token, that is 15.38 GiB of KV per replica.
+
+### Against the figure computed by hand
+
+| | per replica | fleet |
+|---|---:|---:|
+| Measured | 125,952 tokens | 755,712 tokens |
+| Hand-computed | 114,688 tokens | 688,128 tokens |
+| Gap | +9.8% | +9.8% |
+
+The arithmetic is 32 layers x 8 KV heads x 128 dim x 2 bytes x 2 (K,V) = 128 KiB per token. That part is exact. The soft input is the KV budget: the hand figure assumed 14.00 GiB was left for KV after weights, activations and CUDA graphs, and the engine actually left 15.38 GiB — the whole gap is that assumption, not the per-token arithmetic.
+
+### Working set ratios rescaled off the measured total
+
+| WS | offered session tokens | sessions of 2k |
+|---:|---:|---:|
+| 0.25 | 188,928 | 92 |
+| 1 | 755,712 | 369 |
+| 3 | 2,267,136 | 1,107 |
+| 8 | 6,045,696 | 2,952 |
+
+## Host GPU topology
+
+| node | GPUs | threads on the node | threads per GPU |
+|---:|---|---:|---:|
+| 0 | [0 1 2 3] | 48 | 12 |
+| 1 | [4 5] | 48 | 24 |
+
+```
+	GPU0	GPU1	GPU2	GPU3	GPU4	GPU5	CPU Affinity	NUMA Affinity	GPU NUMA ID
+GPU0	 X 	PIX	NODE	NODE	SYS	SYS	0-23,48-71	0		N/A
+GPU1	PIX	 X 	NODE	NODE	SYS	SYS	0-23,48-71	0		N/A
+GPU2	NODE	NODE	 X 	PIX	SYS	SYS	0-23,48-71	0		N/A
+GPU3	NODE	NODE	PIX	 X 	SYS	SYS	0-23,48-71	0		N/A
+GPU4	SYS	SYS	SYS	SYS	 X 	PIX	24-47,72-95	1		N/A
+GPU5	SYS	SYS	SYS	SYS	PIX	 X 	24-47,72-95	1		N/A
+
+Legend:
+
+  X    = Self
+  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)
+  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node
+  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)
+  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)
+  PIX  = Connection traversing at most a single PCIe bridge
+  NV#  = Connection traversing a bonded set of # NVLinks
+```
+
+## Hardware latency floor, and the SLO derived from it
+
+One request at a time, straight at each replica, 1433 successful requests pooled across 6 replicas.
+
+1.3% of the prompt tokens behind this figure came out of the replicas' prefix caches, against a 5% limit — so this is the cost of prefilling, not of finding a prompt already there.
+
+| | p50 | p95 | p99 |
+|---|---:|---:|---:|
+| TTFT | 343ms | 405ms | 429ms |
+| Inter-token | 8ms | 9ms | — |
+
+**SLO: TTFT < 1.03s, inter-token p50 < 24ms (3x the measured floor of 343ms and 8ms)**
+
+The multiple is a judgement and the floor is not, so the alternatives are published beside it:
+
+| multiple | TTFT | inter-token p50 |
+|---:|---:|---:|
+| 2x | 690ms | 16ms |
+| 3x | 1.03s | 24ms ← chosen |
+| 4x | 1.38s | 32ms |
+| 5x | 1.72s | 40ms |
+
+## Replica symmetry
+
+**Nothing was settled.** No level could tell a difference from its own noise at the 8% tolerance, so this is neither evidence that the replicas differ nor evidence that they do not.
+
+- at concurrency 1, TTFT p50 spread 17.2% over the 8.0% tolerance: replica-3 at 395ms against replica-5 at 337ms
+- at concurrency 1 that spread is not resolvable: one replica varies 21.7% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it
+- at concurrency 32, TTFT p50 spread 19.0% over the 8.0% tolerance: replica-3 at 1.321s against replica-4 at 1.111s
+- at concurrency 32 that spread is not resolvable: one replica varies 22.0% against itself between repetitions, wider than the 8.0% tolerance, so the difference between replicas is inside the measurement's own noise. Lengthen the probe or add repetitions rather than acting on it
+
+### Concurrency 1
+
+| replica | GPU | NUMA | reqs | TTFT p50 | TTFT p95 | ITL p50 | tput/s | batch mean/max | queued max | prefix hits |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `replica-0` | 0 | 0 | 236 | 363ms | 378ms | 8ms | 0.92 | 0.6 / 1 | 0 | 1.3% |
+| `replica-1` | 1 | 0 | 244 | 340ms | 357ms | 8ms | 0.95 | 0.6 / 1 | 0 | 1.3% |
+| `replica-2` | 2 | 0 | 243 | 361ms | 380ms | 8ms | 0.94 | 0.5 / 1 | 0 | 1.3% |
+| `replica-3` | 3 | 0 | 222 | 395ms | 430ms | 8ms | 0.87 | 0.6 / 1 | 0 | 1.3% |
+| `replica-4` | 4 | 1 | 245 | 341ms | 351ms | 8ms | 0.96 | 0.6 / 1 | 0 | 1.3% |
+| `replica-5` | 5 | 1 | 243 | 337ms | 349ms | 8ms | 0.95 | 0.6 / 1 | 0 | 1.3% |
+
+TTFT p50 spread **17.2%** (replica-3 slowest, replica-5 fastest), inter-token spread **6.0%**, between NUMA nodes **7.6%** — **outside the 8% tolerance**.
+
+| NUMA node | replicas | threads per GPU | mean TTFT p50 | mean ITL p50 |
+|---:|---:|---:|---:|---:|
+| 0 | 4 | 12 | 365ms | 8ms |
+| 1 | 2 | 24 | 339ms | 8ms |
+
+Between nodes **7.6%** — inside the 8% tolerance. **Not resolvable**: a node's own mean moves 12.6% between repetitions, wider than the 8% tolerance and more than the gap between nodes.
+
+**Not resolvable at this sample size**: one replica varies 21.7% against *itself* between repetitions, wider than the 8% tolerance and more than the 17.2% between replicas. Lengthen the probe or add repetitions rather than acting on it.
+
+### Concurrency 32
+
+| replica | GPU | NUMA | reqs | TTFT p50 | TTFT p95 | ITL p50 | tput/s | batch mean/max | queued max | prefix hits |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `replica-0` | 0 | 0 | 494 | 1157ms | 2186ms | 52ms | 1.89 | 28.5 / 32 | 27 | 1.3% |
+| `replica-1` | 1 | 0 | 515 | 1260ms | 2203ms | 52ms | 1.98 | 28.5 / 32 | 27 | 1.3% |
+| `replica-2` | 2 | 0 | 495 | 1208ms | 2165ms | 52ms | 1.89 | 28.5 / 32 | 27 | 1.3% |
+| `replica-3` | 3 | 0 | 419 | 1321ms | 2511ms | 53ms | 1.60 | 28.4 / 32 | 27 | 1.3% |
+| `replica-4` | 4 | 1 | 505 | 1111ms | 2097ms | 51ms | 1.94 | 28.6 / 32 | 27 | 1.3% |
+| `replica-5` | 5 | 1 | 519 | 1234ms | 2151ms | 52ms | 1.99 | 28.4 / 32 | 28 | 1.3% |
+
+TTFT p50 spread **19.0%** (replica-3 slowest, replica-4 fastest), inter-token spread **3.0%**, between NUMA nodes **5.5%** — **outside the 8% tolerance**.
+
+| NUMA node | replicas | threads per GPU | mean TTFT p50 | mean ITL p50 |
+|---:|---:|---:|---:|---:|
+| 0 | 4 | 12 | 1236ms | 52ms |
+| 1 | 2 | 24 | 1172ms | 52ms |
+
+Between nodes **5.5%** — inside the 8% tolerance. A node's own mean moves 6.8% between repetitions, so this settles it.
+
+**Not resolvable at this sample size**: one replica varies 22.0% against *itself* between repetitions, wider than the 8% tolerance and more than the 19.0% between replicas. Lengthen the probe or add repetitions rather than acting on it.
+
+Derived SLO, for the sweep:
+
+    make bench BENCH_ARGS="-slo-ttft 1.03s -slo-itl 24ms"
+
+time=2026-09-07T19:43:34.867-07:00 level=INFO msg="characterization complete" report=runs/contention-pinned/report.md record=runs/contention-pinned/characterization.json symmetric=false flagged=true

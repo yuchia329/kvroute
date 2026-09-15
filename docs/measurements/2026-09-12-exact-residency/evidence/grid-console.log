@@ -1,0 +1,63 @@
+[23:30:37] === exact residency grid (#24) starting: all three policies ===
+[23:35:48] fleet is up on GPUs 0 1 2 4 5
+[23:35:49] usage probe passed: the engines report cached prompt tokens
+[23:35:49] tokenize probe passed: /tokenize gives the chat completion's own prompt tokens
+[23:35:49] restarting the fleet before the next policy (ADR-0004)
+[23:41:18] fleet is back up
+[23:41:18] prefix_affinity: router up
+[23:41:18] prefix_affinity: WS 0.25 skew 0 (3 reps)
+[23:56:45] prefix_affinity: WS 0.25 skew 1 (3 reps)
+[00:12:12] prefix_affinity: WS 0.25 skew 1.4 (3 reps)
+[00:27:38] prefix_affinity: WS 1 skew 0 (3 reps)
+[00:43:06] prefix_affinity: WS 1 skew 1 (3 reps)
+[00:58:33] prefix_affinity: WS 1 skew 1.4 (3 reps)
+[01:14:00] prefix_affinity: WS 3 skew 0 (3 reps)
+[01:29:28] prefix_affinity: WS 3 skew 1 (3 reps)
+[01:44:56] prefix_affinity: WS 3 skew 1.4 (3 reps)
+[02:00:23] prefix_affinity: WS 8 skew 0 (3 reps)
+[02:15:51] prefix_affinity: WS 8 skew 1 (3 reps)
+[02:31:19] prefix_affinity: WS 8 skew 1.4 (3 reps)
+[02:46:46] router drained
+[02:46:46] prefix_affinity: all 12 points done in 3h10m
+[02:46:46] restarting the fleet before the next policy (ADR-0004)
+[02:52:17] fleet is back up
+[02:52:18] exact_residency: router up
+[02:52:18] exact_residency: WS 0.25 skew 0 (3 reps)
+[03:07:45] exact_residency: WS 0.25 skew 1 (3 reps)
+[03:23:13] exact_residency: WS 0.25 skew 1.4 (3 reps)
+[03:38:42] exact_residency: WS 1 skew 0 (3 reps)
+[03:54:10] exact_residency: WS 1 skew 1 (3 reps)
+[04:09:39] exact_residency: WS 1 skew 1.4 (3 reps)
+[04:25:08] exact_residency: WS 3 skew 0 (3 reps)
+[04:40:36] exact_residency: WS 3 skew 1 (3 reps)
+[04:56:04] exact_residency: WS 3 skew 1.4 (3 reps)
+[05:11:32] exact_residency: WS 8 skew 0 (3 reps)
+[05:27:01] exact_residency: WS 8 skew 1 (3 reps)
+[05:42:31] exact_residency: WS 8 skew 1.4 (3 reps)
+  replica-0  blocks   7769  applied  175928  replayed     0  lost 0  resets 0  reconnects 0  orphaned 516  refused 0  connected
+  replica-1  blocks   7715  applied  176549  replayed     0  lost 0  resets 0  reconnects 0  orphaned 394  refused 0  connected
+  replica-2  blocks   7750  applied  177203  replayed     0  lost 0  resets 0  reconnects 0  orphaned 299  refused 0  connected
+  replica-4  blocks   7713  applied  177292  replayed     0  lost 0  resets 0  reconnects 0  orphaned 384  refused 0  connected
+  replica-5  blocks   7763  applied  178099  replayed     0  lost 0  resets 0  reconnects 0  orphaned 692  refused 0  connected
+[05:57:59] router drained
+[05:57:59] exact_residency: all 12 points done in 3h11m
+[05:57:59] restarting the fleet before the next policy (ADR-0004)
+[06:03:49] fleet is back up
+[06:03:49] session_affinity: router up
+[06:03:49] session_affinity: WS 0.25 skew 0 (3 reps)
+[06:19:17] session_affinity: WS 0.25 skew 1 (3 reps)
+[06:34:47] session_affinity: WS 0.25 skew 1.4 (3 reps)
+[06:50:16] session_affinity: WS 1 skew 0 (3 reps)
+[07:05:47] session_affinity: WS 1 skew 1 (3 reps)
+[07:21:15] session_affinity: WS 1 skew 1.4 (3 reps)
+[07:36:43] session_affinity: WS 3 skew 0 (3 reps)
+[07:52:12] session_affinity: WS 3 skew 1 (3 reps)
+[08:07:41] session_affinity: WS 3 skew 1.4 (3 reps)
+[08:23:10] session_affinity: WS 8 skew 0 (3 reps)
+[08:38:38] session_affinity: WS 8 skew 1 (3 reps)
+[08:54:08] session_affinity: WS 8 skew 1.4 (3 reps)
+[09:09:36] router drained
+[09:09:36] session_affinity: all 12 points done in 3h11m
+[09:09:36] === exact residency grid complete ===
+[09:09:36] map: runs/pressuremap-exact.md
+[09:09:44] fleet down; GPUs released
