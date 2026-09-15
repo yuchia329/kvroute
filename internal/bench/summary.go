@@ -190,6 +190,12 @@ type Summary struct {
 	// another length shares.
 	WarmupDriftTurnsCompared int `json:"warmup_drift_turns_compared,omitempty" parquet:"warmup_drift_turns_compared"`
 	WarmupDriftTurnsConfined int `json:"warmup_drift_turns_confined,omitempty" parquet:"warmup_drift_turns_confined"`
+	// WarmupDriftTurnsThin is how many of the workload's indices were offered on
+	// both sides of the split but came back with too few successes on one side
+	// to have a median. They are left out of the figure like a confined index,
+	// and unlike one they say nothing about the window's length: the schedule
+	// did offer them evenly, and the fleet failed or dropped them.
+	WarmupDriftTurnsThin int `json:"warmup_drift_turns_thin,omitempty" parquet:"warmup_drift_turns_thin"`
 
 	// Scheduled is how many measured requests carried a due time, which is all
 	// of them under the open-loop driver and none under the closed-loop one.
@@ -270,7 +276,7 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 	}
 
 	var ttft, total, itl, lag []time.Duration
-	var first, last time.Time
+	var first, last, lastSent time.Time
 	var firstDue, lastDue time.Time
 	var placements placementCounter
 	rate := 0.0
@@ -295,6 +301,9 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 		started := time.Unix(0, r.StartedAtNs)
 		if first.IsZero() || started.Before(first) {
 			first = started
+		}
+		if started.After(lastSent) {
+			lastSent = started
 		}
 		if ended := r.EndedAt(); ended.After(last) {
 			last = ended
@@ -353,7 +362,7 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 	if s.Requests > 0 {
 		s.FailureRate = float64(s.Failed+s.Dropped) / float64(s.Requests)
 	}
-	window := cellWindow{first: first, last: last, firstDue: firstDue, lastDue: lastDue, rate: rate}
+	window := cellWindow{first: first, last: last, lastSent: lastSent, firstDue: firstDue, lastDue: lastDue, rate: rate}
 	if offered := window.duration(); offered > 0 {
 		s.WindowNs = offered.Nanoseconds()
 		s.ThroughputRPS = float64(s.Successes) / offered.Seconds()
@@ -384,6 +393,7 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 	s.WarmupDriftBasis = string(drift.basis)
 	s.WarmupDriftTurnsCompared = drift.compared
 	s.WarmupDriftTurnsConfined = drift.confined
+	s.WarmupDriftTurnsThin = drift.thin
 	s.ScheduleLagThresholdNs = opts.scheduleLagThreshold().Nanoseconds()
 	s.flag(opts.driftThreshold(), opts.scheduleLagThreshold())
 	return s
@@ -399,8 +409,8 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 // denominator describing the same window.
 type cellWindow struct {
 	// first and last are the first measured request's start and the last one's
-	// finish.
-	first, last time.Time
+	// finish, and lastSent is the last one's start.
+	first, last, lastSent time.Time
 	// firstDue and lastDue are the first and last arrival the schedule asked
 	// for, and the zero time under the closed-loop driver, which has no
 	// schedule.
@@ -434,18 +444,32 @@ func (w cellWindow) duration() time.Duration {
 // A scheduled cell's is its schedule — first arrival due to last arrival due,
 // plus the one inter-arrival gap the last arrival owns, since n arrivals at rate
 // r occupy n/r seconds and the span between the first and the last is one gap
-// short of that. A closed-loop cell has no schedule to be read, so its rows are
-// the only account of when it was offering load.
-//
-// The drain is outside it either way, which is the point. A window that ran to
-// the last RESPONSE would have its midpoint half a drain past its arrival
-// midpoint — 57 to 71 seconds on #29's think-75s cells — and everything the
-// halves are supposed to hold would be off by that much.
+// short of that; the drain is outside it. A closed-loop cell has no schedule to
+// be read, and it offers load for as long as it is still receiving answers, so
+// its rows' first start to last finish is the account of it.
 func (w cellWindow) arrivals() (opens, closes time.Time) {
 	if w.scheduled() {
 		return w.firstDue, w.lastDue.Add(time.Duration(float64(time.Second) / w.rate))
 	}
 	return w.first, w.last
+}
+
+// sending is the span the warm-up drift check splits in half: when the cell's
+// requests arrived, which excludes the drain under either driver.
+//
+// For a scheduled cell that is its arrival window. For a closed-loop cell it is
+// first request sent to last request sent, which is not the span its rates are
+// divided by: that one has to run to the last answer, because a closed loop is
+// offering load while it waits for one. The split cannot, for the reason the
+// arrival window exists. A split that ran to the last RESPONSE would sit half a
+// drain past the middle of when requests were sent — 57 to 71 seconds on #29's
+// think-75s cells, and at 256 virtual users one latency is tens of seconds — and
+// every row's place in the halves is when it was sent.
+func (w cellWindow) sending() (opens, closes time.Time) {
+	if w.scheduled() {
+		return w.arrivals()
+	}
+	return w.first, w.lastSent
 }
 
 // backlog is the share of the scheduled measured requests whose response had not

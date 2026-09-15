@@ -1,6 +1,6 @@
 # ADR-0014: Warm-up drift is two-sided, compared per turn index, and split on arrivals
 
-**Status:** Accepted · **Date:** 2026-09-13 · **Amended:** 2026-09-14 (a fourth cause, past saturation, which keeps its goodput; and recorded cells are written back once re-scored)
+**Status:** Accepted · **Date:** 2026-09-13 · **Amended:** 2026-09-14 (a fourth cause, past saturation, which keeps its goodput; and recorded cells are written back once re-scored) · **Amended:** 2026-09-14 (thin indices, partial visits, and the closed-loop split)
 
 ## Context
 
@@ -53,7 +53,12 @@ size.
 
 **The split is the midpoint of the arrival window**, the same window the cell's rates are divided
 by, and a row's place in it is its due time rather than its start. One `cellWindow` type derives
-both, so the denominator and the split cannot come to describe different spans.
+both, so the denominator and the split cannot come to describe different spans. *(Amended
+2026-09-14.)* A closed-loop cell has no schedule, and its split is the midpoint of first request
+sent to last request sent, each row placed by when it was sent. That is not the span its rates are
+divided by — a closed loop offers load while it waits for answers, so that span runs to the last
+response — and the split cannot run there, for the reason the arrival window exists: at 256
+virtual users one latency is tens of seconds, and the midpoint would sit half of it late.
 
 **The threshold is tested against `|drift|`, and the direction is in the message.** A cell whose
 TTFT p50 doubled across its window is as unpoolable as one that halved. They are different faults:
@@ -66,7 +71,14 @@ throttled card, a replica lost, a cache growing); an open-loop cell past saturat
 fix — see below); or a measured window that is not a whole number of visit periods (re-run over a
 whole, even number of them). The last is reported whenever one of the workload's turn indices is missing from a half of
 the split, whatever the drift came to, because that makes *every* percentile in the summary a mix
-no cell of another length shares — not only the drift.
+no cell of another length shares — not only the drift. *(Amended 2026-09-14.)* Missing means
+*offered* on only one side, counting every outcome. An index offered on both sides that came back
+with too few successes on one to have a median is **thin**: it is left out of the figure and
+counted, and flags nothing, because the fleet failing its requests says nothing about the window's
+length. And a closed-loop cell has no rotation and so no visit period, so the same finding there
+is named **partial visits** — its virtual users did not get far enough through their conversations
+for every turn to land in both halves — and its fix is a longer cell, not a whole number of
+periods nobody set.
 
 **An open-loop cell that fell behind its offered load is past saturation, and keeps its goodput.**
 *(Amended 2026-09-14.)* Two-sided, the check flags every cell offered a rate past its policy's knee,

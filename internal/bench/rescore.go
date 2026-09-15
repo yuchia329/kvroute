@@ -153,6 +153,7 @@ func (r Rescored) withCurrentDriftVerdict() Cell {
 	cell.WarmupDriftBasis = r.Now.WarmupDriftBasis
 	cell.WarmupDriftTurnsCompared = r.Now.WarmupDriftTurnsCompared
 	cell.WarmupDriftTurnsConfined = r.Now.WarmupDriftTurnsConfined
+	cell.WarmupDriftTurnsThin = r.Now.WarmupDriftTurnsThin
 	cell.Backlog = r.Now.Backlog
 	cell.Flagged = r.Now.Flagged
 	cell.FlagReasons = r.Now.FlagReasons

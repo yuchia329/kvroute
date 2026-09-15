@@ -288,7 +288,7 @@ func TestADirectoryWithNoRowsCannotBeRescored(t *testing.T) {
 // mentions warming up must not be read as one that flagged for it.
 func TestACauseIsReadFromTheFlagItOpensWith(t *testing.T) {
 	if causes := (bench.Summary{FlagReasons: []string{
-		"3 requests were cancelled: the cell did not run to completion",
+		"3 requests were cancelled while the fleet was still warming up: the cell did not run to completion",
 	}}).WarmupDriftCauses(); len(causes) != 0 {
 		t.Errorf("a flag that is not the drift check's was read as one: %v", causes)
 	}

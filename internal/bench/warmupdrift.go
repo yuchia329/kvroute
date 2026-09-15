@@ -38,7 +38,10 @@ import (
 //     with period TurnsPerSession x think time, and a window holding a
 //     fractional number of those periods draws the turn indices unevenly across
 //     its split. The two medians are then over two different workloads, for as
-//     long as the cell runs and however warm the fleet is.
+//     long as the cell runs and however warm the fleet is. Under the
+//     closed-loop driver, which has no rotation and so no period, halves
+//     holding different turn indices are partial visits instead: the window
+//     reached only the start of each virtual user's conversation.
 //
 // The last is cancelled rather than detected-and-excused: drift is compared
 // within each turn index, so the composition of the halves falls out of the
@@ -46,7 +49,8 @@ import (
 // per-configuration geometry to derive. What remains detectable — and is
 // reported, because it makes the cell's own percentiles a mix nothing else
 // shares — is a split that left one of the workload's turn indices off one side
-// of it, or out of the window altogether.
+// of it, or out of the window altogether. An index offered on both sides that
+// came back too thin to compare is not that, and is only left out of the figure.
 
 // minHalfForDrift is how many successes each side of the split needs before
 // their medians are worth comparing. Below this the comparison is noise.
@@ -96,6 +100,9 @@ type driftReading struct {
 	// measured window is not a whole number of visit periods, and the cell's
 	// percentiles are over a mix a cell of another length does not share.
 	confined int
+	// thin is how many indices were offered on both sides of the split but came
+	// back with too few successes on one of them to have a median.
+	thin int
 }
 
 // arrivalAt is when the schedule asked for this request, falling back to when it
@@ -133,21 +140,33 @@ type driftRow struct {
 // that never returns to a turn index, where the index is a counter rather than a
 // position and the check pools instead.
 func measureDrift(results []Result, w cellWindow, turnsPerSession int) driftReading {
-	opens, closes := w.arrivals()
+	opens, closes := w.sending()
 	if !closes.After(opens) {
 		return driftReading{basis: driftNotMeasured}
 	}
 	split := opens.Add(closes.Sub(opens) / 2)
 
 	rows := make([]driftRow, 0, len(results))
+	offered := map[int][2]bool{}
 	for _, r := range results {
-		if r.Warmup || r.Outcome != record.OutcomeSuccess {
+		if r.Warmup {
+			continue
+		}
+		// Every outcome counts toward where an index was offered, and only a
+		// success toward its median: an index whose requests failed was still
+		// offered on that side, and saying otherwise would read the fleet's
+		// failures as the window's length.
+		late := !arrivalAt(r).Before(split)
+		sides := offered[r.Turn]
+		sides[boolIndex(late)] = true
+		offered[r.Turn] = sides
+		if r.Outcome != record.OutcomeSuccess {
 			continue
 		}
 		rows = append(rows, driftRow{turn: r.Turn, arrived: arrivalAt(r), ttft: time.Duration(r.TTFTNs)})
 	}
 	if turnsPerSession > 1 && len(rows) >= turnsPerSession*driftMinPerTurn {
-		return perTurnDrift(rows, split, turnsPerSession)
+		return perTurnDrift(rows, split, turnsPerSession, offered)
 	}
 	if drift, ok := halfDrift(rows, split); ok {
 		return driftReading{drift: drift, basis: driftPooled, compared: 1}
@@ -161,7 +180,11 @@ func measureDrift(results []Result, w cellWindow, turnsPerSession int) driftRead
 // Request-weighted rather than the largest of them: the maximum would hand the
 // cell's verdict to whichever index happened to carry the fewest requests, and
 // the thin strata are exactly the noisy ones.
-func perTurnDrift(rows []driftRow, split time.Time, turnsPerSession int) driftReading {
+//
+// offered says, per index, whether any measured request of it arrived early and
+// late. An index that fails the comparison is confined when it was offered on
+// only one side, and thin when it was offered on both.
+func perTurnDrift(rows []driftRow, split time.Time, turnsPerSession int, offered map[int][2]bool) driftReading {
 	byTurn := map[int][]driftRow{}
 	for _, r := range rows {
 		byTurn[r.turn] = append(byTurn[r.turn], r)
@@ -178,7 +201,11 @@ func perTurnDrift(rows []driftRow, split time.Time, turnsPerSession int) driftRe
 		of := byTurn[turn]
 		drift, ok := halfDrift(of, split)
 		if !ok {
-			reading.confined++
+			if sides := offered[turn]; sides[0] && sides[1] {
+				reading.thin++
+			} else {
+				reading.confined++
+			}
 			continue
 		}
 		reading.compared++
@@ -189,6 +216,13 @@ func perTurnDrift(rows []driftRow, split time.Time, turnsPerSession int) driftRe
 		reading.drift = weighted / float64(weight)
 	}
 	return reading
+}
+
+func boolIndex(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // halfDrift is the one comparison the whole check is built out of: the TTFT p50
@@ -238,6 +272,12 @@ const (
 	// direction the split fell. Not a defect of the measurement, so nothing to
 	// re-run — its goodput is the result and its percentiles are a transient.
 	WarmupDriftSaturated WarmupDriftCause = "past saturation"
+	// WarmupDriftPartialVisits is a closed-loop cell whose halves held different
+	// turn indices. There is no rotation and so no visit period under that
+	// driver: a virtual user sends its next turn when its last one returns, and
+	// a window that only reached the start of each user's visit puts early
+	// turns in one half and later turns in the other.
+	WarmupDriftPartialVisits WarmupDriftCause = "partial visits"
 )
 
 // saturatedBacklog is the backlog above which a cell whose latency moved is read
@@ -260,15 +300,16 @@ const saturatedBacklog = 0.20
 // it; an opening that drifted from the cause it names would silently re-score
 // every one of them as unflagged, and nothing would fail.
 var warmupDriftOpenings = map[WarmupDriftCause]string{
-	WarmupDriftCold:       "still warming up",
-	WarmupDriftDegrading:  "the fleet slowed across the measured window",
-	WarmupDriftFractional: "the measured window is not a whole number of visit periods",
-	WarmupDriftSaturated:  "the fleet fell behind its offered load",
+	WarmupDriftCold:          "still warming up",
+	WarmupDriftDegrading:     "the fleet slowed across the measured window",
+	WarmupDriftFractional:    "the measured window is not a whole number of visit periods",
+	WarmupDriftSaturated:     "the fleet fell behind its offered load",
+	WarmupDriftPartialVisits: "the measured window holds only part of each visit",
 }
 
 // warmupDriftCauseOrder is the order causes are read and reported in, so a cell
 // flagged for two of them renders the same way every time.
-var warmupDriftCauseOrder = []WarmupDriftCause{WarmupDriftFractional, WarmupDriftCold, WarmupDriftDegrading, WarmupDriftSaturated}
+var warmupDriftCauseOrder = []WarmupDriftCause{WarmupDriftFractional, WarmupDriftPartialVisits, WarmupDriftCold, WarmupDriftDegrading, WarmupDriftSaturated}
 
 // WarmupDriftCauses is every drift cause this summary was flagged for.
 //
@@ -330,9 +371,18 @@ func (s *Summary) flagDrift(threshold float64) {
 		if s.WarmupDriftTurnsCompared == 0 {
 			rest = "no turn index appears on both sides of the split at all, so there was nothing like for like to compare"
 		}
-		s.flagDriftCause(WarmupDriftFractional,
-			"%d turn %s not on both sides of the split with enough requests to compare, so the two halves are different workloads — %s. Re-run the cell over a whole, even number of visit periods; a longer warm-up cannot fix this",
-			s.WarmupDriftTurnsConfined, plural(s.WarmupDriftTurnsConfined, "index is", "indices are"), rest)
+		if s.Scheduled > 0 {
+			s.flagDriftCause(WarmupDriftFractional,
+				"%d turn %s offered on only one side of the split, so the two halves are different workloads — %s. Re-run the cell over a whole, even number of visit periods; a longer warm-up cannot fix this",
+				s.WarmupDriftTurnsConfined, plural(s.WarmupDriftTurnsConfined, "index was", "indices were"), rest)
+		} else {
+			// The closed loop has no rotation, so there is no period to make
+			// whole: its virtual users advance a turn only as fast as the
+			// fleet answers them.
+			s.flagDriftCause(WarmupDriftPartialVisits,
+				"%d turn %s sent on only one side of the split, so the two halves are different workloads — %s. Its virtual users did not get far enough through their conversations for every turn to fall in both halves; run the cell for longer, and a longer warm-up will not do it",
+				s.WarmupDriftTurnsConfined, plural(s.WarmupDriftTurnsConfined, "index was", "indices were"), rest)
+		}
 	}
 
 	if moved := math.Abs(s.WarmupDrift); moved > threshold && s.Backlog > saturatedBacklog {

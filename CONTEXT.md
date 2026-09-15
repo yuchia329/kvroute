@@ -529,8 +529,9 @@ turn index and split on the arrival window. Positive is slower early. It is what
 length be checked rather than trusted, and it is judged two-sided: a cell that got twice as slow
 is as unpoolable as one that got twice as fast. A cell over the threshold is flagged with the
 cause the check found — a still-cold opening period, a fleet that degraded, an open-loop cell past
-saturation, or a fractional number of visit periods — because the four have different fixes and
-only the first is a longer warm-up. A cell past saturation is not a broken measurement: it keeps
+saturation, or a fractional number of visit periods (partial visits, under the closed-loop driver,
+which has no visit period) — because they have different fixes and only the first is a longer
+warm-up. A cell past saturation is not a broken measurement: it keeps
 its goodput in a comparison, marked, and gives up only its latency percentiles.
 _Avoid_: warm-up error, ramp, drift (unqualified — that is belief divergence or schedule lag)
 

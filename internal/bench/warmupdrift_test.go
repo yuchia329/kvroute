@@ -40,6 +40,14 @@ func arrival(due time.Time, turn int, ttft, drain time.Duration) bench.Result {
 	}
 }
 
+// sent builds a closed-loop success: a virtual user's request, which nothing
+// scheduled, so its place in the window is when it was sent.
+func sent(at time.Time, turn int, ttft, drain time.Duration) bench.Result {
+	r := arrival(at, turn, ttft, drain)
+	r.ScheduledAtNs, r.Labels = 0, bench.Labels{Driver: bench.ClosedLoopDriver, Concurrency: 8}
+	return r
+}
+
 // driftOptions judges drift and nothing else, for a workload of the given turns
 // per session. The fixtures below are built to exercise one check, and a cell of
 // synthetic rows trips the schedule-lag and failure checks for reasons that have
@@ -165,9 +173,7 @@ func TestAClosedLoopCellHasNoBacklog(t *testing.T) {
 	start := time.Unix(1757000000, 0)
 	var rows []bench.Result
 	for i := range 40 {
-		r := arrival(start.Add(time.Duration(i)*time.Second), i%4, time.Second, 30*time.Second)
-		r.ScheduledAtNs, r.Labels = 0, bench.Labels{Driver: bench.ClosedLoopDriver, Concurrency: 8}
-		rows = append(rows, r)
+		rows = append(rows, sent(start.Add(time.Duration(i)*time.Second), i%4, time.Second, 30*time.Second))
 	}
 
 	if got := bench.Summarize(rows, driftOptions(4)); got.Backlog != 0 {
@@ -263,6 +269,90 @@ func TestTheSplitIsTakenOverTheArrivalWindow(t *testing.T) {
 // The remedy is a cell geometry of whole visit periods, which is not what
 // "lengthen the warm-up and re-run" asks for, and that sentence is what shaped
 // #29's acceptance criteria.
+// A closed-loop cell has the same defect the arrival window fixed for an
+// open-loop one. Its split ran to the last RESPONSE, so at a high concurrency,
+// where one latency is tens of seconds, the midpoint sat half a drain past the
+// middle of when requests were sent. Its split is now taken over when they were
+// sent.
+//
+// Its rates are not. A closed-loop cell offers load for as long as it is still
+// receiving answers, so the window those are divided by keeps running to the last
+// response, and no recorded goodput moves.
+func TestAClosedLoopSplitIsTakenOverWhenRequestsWereSent(t *testing.T) {
+	start := time.Unix(1757000000, 0)
+	// The open-loop test's rows, sent by virtual users instead of a schedule.
+	var rows []bench.Result
+	for i := range 20 {
+		ttft := time.Second
+		if i >= 16 {
+			ttft = 5 * time.Second
+		}
+		rows = append(rows, sent(start.Add(time.Duration(i)*time.Second), 0, ttft, 10*time.Second))
+	}
+
+	got := bench.Summarize(rows, driftOptions(0))
+
+	if got.WarmupDrift != 0 {
+		t.Errorf("drift is %.2f, want 0: split on when requests were sent both halves have a 1s TTFT p50", got.WarmupDrift)
+	}
+	// First sent at 1ms, last answered at 19s + 1ms + 15s.
+	if want := 34 * time.Second; time.Duration(got.WindowNs) != want {
+		t.Errorf("window is %v, want %v: a closed-loop cell's rates still run to its last response", time.Duration(got.WindowNs), want)
+	}
+}
+
+// A turn index the schedule did offer on both sides of the split, but that
+// came back with too few successes on one side to have a median, is thin — not
+// a sign that the window holds a fractional number of visit periods. Calling it
+// that would send someone to re-derive a geometry that was already whole.
+func TestAThinTurnIndexIsNotReadAsAFractionalWindow(t *testing.T) {
+	start := time.Unix(1757000000, 0)
+	var rows []bench.Result
+	for i := range 80 {
+		r := arrival(start.Add(time.Duration(i)*time.Second), i%4, time.Second, time.Second)
+		// Index 3 is offered ten times each side and fails all but three of
+		// them each side.
+		if i%4 == 3 && (i%40)/4 >= 3 {
+			r.Outcome = record.OutcomeFailed
+		}
+		rows = append(rows, r)
+	}
+
+	got := bench.Summarize(rows, driftOptions(4))
+
+	if got.WarmupDriftTurnsConfined != 0 || got.WarmupDriftTurnsThin != 1 {
+		t.Errorf("%d indices confined and %d thin, want 0 and 1: index 3 was offered on both sides", got.WarmupDriftTurnsConfined, got.WarmupDriftTurnsThin)
+	}
+	if got.WarmupDriftTurnsCompared != 3 {
+		t.Errorf("%d indices compared, want the other 3", got.WarmupDriftTurnsCompared)
+	}
+	if got.WarmupDriftFlagged() {
+		t.Errorf("a whole window with one thin index was flagged: %v", got.FlagReasons)
+	}
+}
+
+// Under the closed-loop driver there is no rotation and so no visit period: a
+// virtual user sends its next turn when its last one returns. Halves holding
+// different turn indices there mean the window held only the start of each
+// user's visit — at 256 users the fleet is too slow for them to get further — and
+// the fix is a longer measured window, not a whole number of periods nobody set.
+func TestAClosedLoopCellWithTurnsOnOneSideIsNamedAsPartialVisits(t *testing.T) {
+	start := time.Unix(1757000000, 0)
+	var rows []bench.Result
+	for i := range 48 {
+		rows = append(rows, sent(start.Add(time.Duration(i)*time.Second), []int{0, 1, 2, 0}[i/12], time.Second, time.Second))
+	}
+
+	got := bench.Summarize(rows, driftOptions(3))
+
+	if !slices.Equal(got.WarmupDriftCauses(), []bench.WarmupDriftCause{bench.WarmupDriftPartialVisits}) {
+		t.Fatalf("causes are %v, want only %q: %v", got.WarmupDriftCauses(), bench.WarmupDriftPartialVisits, got.FlagReasons)
+	}
+	if strings.Contains(reasons(got), "visit period") {
+		t.Errorf("a closed-loop cell was told about visit periods it does not have: %v", got.FlagReasons)
+	}
+}
+
 func TestHalvesHoldingDifferentTurnIndexesAreFlaggedAsAFractionalWindow(t *testing.T) {
 	start := time.Unix(1757000000, 0)
 	// A window of a period and a bit: index 0 opens it and comes round again at
@@ -422,6 +512,17 @@ func TestEveryDriftFlagReadsBackAsTheCauseThatWroteIt(t *testing.T) {
 						ttft = 4 * time.Second
 					}
 					rows = append(rows, arrival(at(i), i%4, ttft, 30*time.Second))
+				}
+				return rows
+			}(),
+		},
+		{
+			name: "partial visits", turns: 3, want: bench.WarmupDriftPartialVisits,
+			rows: func() (rows []bench.Result) {
+				for _, turn := range []int{0, 1, 2, 0} {
+					for range 12 {
+						rows = append(rows, sent(at(len(rows)), turn, time.Second, time.Second))
+					}
 				}
 				return rows
 			}(),
