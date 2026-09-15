@@ -98,7 +98,7 @@ L 240.155766 174.816
 L 240.155766 241.344 
 L 141.947766 241.344 
 z
-" clip-path="url(#p632237394a)" style="fill: #e1edf3; stroke: #ffffff; stroke-width: 2; stroke-linejoin: miter"/>
+" clip-path="url(#p632237394a)" style="fill: #ddebf2; stroke: #ffffff; stroke-width: 2; stroke-linejoin: miter"/>
    </g>
    <g id="patch_11">
     <path d="M 240.155766 174.816 
@@ -1142,13 +1142,13 @@ z
     </g>
    </g>
    <g id="text_17">
-    <!-- +41.3% -->
+    <!-- +51.4% -->
     <g transform="translate(174.993016 210.158125) scale(0.08 -0.08)">
      <use xlink:href="#DejaVuSans-e"/>
-     <use xlink:href="#DejaVuSans-17" transform="translate(83.796875 0)"/>
+     <use xlink:href="#DejaVuSans-18" transform="translate(83.796875 0)"/>
      <use xlink:href="#DejaVuSans-14" transform="translate(147.421875 0)"/>
      <use xlink:href="#DejaVuSans-11" transform="translate(211.046875 0)"/>
-     <use xlink:href="#DejaVuSans-16" transform="translate(242.828125 0)"/>
+     <use xlink:href="#DejaVuSans-17" transform="translate(242.828125 0)"/>
      <use xlink:href="#DejaVuSans-8" transform="translate(306.453125 0)"/>
     </g>
    </g>

@@ -20,7 +20,7 @@ cells, so the prefix match figures in the rows cannot be converted into tokens.
 | closed-loop | 4 users | 5.01 (4.98–5.08, n=3) | 4.99 (4.93–5.08, n=3) | -0.3% (within spread) |
 | closed-loop | 8 users | 7.50 (7.48–7.58, n=3) | 8.01 (7.92–8.03, n=3) | +6.8% |
 | closed-loop | 16 users | 10.34 (10.31–10.35, n=3) | 10.56 (10.52–10.67, n=3) | +2.2% |
-| closed-loop | 32 users | 12.34 (12.33–12.37, n=3) | 10.28 (9.84–10.57, n=3) | -16.7% |
+| closed-loop | 32 users | 12.34 (12.33–12.37, n=3) | 10.28 (10.28–10.57, n=2) | -16.7% |
 | closed-loop | 64 users | 9.80 (9.78–9.84, n=3) | 8.21 (8.17–9.31, n=3) | -16.2% |
 | closed-loop | 128 users | 9.44 (9.42–9.47, n=3) | 6.41 (5.53–6.64, n=3) | -32.1% |
 | closed-loop | 256 users | — | 0.37 (0.35–0.50, n=3) | — |
@@ -70,7 +70,7 @@ published results where they did.
 | closed-loop | 16 users | round_robin | 371ms | — | 461ms | — | 2041 | — | — | — | — |
 | closed-loop | 16 users | least_outstanding | 386ms | — | 1041ms | — | 2131 | — | — | — | — |
 | closed-loop | 32 users | round_robin | 372ms | — | 540ms | — | 2439 | — | — | — | — |
-| closed-loop | 32 users | least_outstanding | 550ms | — | 1632ms | — | 2585 | — | — | — | — |
+| closed-loop | 32 users | least_outstanding | 542ms | — | 1602ms | — | 1726 | — | — | — | — |
 | closed-loop | 64 users | round_robin | 371ms | — | 1202ms | — | 2368 | — | — | — | — |
 | closed-loop | 64 users | least_outstanding | 874ms | — | 2567ms | — | 2853 | — | — | — | — |
 | closed-loop | 128 users | round_robin | 371ms | — | 8678ms | — | 2609 | — | — | — | — |
@@ -138,6 +138,7 @@ that fell behind is in the goodput and not in the TTFT percentiles, which never 
 
 Excluded from every figure above — §6 discards these rather than averaging them in:
 
-- `round_robin-c256-r1`: still warming up: the first half of the measured window was 30% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `round_robin-c256-r2`: still warming up: the first half of the measured window was 57% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `round_robin-c256-r3`: still warming up: the first half of the measured window was 42% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+- `least_outstanding-c32-r2`: the fleet slowed across the measured window: TTFT p50 was 37% slower late than early, compared over every success rather than within each turn index, over a 25% threshold. A longer warm-up is not the fix: this cell's latency percentiles are a transient rather than a steady state. Look for a queue that never settled — an open-loop cell offered more than the fleet can serve never reaches one — or a throttled card, a replica lost, or a cache growing
+- `round_robin-c256-r1`: still warming up: TTFT p50 was 36% slower early in the measured window than late, compared over every success rather than within each turn index, over a 25% threshold. Lengthen the warm-up and re-run
+- `round_robin-c256-r2`: still warming up: TTFT p50 was 59% slower early in the measured window than late, compared over every success rather than within each turn index, over a 25% threshold. Lengthen the warm-up and re-run
+- `round_robin-c256-r3`: still warming up: TTFT p50 was 33% slower early in the measured window than late, compared over every success rather than within each turn index, over a 25% threshold. Lengthen the warm-up and re-run

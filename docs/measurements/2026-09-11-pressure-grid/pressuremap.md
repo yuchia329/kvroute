@@ -58,13 +58,13 @@ mechanism working, not a rule that failed to fire.
 | point | redundant prefill / request | redundant prefill, tokens | hit rate spread | spill: residency | spill: load | spill rate | exercised |
 |---|---:|---:|---:|---:|---:|---:|---|
 | WS 0.25, skew 0 | 1394.0 | 8742042 | 45.4 pp | 0 | 626 | 2.512% | yes |
-| WS 0.25, skew 1 | 652.7 | 6521473 | 21.4 pp | 0 | 243 | 0.932% | yes |
+| WS 0.25, skew 1 | 647.2 | 4325009 | 21.2 pp | 0 | 243 | 0.932% | yes |
 | WS 0.25, skew 1.4 | 295.8 | 4305938 | 9.7 pp | 0 | 87 | 0.329% | yes |
 | WS 1, skew 0 | 1354.1 | 6435860 | 43.6 pp | 0 | 159 | 1.339% | yes |
 | WS 1, skew 1 | 877.8 | 6426898 | 28.7 pp | 0 | 253 | 1.416% | yes |
-| WS 1, skew 1.4 | 419.6 | 4810923 | 13.8 pp | 0 | 98 | 0.423% | yes |
+| WS 1, skew 1.4 | 431.9 | 3211832 | 14.2 pp | 0 | 98 | 0.423% | yes |
 | WS 3, skew 0 | 1201.5 | 5507651 | 38.6 pp | 0 | 31 | 0.321% | yes |
-| WS 3, skew 1 | 939.1 | 5948398 | 30.6 pp | 0 | 199 | 1.347% | yes |
+| WS 3, skew 1 | 936.1 | 5929070 | 30.6 pp | 0 | 199 | 1.347% | yes |
 | WS 3, skew 1.4 | 440.8 | 4840155 | 14.5 pp | 0 | 118 | 0.541% | yes |
 | WS 8, skew 0 | 1173.6 | 5240061 | 37.7 pp | 0 | 22 | 0.243% | yes |
 | WS 8, skew 1 | 964.1 | 5668728 | 31.5 pp | 0 | 146 | 1.091% | yes |
@@ -81,7 +81,7 @@ At 32 users:
 |---|---:|---:|---:|
 | **0.25** | -6.8% (within spread) | +289.8% | +373.0% |
 | **1** | +66.2% | +38.6% | +171.2% |
-| **3** | +24.6% | +41.3% | +346.9% |
+| **3** | +24.6% | +51.4% | +346.9% |
 | **8** | +21.0% | +25.3% | +162.4% |
 
 ## Goodput behind the map
@@ -100,13 +100,13 @@ whichever state won most draws, and more repetitions will not make it unimodal.
 | point | load | round_robin | least_outstanding | session_affinity | prefix_affinity |
 |---|---:|---:|---:|---:|---:|
 | WS 0.25, skew 0 | 32 users | 5.40 (5.07–5.42, n=3)<br>±6% | 11.23 (10.99–11.38, n=3)<br>±3% | 34.37 (30.11–34.77, n=3)<br>±14% | 32.04 (32.03–34.02, n=3)<br>±6% |
-| WS 0.25, skew 1 | 32 users | 9.96 (9.87–10.06, n=3)<br>±2% | 18.10 (17.84–18.96, n=3)<br>±6% | 8.83 (8.83–24.61, n=2)<br>±179% | 34.43 (34.20–34.94, n=3)<br>±2% |
+| WS 0.25, skew 1 | 32 users | 9.87 (9.87–10.06, n=2)<br>±2% | 17.84 (17.84–18.96, n=2)<br>±6% | 8.83 (8.83–24.61, n=2)<br>±179% | 34.43 (34.20–34.94, n=3)<br>±2% |
 | WS 0.25, skew 1.4 | 32 users | 16.27 (16.04–16.57, n=3)<br>±3% | 25.35 (24.33–26.02, n=3)<br>±7% | 7.36 (5.15–13.86, n=3)<br>±118% | 34.79 (34.67–35.70, n=3)<br>±3% |
 | WS 1, skew 0 | 32 users | 3.51 (3.37–3.55, n=3)<br>±5% | 7.84 (7.71–8.16, n=3)<br>±6% | 8.99 (8.19–10.24, n=3)<br>±23% | 14.94 (14.72–15.10, n=3)<br>±3% |
 | WS 1, skew 1 | 32 users | 6.41 (6.33–6.42, n=3)<br>±1% | 13.49 (13.31–13.74, n=3)<br>±3% | 16.96 (12.56–19.07, n=3)<br>±38% | 23.51 (23.02–23.66, n=3)<br>±3% |
-| WS 1, skew 1.4 | 32 users | 11.66 (11.22–12.84, n=3)<br>±14% | 21.01 (20.48–21.27, n=3)<br>±4% | 11.23 (10.89–13.48, n=3)<br>±23% | 30.45 (30.31–31.42, n=3)<br>±4% |
+| WS 1, skew 1.4 | 32 users | 11.22 (11.22–11.66, n=2)<br>±4% | 21.01 (20.48–21.27, n=3)<br>±4% | 11.23 (10.89–13.48, n=3)<br>±23% | 30.45 (30.31–31.42, n=3)<br>±4% |
 | WS 3, skew 0 | 32 users | 3.24 (3.16–3.30, n=3)<br>±4% | 7.57 (7.50–7.75, n=3)<br>±3% | 9.32 (8.31–9.58, n=3)<br>±14% | 11.61 (11.54–11.64, n=3)<br>±1% |
-| WS 3, skew 1 | 32 users | 5.15 (5.08–5.28, n=3)<br>±4% | 11.76 (11.71–11.94, n=3)<br>±2% | 13.42 (12.53–14.35, n=3)<br>±14% | 18.97 (18.85–19.07, n=3)<br>±1% |
+| WS 3, skew 1 | 32 users | 5.15 (5.08–5.28, n=3)<br>±4% | 11.76 (11.71–11.94, n=3)<br>±2% | 12.53 (12.53–14.35, n=2)<br>±15% | 18.97 (18.85–19.07, n=3)<br>±1% |
 | WS 3, skew 1.4 | 32 users | 11.23 (10.86–11.53, n=3)<br>±6% | 19.69 (19.59–19.97, n=3)<br>±2% | 6.44 (5.92–11.84, n=3)<br>±92% | 28.79 (28.49–29.31, n=3)<br>±3% |
 | WS 8, skew 0 | 32 users | 3.21 (3.20–3.24, n=3)<br>±1% | 7.09 (7.02–7.44, n=3)<br>±6% | 8.83 (8.55–9.50, n=3)<br>±11% | 10.68 (10.46–10.70, n=3)<br>±2% |
 | WS 8, skew 1 | 32 users | 4.74 (4.61–4.87, n=3)<br>±5% | 11.05 (10.81–11.20, n=3)<br>±4% | 13.49 (12.82–15.09, n=3)<br>±17% | 16.91 (16.81–17.05, n=3)<br>±1% |
@@ -159,5 +159,9 @@ only one of them was armed for these cells.
 Cells excluded from every figure above — §6 discards these rather than averaging
 them in:
 
-- `session_affinity-c32-r2`: still warming up: the first half of the measured window was 43% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+- `least_outstanding-c32-r3`: the fleet slowed across the measured window: TTFT p50 was 27% slower late than early, compared within each of 4 turn indices, over a 25% threshold. A longer warm-up is not the fix: this cell's latency percentiles are a transient rather than a steady state. Look for a queue that never settled — an open-loop cell offered more than the fleet can serve never reaches one — or a throttled card, a replica lost, or a cache growing
+- `round_robin-c32-r3`: still warming up: TTFT p50 was 30% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run
+- `session_affinity-c32-r2`: still warming up: TTFT p50 was 52% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run
+- `round_robin-c32-r2`: still warming up: TTFT p50 was 32% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run
+- `session_affinity-c32-r2`: still warming up: TTFT p50 was 32% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run
 

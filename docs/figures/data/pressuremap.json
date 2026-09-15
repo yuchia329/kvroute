@@ -115,9 +115,9 @@
       "replicated": true,
       "separated": true,
       "baseline_zero": false,
-      "percent_change": 41.29271367778786,
+      "percent_change": 51.39427688880416,
       "over_failure_threshold": false,
-      "label": "+41.3%"
+      "label": "+51.4%"
     },
     {
       "working_set": 3,
@@ -268,21 +268,21 @@
       "driver": "closed-loop",
       "load": 32,
       "load_label": "32 users",
-      "repetitions": 3,
-      "goodput_median": 9.963562380513196,
+      "repetitions": 2,
+      "goodput_median": 9.873679076495057,
       "goodput_min": 9.873679076495057,
       "goodput_max": 10.056888361399613,
       "over_failure_threshold": 0,
       "saturated": 0,
-      "ttft_p50_ms": 323.694384,
+      "ttft_p50_ms": 306.500132,
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 2939.265055,
-      "prefix_cache_hit_rate": 0.7733676930423272,
-      "requests": 9991,
-      "recomputed_prefill": 6896749,
-      "recomputed_prefill_per_request": 690.2961665498949,
-      "redundant_prefill": 6521473.365023272,
-      "redundant_prefill_per_request": 652.7347978203655
+      "prefix_cache_hit_rate": 0.775408615882459,
+      "requests": 6683,
+      "recomputed_prefill": 4576032,
+      "recomputed_prefill_per_request": 684.727218315128,
+      "redundant_prefill": 4325009.372780556,
+      "redundant_prefill_per_request": 647.1658495855986
     },
     {
       "working_set": 0.25,
@@ -291,21 +291,21 @@
       "driver": "closed-loop",
       "load": 32,
       "load_label": "32 users",
-      "repetitions": 3,
-      "goodput_median": 18.09646653699946,
+      "repetitions": 2,
+      "goodput_median": 17.83599734776456,
       "goodput_min": 17.83599734776456,
       "goodput_max": 18.95504358541566,
       "over_failure_threshold": 0,
       "saturated": 0,
-      "ttft_p50_ms": 126.712353,
+      "ttft_p50_ms": 110.085196,
       "ttft_p90_ms": 0,
-      "ttft_p99_ms": 1512.448366,
-      "prefix_cache_hit_rate": 0.8386559168935287,
-      "requests": 14501,
-      "recomputed_prefill": 7106174,
-      "recomputed_prefill_per_request": 490.04716916074756,
-      "redundant_prefill": 6561496.592053095,
-      "redundant_prefill_per_request": 452.4858004312182
+      "ttft_p99_ms": 1401.12533,
+      "prefix_cache_hit_rate": 0.8394743349400966,
+      "requests": 9699,
+      "recomputed_prefill": 4732413,
+      "recomputed_prefill_per_request": 487.92793071450666,
+      "redundant_prefill": 4368105.284692294,
+      "redundant_prefill_per_request": 450.36656198497724
     },
     {
       "working_set": 0.25,
@@ -636,21 +636,21 @@
       "driver": "closed-loop",
       "load": 32,
       "load_label": "32 users",
-      "repetitions": 3,
-      "goodput_median": 11.655291502190702,
+      "repetitions": 2,
+      "goodput_median": 11.221975569082916,
       "goodput_min": 11.221975569082916,
-      "goodput_max": 12.837974186629127,
+      "goodput_max": 11.655291502190702,
       "over_failure_threshold": 0,
       "saturated": 0,
       "ttft_p50_ms": 144.715936,
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 2490.186761,
-      "prefix_cache_hit_rate": 0.8234140325699594,
-      "requests": 11466,
-      "recomputed_prefill": 6156267,
-      "recomputed_prefill_per_request": 536.9149659863946,
-      "redundant_prefill": 4810922.670304076,
-      "redundant_prefill_per_request": 419.58160389883795
+      "prefix_cache_hit_rate": 0.8188709263698069,
+      "requests": 7437,
+      "recomputed_prefill": 4084440,
+      "recomputed_prefill_per_request": 549.2053247277128,
+      "redundant_prefill": 3211831.786154841,
+      "redundant_prefill_per_request": 431.87196264015614
     },
     {
       "working_set": 1,
@@ -833,8 +833,8 @@
       "requests": 6334,
       "recomputed_prefill": 8791449,
       "recomputed_prefill_per_request": 1387.9774234291128,
-      "redundant_prefill": 5948397.911111112,
-      "redundant_prefill_per_request": 939.1218678735572
+      "redundant_prefill": 5929069.691283598,
+      "redundant_prefill_per_request": 936.0703649011048
     },
     {
       "working_set": 3,
@@ -856,8 +856,8 @@
       "requests": 10207,
       "recomputed_prefill": 9242405,
       "recomputed_prefill_per_request": 905.4967179386696,
-      "redundant_prefill": 4660936.344444444,
-      "redundant_prefill_per_request": 456.641162383114
+      "redundant_prefill": 4629789.653604622,
+      "redundant_prefill_per_request": 453.5896594106615
     },
     {
       "working_set": 3,
@@ -866,19 +866,19 @@
       "driver": "closed-loop",
       "load": 32,
       "load_label": "32 users",
-      "repetitions": 3,
-      "goodput_median": 13.424614454872566,
+      "repetitions": 2,
+      "goodput_median": 12.528876555883025,
       "goodput_min": 12.528876555883025,
       "goodput_max": 14.347768619421307,
       "over_failure_threshold": 0,
       "saturated": 0,
-      "ttft_p50_ms": 313.520646,
+      "ttft_p50_ms": 308.366227,
       "ttft_p90_ms": 0,
       "ttft_p99_ms": 1253.763577,
-      "prefix_cache_hit_rate": 0.8528622812390182,
-      "requests": 11970,
-      "recomputed_prefill": 5372801,
-      "recomputed_prefill_per_request": 448.85555555555555,
+      "prefix_cache_hit_rate": 0.8520503671018349,
+      "requests": 7962,
+      "recomputed_prefill": 3598084,
+      "recomputed_prefill_per_request": 451.90705852800806,
       "redundant_prefill": 0,
       "redundant_prefill_per_request": 0
     },
@@ -902,8 +902,8 @@
       "requests": 14775,
       "recomputed_prefill": 6859918,
       "recomputed_prefill_per_request": 464.29225042301186,
-      "redundant_prefill": 228077.16666666698,
-      "redundant_prefill_per_request": 15.43669486745631
+      "redundant_prefill": 182991.21024868113,
+      "redundant_prefill_per_request": 12.3851918950038
     },
     {
       "working_set": 3,
@@ -1277,7 +1277,11 @@
   "missing": [],
   "refused": [],
   "excluded": [
-    "`session_affinity-c32-r2`: still warming up: the first half of the measured window was 43% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run"
+    "`least_outstanding-c32-r3`: the fleet slowed across the measured window: TTFT p50 was 27% slower late than early, compared within each of 4 turn indices, over a 25% threshold. A longer warm-up is not the fix: this cell's latency percentiles are a transient rather than a steady state. Look for a queue that never settled — an open-loop cell offered more than the fleet can serve never reaches one — or a throttled card, a replica lost, or a cache growing",
+    "`round_robin-c32-r3`: still warming up: TTFT p50 was 30% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run",
+    "`session_affinity-c32-r2`: still warming up: TTFT p50 was 52% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run",
+    "`round_robin-c32-r2`: still warming up: TTFT p50 was 32% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run",
+    "`session_affinity-c32-r2`: still warming up: TTFT p50 was 32% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run"
   ],
   "surfaced": []
 }

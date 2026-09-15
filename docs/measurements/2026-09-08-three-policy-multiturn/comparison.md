@@ -11,8 +11,8 @@ load point, which is what makes them comparable at all:
 Each figure is the median of that cell's repetitions, with the range across them. A
 difference smaller than those ranges is a difference between a policy and itself.
 
-Prompt bytes per token: **1.59 bytes per token**, measured as the 421975139 prompt bytes these
-cells offered over the 265440151 prompt tokens the engines reported processing. A prefix match
+Prompt bytes per token: **1.59 bytes per token**, measured as the 397950311 prompt bytes these
+cells offered over the 250608805 prompt tokens the engines reported processing. A prefix match
 is recorded in bytes, and this is what converts it — it is not assumed.
 
 | driver | load | round_robin | least_outstanding | session_affinity | Δ least_outstanding vs round_robin | Δ session_affinity vs round_robin |
@@ -22,9 +22,9 @@ is recorded in bytes, and this is what converts it — it is not assumed.
 | closed-loop | 8 users | 3.86 (3.86–3.89, n=2) | 4.97 (4.88–5.01, n=3) | 6.81 (6.72–7.09, n=3) | +28.9% | +76.5% |
 | closed-loop | 16 users | 4.06 (3.88–4.10, n=3) | 8.22 (7.94–8.32, n=3) | 9.59 (7.91–10.01, n=3) | +102.7% | +136.6% |
 | closed-loop | 32 users | 3.29 (3.16–3.34, n=3) | 7.26 (7.19–7.51, n=3) | 9.90 (6.95–11.36, n=3) | +120.6% | +201.1% |
-| closed-loop | 64 users | 2.63 (2.63–2.77, n=2) | 5.56 (5.05–5.57, n=3) | 7.08 (5.91–7.48, n=3) | +111.7% | +169.6% |
-| closed-loop | 128 users | 1.33 (1.33–1.37, n=2) | 0.03 (0.03–0.12, n=2) | 4.17 (3.37–6.09, n=3) | -97.8% | +212.5% |
-| closed-loop | 256 users | 0.05 (0.02–0.25, n=3) | 0.00 (0.00–0.00, n=3) | — | -100.0% | — |
+| closed-loop | 64 users | 2.63 (2.48–2.77, n=3) | 5.56 (5.05–5.57, n=3) | 7.08 (5.91–7.48, n=3) | +111.7% | +169.6% |
+| closed-loop | 128 users | 1.37 (1.33–1.38, n=3) | 0.03 (0.03–0.12, n=2) | 4.17 (n=1) | -97.9% | +203.8% (unreplicated) |
+| closed-loop | 256 users | — | — | — | — | — |
 | open-loop | 2 req/s | 1.74 (1.68–1.74, n=3) | 1.74 (1.68–1.75, n=3) | 2.00 (2.00–2.00, n=3) | +0.0% (within spread) | +15.0% |
 | open-loop | 4 req/s | 3.45 (3.42–3.55, n=3) | 3.37 (3.31–3.49, n=3) | 4.00 (3.98–4.00, n=3) | -2.2% (within spread) | +16.1% |
 | open-loop | 6 req/s | 3.90 (3.84–3.99, n=3) | 3.48 (3.48–3.82, n=2) | 5.98 (5.97–6.00, n=3) | -10.6% | +53.5% |
@@ -79,14 +79,14 @@ published results where they did.
 | closed-loop | 32 users | round_robin | 745ms | — | 5160ms | 32.2% | 1175 | 2485239 | 2115.1 | +1328.3 | +1560726 |
 | closed-loop | 32 users | least_outstanding | 487ms | — | 2084ms | 54.3% | 1933 | 2697014 | 1395.2 | +608.4 | +1176092 |
 | closed-loop | 32 users | session_affinity | 419ms | — | 1573ms | 74.5% | 2268 | 1784506 | 786.8 | best | best |
-| closed-loop | 64 users | round_robin | 971ms | — | 5500ms | 31.3% | 821 | 1790261 | 2180.6 | +1417.6 | +1163868 |
+| closed-loop | 64 users | round_robin | 1008ms | — | 5500ms | 32.4% | 1250 | 2689744 | 2151.8 | +1388.8 | +1736039 |
 | closed-loop | 64 users | least_outstanding | 843ms | — | 2935ms | 50.8% | 2000 | 2944972 | 1472.5 | +709.5 | +1419044 |
 | closed-loop | 64 users | session_affinity | 441ms | — | 2369ms | 75.3% | 2457 | 1874602 | 763.0 | best | best |
-| closed-loop | 128 users | round_robin | 1956ms | — | 12701ms | 28.9% | 850 | 2035180 | 2394.3 | +1710.3 | +1453764 |
-| closed-loop | 128 users | least_outstanding | 1240ms | — | 4646ms | 50.2% | 1182 | 1951770 | 1651.2 | +967.2 | +1143260 |
-| closed-loop | 128 users | session_affinity | 633ms | — | 2646ms | 78.0% | 3282 | 2244950 | 684.0 | best | best |
-| closed-loop | 256 users | round_robin | 7067ms | — | 30234ms | 22.9% | 1432 | 3938171 | 2750.1 | — | — |
-| closed-loop | 256 users | least_outstanding | 13002ms | — | 31759ms | 28.5% | 1419 | 4096361 | 2886.8 | — | — |
+| closed-loop | 128 users | round_robin | 2106ms | — | 13776ms | 28.8% | 1264 | 3052862 | 2415.2 | +1716.3 | +2169374 |
+| closed-loop | 128 users | least_outstanding | 1240ms | — | 4646ms | 50.2% | 1182 | 1951770 | 1651.2 | +952.3 | +1125597 |
+| closed-loop | 128 users | session_affinity | 669ms | — | 2646ms | 77.7% | 1103 | 770955 | 699.0 | best | best |
+| closed-loop | 256 users | round_robin | — | — | — | — | — | — | — | — | — |
+| closed-loop | 256 users | least_outstanding | — | — | — | — | — | — | — | — | — |
 | closed-loop | 256 users | session_affinity | — | — | — | — | — | — | — | — | — |
 | open-loop | 2 req/s | round_robin | 596ms | — | 1298ms | 25.5% | 390 | 877724 | 2250.6 | +1137.5 | +443616 |
 | open-loop | 2 req/s | least_outstanding | 601ms | — | 1299ms | 24.7% | 390 | 886620 | 2273.4 | +1160.3 | +452512 |
@@ -181,12 +181,22 @@ that fell behind is in the goodput and not in the TTFT percentiles, which never 
 Excluded from every figure above — §6 discards these rather than averaging them in:
 
 - `least_outstanding-a6-r2`: still warming up: TTFT p50 was 33% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run
-- `least_outstanding-c128-r1`: still warming up: the first half of the measured window was 46% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `round_robin-c128-r2`: still warming up: the first half of the measured window was 53% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `round_robin-c64-r3`: still warming up: the first half of the measured window was 36% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `round_robin-c8-r3`: still warming up: the first half of the measured window was 53% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+- `least_outstanding-c128-r1`: still warming up: TTFT p50 was 46% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run
+- `least_outstanding-c256-r1`: the measured window holds only part of each visit: 1 turn index was sent on only one side of the split, so the two halves are different workloads — the other 2 were compared like for like. Its virtual users did not get far enough through their conversations for every turn to fall in both halves; run the cell for longer, and a longer warm-up will not do it
+- `least_outstanding-c256-r1`: the fleet slowed across the measured window: TTFT p50 was 64% slower late than early, compared within each of 2 turn indices, over a 25% threshold. A longer warm-up is not the fix: this cell's latency percentiles are a transient rather than a steady state. Look for a queue that never settled — an open-loop cell offered more than the fleet can serve never reaches one — or a throttled card, a replica lost, or a cache growing
+- `least_outstanding-c256-r2`: the measured window holds only part of each visit: 2 turn indices were sent on only one side of the split, so the two halves are different workloads — the other 2 were compared like for like. Its virtual users did not get far enough through their conversations for every turn to fall in both halves; run the cell for longer, and a longer warm-up will not do it
+- `least_outstanding-c256-r2`: the fleet slowed across the measured window: TTFT p50 was 66% slower late than early, compared within each of 2 turn indices, over a 25% threshold. A longer warm-up is not the fix: this cell's latency percentiles are a transient rather than a steady state. Look for a queue that never settled — an open-loop cell offered more than the fleet can serve never reaches one — or a throttled card, a replica lost, or a cache growing
+- `least_outstanding-c256-r3`: the fleet slowed across the measured window: TTFT p50 was 70% slower late than early, compared within each of 2 turn indices, over a 25% threshold. A longer warm-up is not the fix: this cell's latency percentiles are a transient rather than a steady state. Look for a queue that never settled — an open-loop cell offered more than the fleet can serve never reaches one — or a throttled card, a replica lost, or a cache growing
+- `round_robin-c256-r1`: the measured window holds only part of each visit: 1 turn index was sent on only one side of the split, so the two halves are different workloads — the other 2 were compared like for like. Its virtual users did not get far enough through their conversations for every turn to fall in both halves; run the cell for longer, and a longer warm-up will not do it
+- `round_robin-c256-r1`: the fleet slowed across the measured window: TTFT p50 was 69% slower late than early, compared within each of 2 turn indices, over a 25% threshold. A longer warm-up is not the fix: this cell's latency percentiles are a transient rather than a steady state. Look for a queue that never settled — an open-loop cell offered more than the fleet can serve never reaches one — or a throttled card, a replica lost, or a cache growing
+- `round_robin-c256-r2`: the fleet slowed across the measured window: TTFT p50 was 61% slower late than early, compared within each of 3 turn indices, over a 25% threshold. A longer warm-up is not the fix: this cell's latency percentiles are a transient rather than a steady state. Look for a queue that never settled — an open-loop cell offered more than the fleet can serve never reaches one — or a throttled card, a replica lost, or a cache growing
+- `round_robin-c256-r3`: the measured window holds only part of each visit: 1 turn index was sent on only one side of the split, so the two halves are different workloads — the other 2 were compared like for like. Its virtual users did not get far enough through their conversations for every turn to fall in both halves; run the cell for longer, and a longer warm-up will not do it
+- `round_robin-c256-r3`: the fleet slowed across the measured window: TTFT p50 was 63% slower late than early, compared within each of 2 turn indices, over a 25% threshold. A longer warm-up is not the fix: this cell's latency percentiles are a transient rather than a steady state. Look for a queue that never settled — an open-loop cell offered more than the fleet can serve never reaches one — or a throttled card, a replica lost, or a cache growing
+- `round_robin-c8-r3`: still warming up: TTFT p50 was 28% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run
 - `session_affinity-a10-r3`: still warming up: TTFT p50 was 49% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run
 - `session_affinity-a14-r2`: still warming up: TTFT p50 was 137% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run
-- `session_affinity-c256-r1`: still warming up: the first half of the measured window was 359% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `session_affinity-c256-r2`: still warming up: the first half of the measured window was 252% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `session_affinity-c256-r3`: still warming up: the first half of the measured window was 78% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+- `session_affinity-c128-r2`: still warming up: TTFT p50 was 38% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run
+- `session_affinity-c128-r3`: still warming up: TTFT p50 was 28% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run
+- `session_affinity-c256-r1`: the fleet slowed across the measured window: TTFT p50 was 82% slower late than early, compared within each of 4 turn indices, over a 25% threshold. A longer warm-up is not the fix: this cell's latency percentiles are a transient rather than a steady state. Look for a queue that never settled — an open-loop cell offered more than the fleet can serve never reaches one — or a throttled card, a replica lost, or a cache growing
+- `session_affinity-c256-r2`: still warming up: TTFT p50 was 133% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run
+- `session_affinity-c256-r3`: still warming up: TTFT p50 was 76% slower early in the measured window than late, compared within each of 3 turn indices, over a 25% threshold. Lengthen the warm-up and re-run

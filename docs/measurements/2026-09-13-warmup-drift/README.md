@@ -193,13 +193,18 @@ so. Those cells were already excluded from the published comparison for other re
 
 ## What this does not settle
 
-- **The closed-loop records still carry their old verdicts.** The 216 open-loop cell records now
-  carry the current check's drift fields, backlog and flags — and nothing else from a re-computed
-  summary, so a column added after a cell ran is not filled in by this — and both open-loop
-  comparisons and the figures were regenerated from them. The 300 closed-loop records were not
-  written back: three of their 15 changed verdicts are the *fractional visit periods* label on
-  closed-loop cells at 256 users, where a visit period has no meaning, and that label is fixed
-  before they are.
+- **Every recorded cell now carries the current verdict.** The 216 open-loop records were written
+  back first. The closed-loop records followed once the check stopped calling a thin turn index a
+  fractional window, named the closed-loop form of that finding *partial visits*, and split a
+  closed-loop cell on when its requests were sent: the 300 whose rows are in this repository
+  (`closed-loop-rescore.md`, 17 changed) and the 228 whose rows are on the box — exact residency,
+  the residency arm and the working-set run (`closed-loop-box-rescore.md`, 12 changed). Every one of
+  the 528 reproduced its record. Written back is the drift verdict only — drift fields, backlog and
+  flags — so a column added after a cell ran is not filled in. The comparisons, the pressure map and
+  the figures are regenerated from them, and the measurements whose figures moved say so: the
+  pressure map's WS 3 / skew 1 is +51.4% on two session-affinity repetitions (was +41.3%), exact
+  residency has no usable cell at WS 1 / skew 1, the residency arm loses repetitions at five
+  points, and the three-policy concurrency table has no usable cell at 256 users.
 - **Saturation is detected only when the drift check fires.** A cell is named past saturation when
   its TTFT moved past the threshold *and* its backlog is over 20%. A cell over the backlog line whose
   TTFT held steady is not flagged at all, and its percentiles pool as normal: `superseded-goodput`'s

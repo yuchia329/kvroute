@@ -47,9 +47,18 @@ GPU 3's 12–25%, and steady rather than drifting.
 | 8 | 3.87 / 36% | 4.97 / 46% | **6.81 / 71%** |
 | 16 | 4.06 / 37% | 8.22 / 59% | **9.59 / 74%** |
 | 32 | 3.29 / 32% | 7.26 / 54% | **9.90 / 74%** |
-| 64 | 2.70 / 31% | 5.56 / 51% | **7.08 / 75%** |
-| 128 | 1.35 / 29% | 0.07 / 50% | **4.17 / 78%** |
-| 256 | 0.05 / 23% | 0.00 / 29% | — |
+| 64 | 2.63 / 32% ⁴ | 5.56 / 51% | **7.08 / 75%** |
+| 128 | 1.37 / 29% ⁴ | 0.07 / 50% | **4.17 / 78%** ⁴ |
+| 256 | — ⁴ | — ⁴ | — |
+
+⁴ Moved when the closed-loop cell records were re-judged by the rebuilt warm-up drift check
+([#33](https://github.com/yuchia329/kvroute/issues/33)). Round-robin gets back a repetition each at
+64 and 128 users that had been set aside as warming up and is not, and is now the median of three
+at both. Session affinity at 128 users rests on one repetition: two more are cold openings. At 256
+users every cell of all three policies is set aside — four as partial visits with a fleet that
+slowed, since its virtual users get through too little of a conversation for every turn to land in
+both halves, the rest as a fleet that slowed or a cold opening — so the row has no figure. It was
+0.05 / 23% and 0.00 / 29%.
 
 ## Open-loop — the headline axis
 
@@ -221,7 +230,7 @@ that was restarted, and the union of three runs is not a fleet that ever existed
   [here](../2026-09-13-warmup-drift/), and its verdicts are now written into the open-loop cell
   records, so `comparison.md` and the figures are regenerated from them. The closed-loop records in
   `concurrency/` still carry the verdicts they were recorded with.
-- **Session affinity has no usable cell at concurrency 256.**
+- **No policy has a usable cell at concurrency 256** since the re-score; session affinity never did.
 - **The derived-identity path is not exercised.** The harness always sends `X-Session-Id`, so
   every cell here measures the supplied-key oracle. idea.md §4.2 wants the derived key measured
   too; no sweep flag suppresses the header yet.

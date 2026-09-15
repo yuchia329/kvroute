@@ -68,7 +68,13 @@ re-summarising needed.
 
 ## The ladder
 
-Median goodput over three repetitions, requests per second meeting the SLO.
+Median goodput over three repetitions, requests per second meeting the SLO. Every repetition is
+pooled here, flagged or not. Re-judged by the warm-up drift check
+[#33](https://github.com/yuchia329/kvroute/issues/33) rebuilt, none of the 36 hash cells changes
+verdict, but exact residency's three cells at WS 1 / skew 1 are all flagged as a fleet that slowed,
+and one more session-affinity cell at WS 1 / skew 1.4 is flagged as a cold opening: the comparison drops them, and the
+[exact residency measurement](../2026-09-12-exact-residency/) says what that moves. No figure in
+this table moves.
 
 | point | session (none, sticky) | **hash (none)** | **index (believed)** | **exact** | hash v session | index v hash |
 |---|---:|---:|---:|---:|---:|---:|

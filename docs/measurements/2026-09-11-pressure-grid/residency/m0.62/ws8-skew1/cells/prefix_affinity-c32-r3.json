@@ -58,7 +58,9 @@
     "slo_applied": true,
     "slo_ttft_ns": 990000000,
     "slo_itl_ns": 24000000,
-    "warmup_drift": -0.36343953739016893,
+    "warmup_drift": -0.3718215223587669,
+    "warmup_drift_basis": "turn",
+    "warmup_drift_turns_compared": 4,
     "scheduled": 0,
     "schedule_lag_p50_ns": 0,
     "schedule_lag_p99_ns": 0,
@@ -92,7 +94,10 @@
     },
     "failure_rate": 0,
     "failure_threshold": 0.01,
-    "flagged": false
+    "flagged": true,
+    "flag_reasons": [
+      "the fleet slowed across the measured window: TTFT p50 was 37% slower late than early, compared within each of 4 turn indices, over a 25% threshold. A longer warm-up is not the fix: this cell's latency percentiles are a transient rather than a steady state. Look for a queue that never settled — an open-loop cell offered more than the fleet can serve never reaches one — or a throttled card, a replica lost, or a cache growing"
+    ]
   },
   "contamination": {
     "gpu_samples": 63,

@@ -121,11 +121,13 @@ the drift check's, and it does not fill in columns added after a cell ran.
   none below 6 req/s, all 36 at 20 req/s and up. 97 of them are past saturation, and keep their
   goodput in every comparison; the other two are #29's recency cells, which slowed while answering
   all but 2% of what they were offered.
-- **The 216 open-loop records carry the current verdict, and the closed-loop records do not yet.**
-  Both open-loop comparisons and the figures are regenerated from the rewritten records. The 300
-  closed-loop records keep the verdicts they were recorded with, because three of their fifteen
-  changed verdicts name a fractional number of visit periods on closed-loop cells, where the visit
-  period has no meaning, and that label is corrected before they are written.
+- **All 744 recorded cells carry the current verdict** — 216 open-loop, and 528 closed-loop once
+  thin indices, partial visits and the closed-loop split were in. Every comparison, map and figure
+  read from them is regenerated. What moved: the pressure map's WS 3 / skew 1 (+41.3% → +51.4%, two
+  session-affinity repetitions); exact residency's WS 1 / skew 1, which has no usable cell, so the
+  approximation beats it at eleven measured points rather than twelve; five points of the residency
+  arm, none of which changes its verdict; and the three-policy concurrency sweep at 256 users,
+  which has no usable cell.
 - **A window shorter than one visit period still pools.** The check cannot compare an index the
   window never offered twice. Such a cell reports every missing index as confined to one half, which
   is the right verdict, but its drift figure rests on whatever indices did appear.

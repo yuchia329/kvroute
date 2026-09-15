@@ -50,12 +50,16 @@ the other, because they are physically different and trip different branches of 
 |---|---:|---:|---:|
 | **0.25** | −6.8% (within spread) | +289.8%¹ | +373.0% |
 | **1** | +66.2% | +38.6% | +171.2% |
-| **3** | +24.6% | +41.3% | +346.9% |
+| **3** | +24.6% | +51.4%² | +346.9% |
 | **8** | +21.0% | +25.3% | +162.4% |
 
 ¹ Two repetitions, not three: one was flagged for warm-up drift, re-run, and drifted harder. The
 direction holds either way — session affinity's best repetition sits below prefix affinity's worst —
 but the size does not. See the [measurement](docs/measurements/2026-09-11-pressure-grid/).
+
+² Also two repetitions, since the rebuilt warm-up drift check set one of session affinity's aside
+as a cold opening ([#33](https://github.com/yuchia329/kvroute/issues/33)). Published as +41.3%; it
+separates either way.
 
 **Cache-aware routing pays everywhere except the low-pressure corner**, and it pays most where
 traffic concentrates. At WS 0.25 / skew 0 the whole working set fits in cache and there is no
@@ -242,7 +246,9 @@ These are findings, in the same voice as the positive ones.
   a hash's assumption that a replica still holds a prefix is simply true, it buys nothing
   ([measurement](docs/measurements/2026-09-12-stateless-hash/)).
 - **Exact residency costs more than knowing exactly returns, and it also places worse.** It sits
-  *below* the believed index at every point of that grid — 4.6–13.5% of goodput — with complete
+  *below* the believed index at every point of that grid where it has a usable cell — eleven of
+twelve, 4.6–13.5% of goodput; at WS 1 / skew 1 all three of its cells slowed across their windows
+and were set aside by #33's re-score — with complete
   streams: zero lost batches, zero resets, 0.26% orphaned of 885,071 applied events, and not one
   prompt that missed its tokenize budget. So the ladder reads **none < exact < believed**, not
   none < believed < exact. Two separate things put it there. Asking an engine to tokenize every

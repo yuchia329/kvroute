@@ -7,15 +7,20 @@ beat. **This is a replication.** llm-d published the precise-versus-approximate 
 TTFT **0.54 s precise against 31.1 s approximate** at datacentre scale; this repeats it on one host
 of five consumer cards.
 
-**The result inverts.** Exact residency is beaten by the approximate index at **all twelve grid
-points**, by 4.6% to 13.5% of goodput, and carries higher p90 TTFT at every one. On this hardware
+**The result inverts.** Exact residency is beaten by the approximate index at **all eleven grid
+points where it has a usable cell**, by 4.6% to 13.5% of goodput, and carries higher p90 TTFT at
+every one. The twelfth, WS 1 / skew 1, was published as −8.7%; re-judged by the warm-up drift check
+[#33](https://github.com/yuchia329/kvroute/issues/33) rebuilt, all three of exact residency's cells
+there slowed across their measured windows by 27–45%, and the point is now a hole. On this hardware
 class the approximation is not merely adequate — it is better, and the ladder of how much a router
 knows reads **believed > exact**.
 
 **Exactness bought nothing, because there was nothing left to buy.** The share of the achievable
-gain the approximation keeps is **above 100% at all ten points where a share can be claimed**
-(106%–278%), and at the other two exact residency's gain over session affinity is inside the
-run-to-run spread. A figure above 100% is not a near miss: it says the approximation already
+gain the approximation keeps is **above 100% at all eight points where a share can be claimed**
+(106%–278%). At two more, exact residency's gain over session affinity is inside the run-to-run
+spread. The last two lost their share to #33's re-score: WS 1 / skew 1 has no usable exact
+residency cell, and WS 1 / skew 1.4 is left with one usable session-affinity repetition, which
+cannot say whether exact residency gained anything. They read 152% and 113% as first published. A figure above 100% is not a near miss: it says the approximation already
 captures the whole of the gain exact knowledge was supposed to unlock, and then some.
 
 **It lost for two independent reasons, and only one of them was predicted.**
@@ -94,17 +99,25 @@ not merely equal in count, for all three of the workload's body shapes (395, 467
 
 ## The map
 
-Δ goodput, exact residency against the believed index, at 32 users. Negative everywhere.
+Δ goodput, exact residency against the believed index, at 32 users. Negative everywhere it was
+measured.
 
 | WS \ skew | 0 | 1 | 1.4 |
 |---|---:|---:|---:|
 | **0.25** | −6.7% | −8.6% | −7.7% |
-| **1** | −9.2% | −8.7% | −7.5% |
+| **1** | −9.2% | —¹ | −7.5% |
 | **3** | −10.3% | −8.5% | −4.6% |
 | **8** | −13.5% | −13.5% | −6.3% |
 
+¹ No usable exact-residency cell since #33's re-score: TTFT p50 45%, 34% and 27% slower late in
+the measured window than early, within each turn index, with the fleet keeping up. −8.7% as first
+published.
+
 The full per-point figures, the share-of-the-gain table and the spill evidence that the grid
-applied the pressure it claims to are in [`pressuremap-exact.md`](pressuremap-exact.md).
+applied the pressure it claims to are in [`pressuremap-exact.md`](pressuremap-exact.md), as it was
+drawn before #33 re-judged the cells; it is not regenerated, because its other columns predate
+[#30](https://github.com/yuchia329/kvroute/issues/30)'s per-request prefill as well. The pooled
+TTFT and hit rate figures below are drawn from every cell's rows, flagged or not, and do not move.
 
 ## Cost and overhead
 
@@ -139,7 +152,7 @@ that the two cross over.
 
 ## Which is better on this hardware class, and why
 
-**The approximate index, at every point measured.** It is 4.6%–13.5% better in goodput, 276 ms
+**The approximate index, at every point with a usable cell.** It is 4.6%–13.5% better in goodput, 276 ms
 better at p90 TTFT, and it gets there while knowing strictly less. Exact residency would need the
 tokenization to become free *and* the placement deficit to close before it drew level, and the
 second is the harder of the two: it is a consequence of routing on completed fact rather than on
@@ -158,7 +171,7 @@ deficit remain, and those are what would still have to be answered.
   shares with #18's.
 - `session_affinity` is bistable at high skew and three of its cells were discarded for warm-up
   drift. It is used here only as the baseline of the share-of-the-gain figure, and two points claim
-  no share because of it.
+  no share because of it. #33's re-score set aside one more, at WS 1 / skew 1.4.
 - The realised working set is lower than the axis label, and more so to the right — the labels are
   what each cell was configured for, not what it applied. The map carries the full warning.
 - The four-policy ladder that places the stateless hash beside these three is #26's

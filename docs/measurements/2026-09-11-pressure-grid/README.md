@@ -87,7 +87,7 @@ column spans roughly 0.6 to 5.4 times the fleet's capacity.
 |---|---:|---:|---:|
 | **0.25** | −6.8% (within spread) | +289.8%¹ | +373.0% |
 | **1** | +66.2% | +38.6% | +171.2% |
-| **3** | +24.6% | +41.3% | +346.9% |
+| **3** | +24.6% | +51.4%² | +346.9% |
 | **8** | +21.0% | +25.3% | +162.4% |
 
 ¹ **This point rests on two session-affinity repetitions, and its size is not reliable.** One
@@ -100,6 +100,18 @@ direction, not the number. Drift that grows on a re-run looks like this point's 
 states switching mid-cell, which the warm-up check cannot tell from warming, so a longer
 warm-up is not expected to settle it.
 
+² **Moved by [#33](https://github.com/yuchia329/kvroute/issues/33), and rests on two
+session-affinity repetitions.** Published as +41.3%. Re-judged by the rebuilt warm-up drift check,
+`session_affinity-c32-r2` here was a cold opening — TTFT p50 52% slower early than late, within
+each turn index — and is set aside, leaving {12.53, 14.35}, whose pooled median is the lower. The
+point separates either way: session affinity's best repetition (14.35) sits below prefix
+affinity's worst (18.85).
+
+**The rebuilt check sets aside thirteen more of this measurement's cells** — five in the grid and
+the spill-off arm, eight in the residency arm; seven as cold openings and six as a fleet that
+slowed. The tables below are drawn from what is left and mark every figure that moved. None of the
+thirteen empties a point that had a usable cell.
+
 ## All four policies
 
 Goodput — requests per second inside the SLO — median of the usable repetitions:
@@ -107,17 +119,19 @@ Goodput — requests per second inside the SLO — median of the usable repetiti
 | WS / skew | round robin | least outstanding | session affinity | prefix affinity |
 |---|---:|---:|---:|---:|
 | 0.25 / 0 | 5.40 | 11.23 | **34.37** | 32.04 |
-| 0.25 / 1 | 9.96 | 18.10 | 8.83¹ | **34.43** |
+| 0.25 / 1 | 9.87³ | 17.84³ | 8.83¹ | **34.43** |
 | 0.25 / 1.4 | 16.27 | 25.35 | 7.36 | **34.79** |
 | 1 / 0 | 3.51 | 7.84 | 8.99 | **14.94** |
 | 1 / 1 | 6.41 | 13.49 | 16.96 | **23.51** |
-| 1 / 1.4 | 11.66 | 21.01 | 11.23 | **30.45** |
+| 1 / 1.4 | 11.22³ | 21.01 | 11.23 | **30.45** |
 | 3 / 0 | 3.24 | 7.57 | 9.32 | **11.61** |
-| 3 / 1 | 5.15 | 11.76 | 13.42 | **18.97** |
+| 3 / 1 | 5.15 | 11.76 | 12.53³ | **18.97** |
 | 3 / 1.4 | 11.23 | 19.69 | 6.44 | **28.79** |
 | 8 / 0 | 3.21 | 7.09 | 8.83 | **10.68** |
 | 8 / 1 | 4.74 | 11.05 | 13.49 | **16.91** |
 | 8 / 1.4 | 10.21 | 19.44 | 10.69 | **28.04** |
+
+³ Two usable repetitions since #33's re-score; the pooled median of two is the lower.
 
 Ranges and spreads are in [`pressuremap.md`](pressuremap.md). Prefix affinity and least
 outstanding stay within ±1–7% of their medians everywhere; session affinity ranges from ±11% to
@@ -176,11 +190,15 @@ spills put them there. The spill-off arm answers it. Goodput, median of three re
 | 1 / 1 | 16.96 | 20.80 | **23.51** | +13.0% |
 | 1 / 1.4 | 11.23 | 19.25 | **30.45** | +58.1% |
 | 3 / 0 | 9.32 | 5.97 | **11.61** | +94.3% |
-| 3 / 1 | 13.42 | 16.21 | **18.97** | +17.0% |
+| 3 / 1 | 13.44³ | 16.94³ | **18.97** | +12.0% |
 | 3 / 1.4 | 6.44 | 21.81 | **28.79** | +32.0% |
 | 8 / 0 | 8.83 | 6.51 | **10.68** | +64.1% |
 | 8 / 1 | 13.49 | 15.98 | **16.91** | +5.8% |
 | 8 / 1.4 | 10.69 | 23.66 | **28.04** | +18.5% |
+
+³ Two usable repetitions since #33's re-score. This table and the arm tables below are drawn by
+`evidence/arm-compare.py`, whose median of two is their midpoint, where `cmd/pressuremap` above
+takes the lower.
 
 At every point the two prefix arms' repetition ranges do not overlap.
 
@@ -280,20 +298,22 @@ Goodput, median of the usable repetitions:
 
 | WS / skew | prefix, no spill | prefix, load only | 0.55 | 0.62 | 0.70 |
 |---|---:|---:|---:|---:|---:|
-| 0.25 / 0 | **35.16** | 32.04 | 24.73 | 27.99¹ | 3.01 |
+| 0.25 / 0 | **35.16** | 32.04 | 24.73 | 27.99¹ | 2.94¹ |
 | 0.25 / 1 | 31.70 | **34.43** | 27.86 | 19.48 | 31.63 |
 | 0.25 / 1.4 | 16.89 | **34.79** | 12.37 | 29.38 | 32.43 |
-| 1 / 0 | 8.13 | **14.94** | 2.28 | 2.75 | 4.44 |
-| 1 / 1 | 20.80 | **23.51** | 12.37¹ | no usable cell | 4.96¹ |
+| 1 / 0 | 8.13 | **14.94** | 2.70¹ | 2.75 | 4.44 |
+| 1 / 1 | 20.80 | **23.51** | 12.37¹ | no usable cell | 2.91¹ |
 | 1 / 1.4 | 19.25 | **30.45** | 20.01 | 20.47 | 21.55 |
 | 3 / 0 | 5.97 | **11.61** | 2.60 | 3.37 | 5.94 |
-| 3 / 1 | 16.21 | **18.97** | 9.48 | 6.47¹ | 2.64 |
+| 3 / 1 | 16.94¹ | **18.97** | 9.48 | 2.46¹ | 2.60¹ |
 | 3 / 1.4 | 21.81 | **28.79** | 24.56 | 14.38 | 23.68 |
 | 8 / 0 | 6.51 | **10.68** | 2.81 | 4.11 | 6.84 |
-| 8 / 1 | 15.98 | **16.91** | 8.29¹ | 2.29 | 2.95 |
+| 8 / 1 | 15.98 | **16.91** | 8.29¹ | 2.13¹ | 2.95 |
 | 8 / 1.4 | 23.66 | **28.04** | 26.56 | 17.69 | 21.36 |
 
-¹ fewer than three usable repetitions; see *Excluded and re-run*.
+¹ fewer than three usable repetitions; see *Excluded and re-run*. Seven of these figures lost a
+repetition to #33's re-score rather than to the run, and moved: 3.01, 2.28, 4.96, 16.21, 6.47,
+2.64 and 2.29 as first published.
 
 **The residency branch is harmful at every level of its own grid.** Every mark loses to the load
 branch at every point it has a usable cell for — 35 of 35 — by between 5% and 91%. Mark 0.55 also
@@ -302,9 +322,9 @@ loses to having no spill rule at all at nine of the twelve points.
 **The mechanism is a feedback loop the rule creates.** Declining a match because the replica is
 evicting sends the request to a replica that never held the conversation — a guaranteed miss — so
 the fleet's hit rate falls, which pushes more decisions under the mark, which spills more. At
-WS 1 / skew 0 the fleet hit rate falls from 77.5% under the load branch to 45.5% at mark 0.55, and
-44.1% of decisions spill. #28 predicted 5.2% of decisions at this mark from an observing pass, and
-the gap between 5.2% and 44.1% is the loop: the observing pass measured the signal on a run that
+WS 1 / skew 0 the fleet hit rate falls from 77.5% under the load branch to 48.4% at mark 0.55, and
+40.5% of decisions spill. #28 predicted 5.2% of decisions at this mark from an observing pass, and
+the gap between 5.2% and 40.5% is the loop: the observing pass measured the signal on a run that
 was not spilling on it.
 
 **Tightening the mark does not simply tighten the rule, and the branch acts least where memory
@@ -312,13 +332,13 @@ pressure is worst.** A residency spill excludes every replica that is *also* und
 when a fleet is evicting everywhere that target set is empty and the match is kept by design. The
 rule therefore acts hardest where the fleet straddles the mark and barely at all where the whole
 fleet is beneath it. Down the skew-0 column above WS 0.25, tightening the mark from 0.55 to 0.70
-cuts its firing from 44.1 / 39.7 / 35.8% of decisions to 24.2 / 14.0 / 8.4% and recovers goodput
-from 2.28 / 2.60 / 2.81 to 4.44 / 5.94 / 6.84 — still a third of the load branch's. It is not a
+cuts its firing from 40.5 / 39.7 / 35.8% of decisions to 24.2 / 14.0 / 8.4% and recovers goodput
+from 2.70 / 2.60 / 2.81 to 4.44 / 5.94 / 6.84 — still a third of the load branch's. It is not a
 gentler setting, it is a rule that has stopped firing where eviction is heaviest.
 
 The same mark is catastrophic where the fleet sits just above it. At WS 0.25 / skew 0, where the
-load branch reads a 97.4% hit rate, mark 0.70 fires on 51.5% of decisions, drags the fleet's hit
-rate to 63.2% and scores **3.01 against 32.04** — the worst cell in the arm, at the point with the
+load branch reads a 97.4% hit rate, mark 0.70 fires on 50.7% of decisions, drags the fleet's hit
+rate to 63.1% and scores **2.94 against 32.04** — the worst cell in the arm, at the point with the
 least memory pressure in the grid.
 
 **The arm destabilised the fleet, which is a result and not an accident.** Cells failing §6's
@@ -326,7 +346,10 @@ warm-up drift check: 1 of 36 with no spill rule, 5 of 36 at mark 0.55 (3 still f
 re-run), 12 of 36 at 0.62 (6 still flagged), 3 of 36 at 0.70 (1 still flagged). Drifts reached
 374%. At WS 1 / skew 1, mark 0.62, all three repetitions and all three re-runs failed, so that
 point has **no usable cell** and is left as a hole rather than filled from a survivor. The count
-falls again at 0.70 for the same reason its goodput rises there: the rule is firing less.
+falls again at 0.70 for the same reason its goodput rises there: the rule is firing less. Re-judged
+by #33's check, which is two-sided and compares each turn index with itself, the flagged cells
+still standing are 1 of 36 with no spill rule, 5 at mark 0.55, 9 at 0.62 and 4 at 0.70 — more at
+every level, and in the same order.
 
 **So `bench.Chosen` keeps `HitRateLowWater: 0`.** The condition stays disabled — now on the
 evidence of a sweep rather than for want of one. ADR-0011 records it, and answers the question its

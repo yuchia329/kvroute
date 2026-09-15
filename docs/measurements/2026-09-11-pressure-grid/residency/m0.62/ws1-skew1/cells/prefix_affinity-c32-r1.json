@@ -58,7 +58,9 @@
     "slo_applied": true,
     "slo_ttft_ns": 990000000,
     "slo_itl_ns": 24000000,
-    "warmup_drift": 0.5489596910142679,
+    "warmup_drift": 0.6054149966110455,
+    "warmup_drift_basis": "turn",
+    "warmup_drift_turns_compared": 4,
     "scheduled": 0,
     "schedule_lag_p50_ns": 0,
     "schedule_lag_p99_ns": 0,
@@ -94,7 +96,7 @@
     "failure_threshold": 0.01,
     "flagged": true,
     "flag_reasons": [
-      "still warming up: the first half of the measured window was 55% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run"
+      "still warming up: TTFT p50 was 61% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run"
     ]
   },
   "contamination": {
