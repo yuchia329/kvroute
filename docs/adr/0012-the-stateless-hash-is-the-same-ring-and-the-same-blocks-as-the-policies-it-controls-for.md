@@ -19,9 +19,9 @@ So the project measures what an index is worth against a policy that knows nothi
 prompts — and never against one that reads the prompt and still holds no index. Two questions go
 unasked without it:
 
-1. **What does tracking belief buy over a content hash?** Prefix affinity's index is the expensive
-   part of this project: a trie, a calibration measured off the fleet, a TTL, a node cap, an
-   eviction model, and a divergence measurement to check it. A stateless hash of the same prompt's
+1. **What does tracking belief buy over a hash that tracks nothing?** Prefix affinity's index is
+   the expensive part of this project: a trie, a calibration measured off the fleet, a TTL, a node
+   cap, an eviction model, and a divergence measurement to check it. A hash of the same prompt's
    leading blocks costs a ring walk and nothing else. If the two are close, the index's cost buys
    little at this scale, and that is the finding.
 2. **Is the comparison's ladder complete?** With #24 the project has *believed* and *exact*
