@@ -10,9 +10,12 @@
 // cell is judged to have been still warming up; this says which recorded
 // verdicts the new rule moves, and in which direction.
 //
-// It only reads. No fleet, no GPU, and nothing written back into the cell
-// records: a recorded cell says what was concluded when it ran, and a re-score
-// that edited it in place would erase what it is reporting on.
+// No fleet and no GPU. By default it only reads: a recorded cell says what was
+// concluded when it ran, and a re-score that edited it in place would erase what
+// it is reporting on. With -write, and only once that report is published, it
+// writes the current verdict back into the records so every table and figure
+// read from them judges the cells by the check the project now holds. It
+// refuses, writing nothing, if any cell's rows fail to reproduce its record.
 package main
 
 import (
@@ -37,8 +40,10 @@ func run() error {
 		"list every cell rather than only those whose verdict changed")
 	threshold := flag.Float64("warmup-drift-threshold", bench.DefaultWarmupDriftThreshold,
 		"the drift threshold to re-judge against. It is a judgement, so a re-score that hard-coded it could not show what a different one would have decided")
+	write := flag.Bool("write", false,
+		"write the current verdict back into the cell records and their cells.parquet. Publish the report first: afterwards there is nothing left for it to compare")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: rescore [-out path] [-cells] [-warmup-drift-threshold f] <sweep dir>...\n\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: rescore [-out path] [-cells] [-write] [-warmup-drift-threshold f] <sweep dir>...\n\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "Each directory is a sweep's -dir, holding cells/ and the rows those cells produced,\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "as either cells/<id>.jsonl or a compacted requests.parquet.\n\n")
 		flag.PrintDefaults()
@@ -58,6 +63,12 @@ func run() error {
 	rendered := bench.RescoreReport(scored, *threshold, *everyCell)
 	fmt.Print("\n" + rendered)
 
+	if *write {
+		if err := bench.WriteRescored(scored); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "rescore: wrote %d cell records back\n", len(scored))
+	}
 	if *out == "" {
 		return nil
 	}

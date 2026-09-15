@@ -22,6 +22,26 @@ func pointOf(t *testing.T, f bench.ComparisonFigure, name string) bench.PolicyPo
 	return bench.PolicyPoint{}
 }
 
+// A point past saturation is drawn where the table puts it: its goodput, marked
+// for the plot to ring, and no latency, which the table prints as an em dash.
+func TestAPointPastSaturationIsMarkedAndHasNoLatency(t *testing.T) {
+	at16 := bench.OpenLoopAt(16)
+	var cs []bench.Cell
+	for i := range 3 {
+		cs = append(cs, saturatedCell(policy.RoundRobinName, at16, i+1, 0))
+	}
+	cs = append(cs, cells(policy.SessionAffinityName, at16, 12, 12, 12)...)
+
+	rr := pointOf(t, compare(t, cs).Figure(), policy.RoundRobinName)
+
+	if rr.Saturated != 3 {
+		t.Errorf("round robin's point marks %d repetitions past saturation, want 3", rr.Saturated)
+	}
+	if rr.TTFTP50Ms != nil || rr.TTFTP99Ms != nil {
+		t.Errorf("round robin's point has TTFT %v / %v, want none", deref(rr.TTFTP50Ms), deref(rr.TTFTP99Ms))
+	}
+}
+
 // TestTheComparisonFigureCarriesTheTablesNumbers. The plot is drawn from the
 // same arithmetic as the table beside it, so the figure data read off the
 // hand-worked fixture carries the figures worked by hand.

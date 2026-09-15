@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -21,9 +22,10 @@ import (
 // open-loop cells were decided by the old rule; this reads their rows back and
 // says which of them the new rule moves.
 //
-// It only reads, and it writes nothing back into the cell records. A recorded
-// cell says what was concluded at the time it was run, and a re-score that
-// edited it in place would erase the thing it is reporting on.
+// Rescore only reads. A recorded cell says what was concluded at the time it
+// was run, and a re-score that edited it in place before reporting would erase
+// the thing it is reporting on. WriteRescored is the separate, later step that
+// puts the current verdict into the records once that report exists.
 
 // Rescored is one recorded cell put beside itself as the current check scores
 // it.
@@ -45,9 +47,13 @@ type Rescored struct {
 	PeriodsMeasured float64
 
 	// Was is the summary the run recorded; Now is the summary the current check
-	// computes from the same rows.
+	// computes from the same rows, with the flags only the record can supply
+	// applied again on top.
 	Was Summary
 	Now Summary
+
+	// recorded is the whole record as it was read, kept for WriteRescored.
+	recorded Cell
 }
 
 // Changed reports whether the drift check's verdict on this cell moved. The
@@ -68,7 +74,89 @@ func (r Rescored) Reproduces() bool {
 		r.Was.WindowNs == r.Now.WindowNs &&
 		r.Was.TTFTP50Ns == r.Now.TTFTP50Ns &&
 		r.Was.TTFTP99Ns == r.Now.TTFTP99Ns &&
-		r.Was.SLOViolations == r.Now.SLOViolations
+		r.Was.SLOViolations == r.Now.SLOViolations &&
+		r.Was.GoodputRPS == r.Now.GoodputRPS
+}
+
+// onlyDriftMoved reports whether every flag other than the drift check's came
+// back word for word. It is what makes writing a re-score back safe: the rows
+// reproduce the numbers, and this says the rest of the verdict — contamination,
+// throttling, a replica lost, a schedule not held — is the one the run reached.
+func (r Rescored) onlyDriftMoved() bool {
+	return slices.Equal(flagsBesideDrift(r.Was), flagsBesideDrift(r.Now))
+}
+
+func flagsBesideDrift(s Summary) []string {
+	return slices.DeleteFunc(slices.Clone(s.FlagReasons), func(reason string) bool {
+		return len(Summary{FlagReasons: []string{reason}}.WarmupDriftCauses()) > 0
+	})
+}
+
+// WriteRescored writes each re-scored cell back into its record, and rebuilds
+// the directory's compacted cells.parquet where it keeps one.
+//
+// This is the step Rescore itself leaves out, and on purpose: the report it
+// feeds is the account of what the new check changed, and writing the records
+// first would leave nothing to report. Once that account is published, the
+// records are what every table, figure and map downstream of them reads, so a
+// check that has been changed and not written back leaves them all judging
+// cells by a rule the project no longer holds.
+//
+// Nothing is written unless every cell reproduces its record and only its drift
+// flags moved. A cell that fails either is one whose rows are not the rows it
+// was written from, and the refusal names every such cell before touching any.
+// A write that fails partway through — a full disk, a permission — leaves the
+// records before it rewritten and cells.parquet not yet rebuilt; running it again
+// finishes the job, because a rewritten record re-scores to itself.
+func WriteRescored(scored []Rescored) error {
+	var refused []string
+	for _, r := range scored {
+		if !r.Reproduces() || !r.onlyDriftMoved() {
+			refused = append(refused, fmt.Sprintf("%s/%s", r.Dir, r.Cell))
+		}
+	}
+	if len(refused) > 0 {
+		return fmt.Errorf("bench: %d cells do not reproduce their records from their rows, or moved a flag beside the drift check's, so nothing was written: %s",
+			len(refused), strings.Join(firstFew(refused, 6), ", "))
+	}
+
+	dirs := map[string]bool{}
+	for _, r := range scored {
+		if err := writeCell(filepath.Join(r.Dir, "cells"), r.withCurrentDriftVerdict()); err != nil {
+			return err
+		}
+		dirs[r.Dir] = true
+	}
+	for dir := range dirs {
+		if _, err := os.Stat(filepath.Join(dir, CellsParquet)); err != nil {
+			continue
+		}
+		if _, err := compactCells(dir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// withCurrentDriftVerdict is the recorded cell with the drift check's fields and
+// the flags replaced by the current check's, and nothing else touched.
+//
+// Not the whole re-computed summary, although the rows reproduce it: a summary
+// computed today also fills in columns added after the cell ran — TTFT p90, the
+// per-replica placement count — and a write-back of the drift verdict is not the
+// place to publish those. onlyDriftMoved has already established that every flag
+// beside the drift check's is the one the run wrote, so taking the flags whole is
+// taking the drift flags.
+func (r Rescored) withCurrentDriftVerdict() Cell {
+	cell := r.recorded
+	cell.WarmupDrift = r.Now.WarmupDrift
+	cell.WarmupDriftBasis = r.Now.WarmupDriftBasis
+	cell.WarmupDriftTurnsCompared = r.Now.WarmupDriftTurnsCompared
+	cell.WarmupDriftTurnsConfined = r.Now.WarmupDriftTurnsConfined
+	cell.Backlog = r.Now.Backlog
+	cell.Flagged = r.Now.Flagged
+	cell.FlagReasons = r.Now.FlagReasons
+	return cell
 }
 
 // Rescore reads every cell in dirs and re-scores it from its own rows.
@@ -106,7 +194,7 @@ func rescoreCell(dir string, cell Cell, rows []Result, threshold float64) Rescor
 	// that a summary which comes back different came back different for the
 	// reason being tested and not because it was judged against another rule.
 	turns, _ := turnsPerSession(cell.Workload)
-	now := Summarize(rows, SummaryOptions{
+	rejudged := rejudge(cell, rows, SummaryOptions{
 		SLO:                  SLO{TTFT: time.Duration(cell.Summary.SLOTTFTNs), ITL: time.Duration(cell.Summary.SLOITLNs)},
 		FailureThreshold:     cell.Summary.FailureThreshold,
 		WarmupDriftThreshold: threshold,
@@ -122,12 +210,13 @@ func rescoreCell(dir string, cell Cell, rows []Result, threshold float64) Rescor
 		ArrivalRate: cell.ArrivalRate,
 		ThinkTime:   time.Duration(cell.ThinkTimeNs),
 		Was:         cell.Summary,
-		Now:         now,
+		Now:         rejudged.Summary,
+		recorded:    cell,
 	}
 	if turns > 0 && cell.ThinkTimeNs > 0 {
 		r.VisitPeriod = time.Duration(turns) * time.Duration(cell.ThinkTimeNs)
 		if r.VisitPeriod > 0 {
-			r.PeriodsMeasured = float64(now.WindowNs) / float64(r.VisitPeriod)
+			r.PeriodsMeasured = float64(r.Now.WindowNs) / float64(r.VisitPeriod)
 		}
 	}
 	return r

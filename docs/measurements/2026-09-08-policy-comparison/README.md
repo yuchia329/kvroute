@@ -91,6 +91,14 @@ says nothing yet about the project's actual question.
 range from 0.02 to 3.46, which is why the −98.3% carries "within spread" and should not be read as a
 result. A ladder between 12 and 16 would locate it.
 
+Every cell from 16 req/s up is now flagged *past saturation* by the rebuilt drift check
+([#33](https://github.com/yuchia329/kvroute/issues/33)): when its arrivals stopped, 40% or more of
+what it had been offered was still unanswered. Under the rule that check came with, such a cell
+keeps its goodput and gives up only its TTFT percentiles, so `comparison.md` marks those rungs ⚠
+and prints their percentiles as em dashes. No figure in the table above moves. The regenerated
+`comparison.md` also gains the TTFT, prefill and placement sections added to `compare` since this
+file was last written.
+
 **Concurrency 256 has no round-robin figure.** All three of its cells were flagged as still warming
 up — the first half of the measured window ran 30–57% slower than the second, over the 25%
 threshold — so they are excluded rather than averaged in. A 25-second warm-up does not clear the

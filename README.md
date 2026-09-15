@@ -212,7 +212,9 @@ These are findings, in the same voice as the positive ones.
   wrong in three ways, and rebuilding it moved 118 of the 216 recorded open-loop cells: #17's
   think-75 s cells were never a cold fleet but a window holding 1.05 visit periods, and two of #29's
   six re-run cells do carry a flag after all — on the four that do not, the trough is 85.8% against
-  the 86.0% published ([#33](https://github.com/yuchia329/kvroute/issues/33),
+  the 86.0% published. The 97 cells the rebuilt check newly flags past the knee keep their goodput
+  in every comparison, marked, because a fleet that fell behind its offered load is the result
+  rather than a broken measurement ([#33](https://github.com/yuchia329/kvroute/issues/33),
   [measurement](docs/measurements/2026-09-13-warmup-drift/)).
 - **An earlier headline was an artefact and is withdrawn.** The first two-policy comparison, on six
   cards, concluded that balancing load *cost* goodput — least outstanding losing 16–32%. GPU 3
@@ -283,14 +285,17 @@ These are findings, in the same voice as the positive ones.
 - **Contamination, per cell.** The box is shared. Every cell carries its own `nvidia-smi` evidence,
   and a cell that saw a foreign process on any card is discarded and re-run rather than averaged in.
   "Nothing was found" and "nothing was looked for" are different states and are recorded differently.
-- **Flagged cells are excluded and listed — except one kind.** A cell that dropped or failed more
-  requests than the ~1% threshold allows stays in the figures, marked ⚠ and named: it measured a
-  fleet that was falling over, which is a result about the policy. A contaminated cell, one whose
-  TTFT moved more than a quarter across its measured window in either direction, one whose window
-  held a fractional number of visit periods, one that lost a replica mid-window, or one whose
-  residency stream broke is a broken measurement and is excluded. The drift check names which of
-  those three it found rather than always prescribing a longer warm-up, because only one of them is
-  fixed by one ([#33](https://github.com/yuchia329/kvroute/issues/33)).
+- **Flagged cells are excluded and listed — except the ones that measured a fleet falling over.** A
+  cell that dropped or failed more requests than the ~1% threshold allows stays in the figures,
+  marked ⚠ and named: that is a result about the policy. So does an open-loop cell past
+  saturation, offered more than the fleet could serve so that over a fifth of its requests were
+  still unanswered when arrivals stopped; it keeps its goodput and gives up only its TTFT
+  percentiles, which never settled. A contaminated cell, one whose TTFT moved more than a quarter
+  across its measured window in either direction while the fleet kept up, one whose window held a
+  fractional number of visit periods, one that lost a replica mid-window, or one whose residency
+  stream broke is a broken measurement and is excluded. The drift check names which cause it found
+  rather than always prescribing a longer warm-up, because only one of them is fixed by one
+  ([#33](https://github.com/yuchia329/kvroute/issues/33)).
 - **Three repetitions, and the spread is published.** Each figure is the median with the range across
   repetitions beside it, and any difference smaller than those ranges is labelled *within spread*
   rather than left to read as a result.
@@ -488,7 +493,8 @@ cmd/characterize ──► replica-0..5, one at a time, no router in the path
   verdicts move. The rows are the system of record and a cell's summary is arithmetic over them, so
   a change to that arithmetic is checkable against everything already measured rather than only
   against the next run ([measurement](docs/measurements/2026-09-13-warmup-drift/)). It writes
-  nothing back: a recorded cell says what was concluded when it ran.
+  nothing back unless told to with `-write`, and then only the drift verdict, only after the report
+  of what moved is published, and only if every cell's rows reproduce its record.
 - **`cmd/preflight`** — refuses to bring the fleet up while any GPU already holds memory; the same
   probe backs the per-cell contamination check.
 - **`cmd/fakereplica`** — a programmable stand-in with configurable TTFT and inter-token latency, so

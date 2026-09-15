@@ -1,6 +1,6 @@
 # ADR-0014: Warm-up drift is two-sided, compared per turn index, and split on arrivals
 
-**Status:** Accepted · **Date:** 2026-09-13
+**Status:** Accepted · **Date:** 2026-09-13 · **Amended:** 2026-09-14 (a fourth cause, past saturation, which keeps its goodput; and recorded cells are written back once re-scored)
 
 ## Context
 
@@ -60,13 +60,28 @@ TTFT p50 doubled across its window is as unpoolable as one that halved. They are
 one is a warm-up that was too short, the other a fleet that degraded, and re-running the second with
 a longer warm-up measures the same decline from a worse start.
 
-**The flag names which of three causes it found rather than prescribing one remedy.** A still-cold
+**The flag names which of four causes it found rather than prescribing one remedy.** A still-cold
 opening period (lengthen the warm-up); a fleet that slowed as the cell ran (find what degraded — a
-queue that never settled past the knee, a throttled card, a replica lost, a cache growing); or a
-measured window that is not a whole number of visit periods (re-run over a whole, even number of
-them). The third is reported whenever one of the workload's turn indices is missing from a half of
+throttled card, a replica lost, a cache growing); an open-loop cell past saturation (nothing to
+fix — see below); or a measured window that is not a whole number of visit periods (re-run over a
+whole, even number of them). The last is reported whenever one of the workload's turn indices is missing from a half of
 the split, whatever the drift came to, because that makes *every* percentile in the summary a mix
 no cell of another length shares — not only the drift.
+
+**An open-loop cell that fell behind its offered load is past saturation, and keeps its goodput.**
+*(Amended 2026-09-14.)* Two-sided, the check flags every cell offered a rate past its policy's knee,
+because such a cell's queue grows for as long as arrivals keep coming and its TTFT moves whichever
+way the split falls. Excluded as a broken measurement, those cells would blank the three-policy
+table for both cache-blind policies from rate 8 up — the collapse the table exists to show, turned
+into a gap that reads as "did not run". So each cell records its **backlog**, the share of its
+offered requests still unanswered when its arrival window closed, and a cell whose TTFT moved past
+the threshold with a backlog over **20%** is flagged *past saturation* instead of cold or degrading.
+The comparison treats that flag as it treats a failure rate past the threshold — a measurement of a
+fleet falling over, kept in the goodput, marked ⚠ and named — and leaves the cell out of the TTFT
+percentiles, which never settled. The line sits in the gap the 216 recorded cells leave: every one
+whose TTFT moved past the threshold had a backlog of 16% or less, or 28% or more, and the second
+group is exactly the cells offered a rate past their policy's knee. A closed-loop cell has no
+backlog, because its virtual users wait for their answers and offer only what the fleet serves.
 
 **What the check computed is recorded beside the number it computed.** `warmup_drift_basis` says
 whether each index was compared with itself or the successes were pooled, and
@@ -74,10 +89,14 @@ whether each index was compared with itself or the successes were pooled, and
 workload. A drift figure means different things under the two bases, and a record that carried only
 the figure would leave that to be inferred from a workload name.
 
-**A recorded cell is re-scored, never rewritten.** `cmd/rescore` reads a recorded cell's rows back
-and puts the current check's verdict beside the recorded one. It writes nothing into the cell
-records: a recorded cell says what was concluded when it ran, and an edit in place would erase the
-thing the re-score is reporting on.
+**A recorded cell is re-scored first, and written back only after the re-score is published.**
+`cmd/rescore` reads a recorded cell's rows back and puts the current check's verdict beside the
+recorded one, writing nothing, because an edit in place before that report exists would erase the
+thing it reports on. *(Amended 2026-09-14.)* Once it is published, `rescore -write` puts the
+current verdict into the records — the drift fields, the backlog and the flags, and nothing else —
+so every table and figure read from them judges the cells by the check the project now holds. It
+refuses to write anything unless every cell reproduces its record's numbers and every flag beside
+the drift check's, and it does not fill in columns added after a cell ran.
 
 ## Consequences
 
@@ -87,15 +106,14 @@ thing the re-score is reporting on.
   goodput and TTFT percentiles exactly, so only the drift fields moved.
 - **Cells past the knee flag by construction, and that is the intended reading.** 99 of the 216 go
   from clear to flagged on the two-sided test alone, and the verdict is monotone in offered rate:
-  none below 6 req/s, all 36 at 20 req/s and up. An open-loop cell offered more than the fleet can
-  serve never reaches a steady state, so its latency percentiles are a transient. Its goodput is
-  untouched — that is counted over the arrival window, and it is the figure such a cell exists to
-  report.
-- **The recorded cell records still carry their old summaries**, so generated tables that filter on
-  the recorded flag — `comparison.md` and the figures drawn from it — still show the old verdicts.
-  The measurements whose published conclusions change are corrected in prose and point at the
-  re-score. Re-summarising the recorded cells and rebuilding everything downstream of them is
-  separate work.
+  none below 6 req/s, all 36 at 20 req/s and up. 97 of them are past saturation, and keep their
+  goodput in every comparison; the other two are #29's recency cells, which slowed while answering
+  all but 2% of what they were offered.
+- **The 216 open-loop records carry the current verdict, and the closed-loop records do not yet.**
+  Both open-loop comparisons and the figures are regenerated from the rewritten records. The 300
+  closed-loop records keep the verdicts they were recorded with, because three of their fifteen
+  changed verdicts name a fractional number of visit periods on closed-loop cells, where the visit
+  period has no meaning, and that label is corrected before they are written.
 - **A window shorter than one visit period still pools.** The check cannot compare an index the
   window never offered twice. Such a cell reports every missing index as confined to one half, which
   is the right verdict, but its drift figure rests on whatever indices did appear.

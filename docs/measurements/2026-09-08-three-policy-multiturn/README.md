@@ -58,22 +58,41 @@ GPU 3's 12–25%, and steady rather than drifting.
 | 2 | 1.74 / 25% † | 1.74 / 25% † | **2.00 / 63%** |
 | 4 | 3.45 / 31% † | 3.37 / 29% † | **4.00 / 67%** |
 | 6 | 3.90 / 29% | 3.65 / 29% | **5.98 / 69%** |
-| 8 | 0.06 / 30% | 0.00 / 31% | **7.63 / 72%** |
-| 10 | 0.00 / 31% | 0.00 / 31% | **8.80 / 74%** |
-| 12 | 0.00 / 32% | 0.00 / 32% | **9.59 / 75%** |
-| 14 | 0.00 / 32% | 0.00 / 34% | **8.84 / 77%** |
-| 16 | 0.00 / 32% | 0.00 / 32% | 3.96 / 77% |
-| 20 | 0.00 / 29% | 0.00 / 30% | 3.12 / 77% |
+| 8 | 0.06 / 30% ⚠ | 0.00 / 31% ⚠ | **7.63 / 72%** |
+| 10 | 0.00 / 31% ⚠ | 0.00 / 31% ⚠ | **9.16 / 74%** ‡ |
+| 12 | 0.00 / 32% ⚠ | 0.00 / 32% ⚠ | **9.59 / 75%** |
+| 14 | 0.00 / 32% ⚠ | 0.00 / 34% ⚠ | **8.84 / 77%** |
+| 16 | 0.00 / 32% ⚠ | 0.00 / 32% ⚠ | 4.05 / 77% ⚠ ‡ |
+| 20 | 0.00 / 29% ⚠ | 0.00 / 30% ⚠ | 3.12 / 77% ⚠ |
 
 † Corrected by [#33](https://github.com/yuchia329/kvroute/issues/33). These four figures read `—`
 and `1.74 / 23%` and `3.31 / 28%` as published, because the drift check had flagged ten of the
 eighteen cells at those two rates as still warming up. They were not: re-scored from their own
 rows, all ten are clear, and the figures above are the medians over all three repetitions
 (round-robin 1.68–1.74 and 3.42–3.55, least-outstanding 1.68–1.75 and 3.31–3.49). See the
-[re-score](../2026-09-13-warmup-drift/) and the known gap below. `comparison.md` and the figures
-still filter on the flag each cell recorded when it ran, so they still print the old values.
+[re-score](../2026-09-13-warmup-drift/) and the known gap below.
 
-Both cache-blind policies are dead by rate 8. Session affinity still serves 9.59 at rate 12.
+⚠ Past saturation. Every cell marked ⚠ was offered more than the fleet could serve: when its
+arrivals stopped, 28–99% of the requests it had been offered were still unanswered, so its queue
+was still growing and its TTFT never settled. The two-sided drift check flags every such cell, and
+under the rule #33 adopted it **keeps its goodput and gives up only its latency percentiles**
+([ADR-0014](../../adr/0014-warm-up-drift-is-two-sided-per-turn-index-and-split-on-arrivals.md)).
+Goodput is counted over the arrival window, so it is exactly the figure a past-the-knee cell exists
+to report; the percentiles are a moment in a queue that had not stopped growing, and
+`comparison.md` prints them as em dashes. Dropping these cells instead would blank the cache-blind
+policies from rate 8 up, which is the collapse the table is here to show.
+
+‡ Moved when the cell records were re-judged. At rate 10 one session-affinity repetition
+(`a10-r3`, 5.00/s) is now flagged as a cold opening — TTFT p50 49% slower early, with 13% of its
+requests unanswered at the close, under the 20% that marks saturation — so the figure is the other
+two, 8.80 and 9.51, taken at their midpoint as this table takes every two-repetition median.
+`comparison.md` takes the lower of two instead and prints 8.80, as it prints 3.48 at rate 6 and
+8.05 at rate 14 where this table reads 3.65 and 8.84. At rate 16 the repetition that had been excluded as warming up (`a16-r3`,
+6.82/s) was past saturation, and is back in. Neither moves the knee.
+
+Both cache-blind policies are dead by rate 8: each of their six cells there left more than half
+of what it was offered unanswered when arrivals stopped. Session affinity still serves 9.59 at
+rate 12, with every one of its cells there keeping up.
 The knee moves from about 6–7 to about 12–14: **roughly twice the usable capacity.** The
 correction strengthens that rather than moving it: round-robin and least-outstanding do track
 offered load at rates 2 and 4 and then collapse at 8, which is a knee at 6–7 read off four points
@@ -199,8 +218,9 @@ that was restarted, and the union of three runs is not a fleet that ever existed
   `concurrency/` were flagged and 13 are now, six of them still as a cold opening. The correction is
   to the cause and the remedy, not to the fleet.
   The re-score of all 216 recorded open-loop cells is
-  [here](../2026-09-13-warmup-drift/). `comparison.md` and the figures still filter on the flag each
-  cell recorded when it ran, so they still show the old verdicts.
+  [here](../2026-09-13-warmup-drift/), and its verdicts are now written into the open-loop cell
+  records, so `comparison.md` and the figures are regenerated from them. The closed-loop records in
+  `concurrency/` still carry the verdicts they were recorded with.
 - **Session affinity has no usable cell at concurrency 256.**
 - **The derived-identity path is not exercised.** The harness always sends `X-Session-Id`, so
   every cell here measures the supplied-key oracle. idea.md §4.2 wants the derived key measured
@@ -212,7 +232,7 @@ that was restarted, and the union of three runs is not a fleet that ever existed
 
 | | |
 |---|---|
-| `comparison.md` | the generated table: kept closed-loop cells plus corrected open-loop cells. Regenerated for [#30](https://github.com/yuchia329/kvroute/issues/30), which is what moved the prefill columns |
+| `comparison.md` | the generated table: kept closed-loop cells plus corrected open-loop cells. Regenerated for [#30](https://github.com/yuchia329/kvroute/issues/30), which moved the prefill columns, and again for [#33](https://github.com/yuchia329/kvroute/issues/33), which re-judged the open-loop cells and brought in #27's placement section |
 | `concurrency/`, `goodput/` | cell records and compacted parquet for the two axes |
 | `superseded-goodput/` | the first open-loop pass, kept as evidence of the rotation artifact |
 | `evidence/` | run logs, and the engine's prefix-cache counters before and after each pass |

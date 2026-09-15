@@ -83,6 +83,98 @@ func TestACellThatGotSlowerAcrossItsWindowIsFlagged(t *testing.T) {
 	}
 }
 
+// An open-loop cell past the fleet's knee is offered more than the fleet can
+// serve, so its queue grows for as long as arrivals keep coming and its TTFT moves
+// across the window whichever way the split happens to fall. That is neither a
+// cold opening nor a fleet that broke: it is what saturation looks like, and the
+// cell's goodput is exactly the figure it exists to report. So it is named as
+// such, in either direction, and told that nothing needs re-running.
+//
+// What tells it apart is the backlog — how much of what was offered was still
+// unanswered when arrivals stopped. A fleet that keeps up answers all but the last
+// latency's worth of it; one that does not leaves the excess of offered over
+// served load behind.
+func TestACellPastSaturationIsNamedAsSuchInEitherDirection(t *testing.T) {
+	start := time.Unix(1757000000, 0)
+	for _, tc := range []struct {
+		name        string
+		early, late time.Duration
+	}{
+		{name: "slower late", early: time.Second, late: 3 * time.Second},
+		{name: "slower early", early: 4 * time.Second, late: time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var rows []bench.Result
+			for i := range 40 {
+				ttft := tc.early
+				if i >= 20 {
+					ttft = tc.late
+				}
+				// Every response takes 30 s end to end, so the 30 arrivals due
+				// from 10 s on are still in flight when the last arrival's slot
+				// closes at 40 s.
+				rows = append(rows, arrival(start.Add(time.Duration(i)*time.Second), i%4, ttft, 30*time.Second-ttft))
+			}
+
+			got := bench.Summarize(rows, driftOptions(4))
+
+			if got.Backlog < 0.7 || got.Backlog > 0.8 {
+				t.Errorf("backlog is %.3f, want 0.75: 30 of 40 offered requests were unanswered when arrivals stopped", got.Backlog)
+			}
+			if !slices.Equal(got.WarmupDriftCauses(), []bench.WarmupDriftCause{bench.WarmupDriftSaturated}) {
+				t.Fatalf("causes are %v, want only %q: %v", got.WarmupDriftCauses(), bench.WarmupDriftSaturated, got.FlagReasons)
+			}
+			if strings.Contains(reasons(got), "Lengthen the warm-up") {
+				t.Errorf("the flag prescribes a longer warm-up for a fleet that was past saturation: %v", got.FlagReasons)
+			}
+			if !strings.Contains(reasons(got), "75%") {
+				t.Errorf("the flag does not state the backlog it found: %v", got.FlagReasons)
+			}
+		})
+	}
+}
+
+// A fleet that kept up leaves no backlog worth the name, however much its TTFT
+// moved, so a cell that got slower without falling behind is still a degrading
+// fleet rather than a saturated one.
+func TestACellThatKeptUpIsNotCalledSaturated(t *testing.T) {
+	start := time.Unix(1757000000, 0)
+	var rows []bench.Result
+	for i := range 80 {
+		ttft := time.Second
+		if i >= 40 {
+			ttft = 3 * time.Second
+		}
+		rows = append(rows, arrival(start.Add(time.Duration(i)*time.Second), i%4, ttft, time.Second))
+	}
+
+	got := bench.Summarize(rows, driftOptions(4))
+
+	if got.Backlog > 0.1 {
+		t.Errorf("backlog is %.3f, want only the last few seconds' arrivals: the fleet answered everything else in time", got.Backlog)
+	}
+	if !slices.Equal(got.WarmupDriftCauses(), []bench.WarmupDriftCause{bench.WarmupDriftDegrading}) {
+		t.Errorf("causes are %v, want only %q: %v", got.WarmupDriftCauses(), bench.WarmupDriftDegrading, got.FlagReasons)
+	}
+}
+
+// A closed-loop cell cannot fall behind a schedule it does not have: its virtual
+// users wait for their answers, so it offers only what the fleet serves. It has
+// no backlog to report.
+func TestAClosedLoopCellHasNoBacklog(t *testing.T) {
+	start := time.Unix(1757000000, 0)
+	var rows []bench.Result
+	for i := range 40 {
+		r := arrival(start.Add(time.Duration(i)*time.Second), i%4, time.Second, 30*time.Second)
+		r.ScheduledAtNs, r.Labels = 0, bench.Labels{Driver: bench.ClosedLoopDriver, Concurrency: 8}
+		rows = append(rows, r)
+	}
+
+	if got := bench.Summarize(rows, driftOptions(4)); got.Backlog != 0 {
+		t.Errorf("a closed-loop cell reports a backlog of %.3f, want 0", got.Backlog)
+	}
+}
+
 // The composition effect, which is what flagged all six of #17's recency cells
 // and what #29 spent a design pass deriving a cell geometry to cancel by hand.
 //
@@ -317,6 +409,19 @@ func TestEveryDriftFlagReadsBackAsTheCauseThatWroteIt(t *testing.T) {
 						ttft = 4 * time.Second
 					}
 					rows = append(rows, arrival(at(i), i%4, ttft, time.Second))
+				}
+				return rows
+			}(),
+		},
+		{
+			name: "past saturation", turns: 4, want: bench.WarmupDriftSaturated,
+			rows: func() (rows []bench.Result) {
+				for i := range 40 {
+					ttft := time.Second
+					if i >= 20 {
+						ttft = 4 * time.Second
+					}
+					rows = append(rows, arrival(at(i), i%4, ttft, 30*time.Second))
 				}
 				return rows
 			}(),

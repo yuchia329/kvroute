@@ -1523,15 +1523,28 @@ func resummarize(cellDir string, cached Cell, cfg SweepConfig) (Cell, error) {
 	if err != nil {
 		return Cell{}, err
 	}
-	cached.Summary = Summarize(rows, cfg.summaryOptions())
-	flagContamination(&cached)
-	flagThrottle(&cached)
-	flagFleetChanges(&cached)
-	flagResidency(&cached)
+	cached = rejudge(cached, rows, cfg.summaryOptions())
 	if err := writeCell(cellDir, cached); err != nil {
 		return Cell{}, err
 	}
 	return cached, nil
+}
+
+// rejudge replaces a recorded cell's summary with the one its rows produce under
+// opts, and applies again every flag that comes from the record rather than the
+// rows: the cards' contamination and throttle evidence, the fleet changes the
+// router reported, and exact residency's event stream.
+//
+// One place for both callers — a sweep resummarising a cached cell against a new
+// SLO, and a re-score judging recorded cells by a changed check — so neither can
+// forget a kind of evidence the other keeps.
+func rejudge(cell Cell, rows []Result, opts SummaryOptions) Cell {
+	cell.Summary = Summarize(rows, opts)
+	flagContamination(&cell)
+	flagThrottle(&cell)
+	flagFleetChanges(&cell)
+	flagResidency(&cell)
+	return cell
 }
 
 // discard moves a contaminated cell's record and rows out of the cell

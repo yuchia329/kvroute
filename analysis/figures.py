@@ -46,6 +46,7 @@ POLICY_COLOURS = {
 }
 WITHIN_SPREAD = "#e6e6e6"
 FAILING_NOTE = "⚠ rests on a repetition that dropped or failed more requests than the threshold allows"
+SATURATED_NOTE = "⚠ rests on a repetition that fell behind the load it was offered; its TTFT is not drawn"
 
 
 def colour(policy):
@@ -141,7 +142,7 @@ def goodput(data):
     the repetitions behind it."""
     drivers = _drivers(data["points"])
     fig, axes = plt.subplots(1, max(len(drivers), 1), figsize=(5.2 * max(len(drivers), 1), 3.6), squeeze=False)
-    failing = False
+    failing = saturated = False
     for ax, driver in zip(axes[0], drivers):
         for policy in data["policies"]:
             series = _series(data["points"], policy, driver)
@@ -151,11 +152,12 @@ def goodput(data):
             ax.plot(x, [p["goodput_median"] for p in series], marker="o", markersize=3, color=colour(policy), label=policy)
             ax.fill_between(x, [p["goodput_min"] for p in series], [p["goodput_max"] for p in series],
                             color=colour(policy), alpha=0.15, linewidth=0)
-            marked = [p for p in series if p["over_failure_threshold"]]
+            failing = failing or any(p["over_failure_threshold"] for p in series)
+            saturated = saturated or any(p["saturated"] for p in series)
+            marked = [p for p in series if p["over_failure_threshold"] or p["saturated"]]
             if marked:
-                failing = True
                 ax.plot([p["load"] for p in marked], [p["goodput_median"] for p in marked], linestyle="none",
-                        marker="o", markersize=9, markerfacecolor="none", markeredgecolor="black", label="_failing")
+                        marker="o", markersize=9, markerfacecolor="none", markeredgecolor="black", label="_marked")
         _load_axis(ax, driver, _loads(data["points"], driver))
         ax.set_ylabel("goodput, req/s inside the SLO")
         ax.set_ylim(bottom=0)
@@ -164,8 +166,9 @@ def goodput(data):
     slo = data["slo"]
     fig.suptitle(f"Goodput against load — SLO TTFT < {slo['ttft_ms']:g} ms, inter-token p50 < {slo['itl_ms']:g} ms; "
                  f"band = range across repetitions", fontsize=9)
-    if failing:
-        fig.text(0.01, -0.02, "ringed: " + FAILING_NOTE, fontsize=7, va="top")
+    notes = [note for note, shown in ((FAILING_NOTE, failing), (SATURATED_NOTE, saturated)) if shown]
+    if notes:
+        fig.text(0.01, -0.02, "ringed: " + "\nringed: ".join(notes), fontsize=7, va="top")
     return fig
 
 

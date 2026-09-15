@@ -528,10 +528,19 @@ How much a cell's TTFT p50 moved across the window it was measured over, compare
 turn index and split on the arrival window. Positive is slower early. It is what lets the warm-up
 length be checked rather than trusted, and it is judged two-sided: a cell that got twice as slow
 is as unpoolable as one that got twice as fast. A cell over the threshold is flagged with the
-cause the check found — a still-cold opening period, a fleet that degraded, or a fractional
-number of visit periods — because the three have different fixes and only the first is a longer
-warm-up.
+cause the check found — a still-cold opening period, a fleet that degraded, an open-loop cell past
+saturation, or a fractional number of visit periods — because the four have different fixes and
+only the first is a longer warm-up. A cell past saturation is not a broken measurement: it keeps
+its goodput in a comparison, marked, and gives up only its latency percentiles.
 _Avoid_: warm-up error, ramp, drift (unqualified — that is belief divergence or schedule lag)
+
+**Backlog**:
+The share of an open-loop cell's offered requests still unanswered when its arrival window closed.
+It is what says whether the fleet kept up: one that does leaves only the last latency's worth
+behind, and one offered a rate past its knee leaves the excess of offered over served load. A cell
+whose TTFT moved past the warm-up drift threshold with a backlog over 20% is *past saturation*.
+Zero under the closed-loop driver, whose virtual users offer only what the fleet serves.
+_Avoid_: queue depth (that is inflight at one instant), lag (that is schedule lag), drain
 
 **Schedule lag**:
 How long after its due time a request was actually sent. It is the open-loop driver auditing

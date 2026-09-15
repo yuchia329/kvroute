@@ -18,7 +18,7 @@ def point(policy, load, median, **extra):
     p = {
         "policy": policy, "driver": "closed-loop", "load": load, "load_label": f"{load} users",
         "repetitions": 3, "goodput_median": median, "goodput_min": median - 1, "goodput_max": median + 1,
-        "over_failure_threshold": 0, "ttft_p50_ms": 300, "ttft_p90_ms": 500, "ttft_p99_ms": 900,
+        "over_failure_threshold": 0, "saturated": 0, "ttft_p50_ms": 300, "ttft_p90_ms": 500, "ttft_p99_ms": 900,
         "prefix_cache_hit_rate": 0.5, "requests": 100.0,
         "recomputed_prefill": 1000.0, "recomputed_prefill_per_request": 10.0,
         "redundant_prefill": 0.0, "redundant_prefill_per_request": 0.0,
@@ -118,9 +118,21 @@ def test_the_pressure_map_names_the_cells_a_figure_rests_on():
 
 def test_goodput_rings_a_figure_resting_on_a_failing_repetition():
     fig = figures.goodput(COMPARISON)
-    ringed = [line for line in fig.axes[0].lines if line.get_label() == "_failing"]
+    ringed = [line for line in fig.axes[0].lines if line.get_label() == "_marked"]
     assert len(ringed) == 1 and list(ringed[0].get_xdata()) == [32]
     assert any("failed more requests" in t for t in texts(fig))
+
+
+def test_goodput_rings_a_figure_resting_on_a_repetition_past_saturation():
+    saturated = dict(COMPARISON, points=[
+        point("session_affinity", 8, 5), point("prefix_affinity", 8, 0.1, saturated=3, ttft_p50_ms=None)])
+
+    fig = figures.goodput(saturated)
+
+    ringed = [line for line in fig.axes[0].lines if line.get_label() == "_marked"]
+    assert len(ringed) == 1 and list(ringed[0].get_xdata()) == [8]
+    assert any("fell behind the load it was offered" in t for t in texts(fig))
+    assert not any("failed more requests" in t for t in texts(fig)), "a saturated point was explained as a failing one"
 
 
 def test_an_unread_counter_is_a_gap_in_the_cache_figure_not_a_zero():

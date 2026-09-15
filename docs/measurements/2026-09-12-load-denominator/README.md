@@ -53,7 +53,11 @@ answering a question the fleet is not posing.
 
 Ran 2026-09-12 20:53 → 21:48 UTC, 54 minutes of fleet time. All **10,812** requests across the four
 points succeeded: zero dropped, zero failed, zero reroutes, every cell clean and none flagged for
-warm-up drift.
+warm-up drift by the check as it stood then. Re-scored from the rows on the box by the check #33
+rebuilt, one of the twelve now flags: the observing pass's `prefix_affinity-a6-r1`, as a cold
+opening, at +25.4% against a 25% threshold. None is past saturation; the largest backlog is 1%.
+Nothing below rests on that cell's TTFT percentiles — the load comparison reads the denominators
+each decision recorded — so no conclusion here moves.
 
 ## What the comparison was made against
 

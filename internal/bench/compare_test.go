@@ -354,6 +354,100 @@ func TestACellThatFailedAndIsFlaggedForSomethingElseIsExcluded(t *testing.T) {
 	}
 }
 
+// pastSaturation builds an open-loop cell the drift check flagged as having
+// fallen behind its offered load, and for nothing else, with the minute-long
+// TTFT a growing queue leaves behind.
+func saturatedCell(policyName string, load bench.Load, repetition int, goodput float64) bench.Cell {
+	c := cell(policyName, load, repetition, goodput)
+	c.Backlog = 0.6
+	// The failure check switched off, which is what a re-score or a fixture does:
+	// a cell that only fell behind must not be counted as failing for it.
+	c.FailureThreshold = -1
+	c.TTFTP50Ns, c.TTFTP90Ns, c.TTFTP99Ns = (40 * time.Second).Nanoseconds(), (70 * time.Second).Nanoseconds(), (80 * time.Second).Nanoseconds()
+	c.Flag("the fleet fell behind its offered load: 60% of the requests offered were still unanswered when arrivals stopped")
+	return c
+}
+
+// Rule A of #33. Past its knee an open-loop cell is offered more than the fleet
+// can serve, so it never reaches a steady state and the drift check now flags it
+// — two-sided, it always will. Dropping it as a broken measurement would blank
+// the table exactly where the cache-blind policies collapse, and a knee read off
+// a gap is no knee. So the cell keeps its goodput, marked and named the way a
+// failing cell is, and gives up only its latency percentiles, which are a moment
+// in a queue that was still growing.
+func TestACellPastSaturationKeepsItsGoodputButNotItsLatency(t *testing.T) {
+	at16 := bench.OpenLoopAt(16)
+	var cs []bench.Cell
+	cs = append(cs,
+		saturatedCell(policy.RoundRobinName, at16, 1, 0.0),
+		saturatedCell(policy.RoundRobinName, at16, 2, 0.1),
+		saturatedCell(policy.RoundRobinName, at16, 3, 0.0))
+	steady := cell(policy.SessionAffinityName, at16, 1, 12.0)
+	steady.TTFTP50Ns = (300 * time.Millisecond).Nanoseconds()
+	cs = append(cs, steady,
+		saturatedCell(policy.SessionAffinityName, at16, 2, 6.0),
+		saturatedCell(policy.SessionAffinityName, at16, 3, 5.0))
+
+	got := compare(t, cs)
+
+	if len(got.Excluded) != 0 {
+		t.Errorf("cells past saturation were excluded: %v", got.Excluded)
+	}
+	row := got.Rows[0]
+	rr := row.Goodput[policy.RoundRobinName]
+	if rr.Repetitions != 3 || rr.Saturated != 3 || rr.OverFailureThreshold != 0 || rr.MedianRPS != 0.0 {
+		t.Errorf("round-robin pooled %d repetitions (%d past saturation, %d failing) at a median of %v, want 3, 3, 0 and 0",
+			rr.Repetitions, rr.Saturated, rr.OverFailureThreshold, rr.MedianRPS)
+	}
+	if _, ok := row.Latency[policy.RoundRobinName]; ok {
+		t.Errorf("round-robin has latency percentiles, but every one of its cells was past saturation: %+v", row.Latency[policy.RoundRobinName])
+	}
+	sa := row.Latency[policy.SessionAffinityName]
+	if sa.Repetitions != 1 || time.Duration(sa.P50Ns) != 300*time.Millisecond {
+		t.Errorf("session affinity's latency pooled %d repetitions at p50 %v, want only the steady one at 300ms",
+			sa.Repetitions, time.Duration(sa.P50Ns))
+	}
+
+	report := got.Report()
+	for _, want := range []string{
+		"6.00 (5.00–12.00, n=3) ⚠",
+		"`round_robin-a16-r2`: the fleet fell behind its offered load",
+		"| open-loop | 16 req/s | round_robin | — | — | — |",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the report does not carry %q:\n%s", want, report)
+		}
+	}
+}
+
+// At saturation a fleet also drops and times out, so a cell can be past its
+// knee and past the failure threshold at once. Both say the same thing — a fleet
+// falling over — and neither is a broken measurement, so the pair surfaces the
+// cell as either would alone. A third reason of the other kind still wins.
+func TestACellPastSaturationThatAlsoFailedIsSurfacedUnlessBrokenToo(t *testing.T) {
+	at20 := bench.OpenLoopAt(20)
+	both := pastFailureThreshold(saturatedCell(policy.RoundRobinName, at20, 1, 0.5))
+	broken := saturatedCell(policy.RoundRobinName, at20, 2, 0.7)
+	broken.Flag("the router ejected a replica 1 time(s) during this cell")
+
+	var cs []bench.Cell
+	cs = append(cs, both, broken)
+	cs = append(cs, cells(policy.SessionAffinityName, at20, 10.0)...)
+
+	got := compare(t, cs)
+
+	rr := got.Rows[0].Goodput[policy.RoundRobinName]
+	if rr.Repetitions != 1 || rr.Saturated != 1 || rr.OverFailureThreshold != 1 {
+		t.Errorf("round-robin pooled %+v, want only the cell that was saturated and failing, counted as both", rr)
+	}
+	if len(got.Excluded) != 2 || !strings.Contains(strings.Join(got.Excluded, " "), "ejected a replica") {
+		t.Errorf("excluded %v, want the cell that also lost a replica, under both its reasons", got.Excluded)
+	}
+	if len(got.Surfaced) != 2 {
+		t.Errorf("surfaced %v, want the kept cell named under both of its reasons", got.Surfaced)
+	}
+}
+
 // TestCellsRecordedUnderAnUnknownPolicyStillAppear. A cell's policy is the label
 // the sweep was told to record, not a name it resolves, so a mistyped -policy
 // produces cells under a name no policy has. Dropping them would hide a sweep.

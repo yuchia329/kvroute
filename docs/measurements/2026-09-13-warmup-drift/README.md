@@ -17,7 +17,12 @@ goodput and TTFT percentiles exactly — only the drift fields moved.
 | `open-loop-every-cell.md` | the same, listing all 216 |
 | `closed-loop-rescore.md` | 300 closed-loop cells whose rows are in this repository, as a control |
 
-Rebuild either with `go run ./cmd/rescore <sweep dir>...`. The rows for `superseded-goodput` and the
+The two open-loop reports were rebuilt once more for the rule below that keeps a past-the-knee
+cell's goodput, which added the *past saturation* cause and the backlog column, and the verdicts in
+them were then written into the 216 open-loop cell records with `rescore -write`. Re-running
+`go run ./cmd/rescore <sweep dir>...` over those records now reports no change, because the records
+already carry what it would say; the reports here are the before-and-after, against the records as
+they stood at 473922a. The rows for `superseded-goodput` and the
 four recency directories live on the box rather than in this repository, so those runs were scored
 against rows copied down from `~/kvroute/runs/{mt-comparison,recency,recency-rerun}`; the integrity
 check above is what confirms the copies are the rows those cells were written from.
@@ -34,14 +39,40 @@ function of offered rate:
 
 | offered rate | 2–4/s | 6/s | 8–14/s | 16/s | 20/s and up |
 |---|---:|---:|---:|---:|---:|
-| cells now flagged as the fleet slowing | 0 of 42 | 0 of 18 | 42 of 96 | 22 of 24 | 36 of 36 |
+| cells now flagged past saturation | 0 of 42 | 0 of 18 | 39 of 96 | 24 of 24 | 36 of 36 |
+| cells now flagged as a fleet degrading | 0 of 42 | 0 of 18 | 3 of 96 | 0 of 24 | 0 of 36 |
 
-That is saturation, not a mystery. The three-policy comparison puts the cache-blind policies' knee
-at 6–7 requests per second and session affinity's at 12–14; past its knee an open-loop cell is
-offered more than the fleet can serve, its queue grows for as long as the cell runs, and its
-latency percentiles are a transient rather than a steady state. The flag now says so. It does not
-touch those cells' goodput, which is counted over the arrival window and is exactly the figure a
-past-the-knee cell exists to report.
+That is saturation, not a mystery, and 97 of the 99 are named as such. The three-policy comparison
+puts the cache-blind policies' knee at 6–7 requests per second and session affinity's at 12–14;
+past its knee an open-loop cell is offered more than the fleet can serve, its queue grows for as
+long as the cell runs, and its latency percentiles are a transient rather than a steady state. The
+other two are #29's recency cells, which slowed by 25–28% while answering all but 2% of what they
+were offered, and so are a fleet that degraded rather than one that fell behind.
+
+### A cell past saturation keeps its goodput
+
+The two-sided test flags every past-the-knee cell, and it always will. Left at that, the
+comparison would drop them as broken measurements, and the three-policy table would go blank for
+round-robin and least-outstanding from rate 8 up — the collapse the table exists to show, turned
+into a gap that reads as "did not run".
+
+So the check separates a fourth cause, and the comparison treats it as it already treated a cell
+past the failure threshold: a measurement of a fleet falling over, not a broken measurement. What
+tells it apart is the **backlog**, the share of the requests a cell was offered that were still
+unanswered when its arrivals stopped. A fleet that keeps up answers all but the last latency's
+worth; one past its knee leaves the excess of offered over served load behind.
+
+The recorded cells leave a clean gap to put the line in. Of the 216, every cell whose TTFT moved
+past the drift threshold had a backlog of **16% or less** — a cold opening, or a fleet that slowed
+while keeping up — or **28% or more**, which is every cell offered a rate past its policy's knee.
+The line is at 20%. A cell over it whose TTFT moved past the threshold, in either direction, is
+flagged *past saturation*; the comparison keeps its goodput, marks it ⚠ and names it, and leaves
+it out of the TTFT percentiles, which print as an em dash. Nothing about it needs re-running.
+
+That also settles the cell the triple below could not: `superseded-goodput`'s
+`session_affinity-a16-r3`, whose TTFT p50 was more than ten times slower early than late, is past
+saturation (a 30% backlog) like its two siblings, rather than a cold opening a longer warm-up would
+fix.
 
 ### It split on the wrong window
 
@@ -142,13 +173,14 @@ noted in that measurement.
 
 | cell | recorded drift | per-index drift | recorded verdict | current verdict |
 |---|---:|---:|---|---|
-| `session_affinity-a16-r1` | −0.768 | −0.870 | clear | fleet degrading |
-| `session_affinity-a16-r2` | −0.471 | −0.480 | clear | fleet degrading |
-| `session_affinity-a16-r3` | +4.581 | +9.675 | cold opening | cold opening |
+| `session_affinity-a16-r1` | −0.768 | −0.870 | clear | past saturation |
+| `session_affinity-a16-r2` | −0.471 | −0.480 | clear | past saturation |
+| `session_affinity-a16-r3` | +4.581 | +9.675 | cold opening | past saturation |
 
-All three are now flagged. They still disagree about the direction, which is a real disagreement
-between three runs at 16 requests per second — past session affinity's 12–14 knee — and not an
-artefact of the check.
+All three are now flagged, and for the same reason. Their TTFT moved in different directions
+because each was a queue still growing at 16 requests per second — past session affinity's 12–14
+knee — and where the split fell in it decided the sign. Their backlogs of 30–37% say which cause it
+is whatever the sign.
 
 ## The closed-loop control
 
@@ -161,12 +193,21 @@ so. Those cells were already excluded from the published comparison for other re
 
 ## What this does not settle
 
-- **The recorded cell records still carry their old summaries.** This re-score deliberately writes
-  nothing back: a recorded cell says what was concluded when it ran. Generated tables that filter on
-  the recorded flag — `comparison.md` and the figures built from it — therefore still show the old
-  verdicts, and the conclusions that change are corrected in prose in the affected measurements
-  rather than by regenerating those tables. Re-summarising the recorded cells and rebuilding
-  everything downstream of them is its own piece of work.
+- **The closed-loop records still carry their old verdicts.** The 216 open-loop cell records now
+  carry the current check's drift fields, backlog and flags — and nothing else from a re-computed
+  summary, so a column added after a cell ran is not filled in by this — and both open-loop
+  comparisons and the figures were regenerated from them. The 300 closed-loop records were not
+  written back: three of their 15 changed verdicts are the *fractional visit periods* label on
+  closed-loop cells at 256 users, where a visit period has no meaning, and that label is fixed
+  before they are.
+- **Saturation is detected only when the drift check fires.** A cell is named past saturation when
+  its TTFT moved past the threshold *and* its backlog is over 20%. A cell over the backlog line whose
+  TTFT held steady is not flagged at all, and its percentiles pool as normal: `superseded-goodput`'s
+  round-robin at 12 req/s left 17–23% unanswered with drift under 8%. No published table rests on
+  such a cell today. The line also has less margin than the gap suggests — 16% below it, 28% above,
+  among the cells whose drift fired — and `session_affinity-a16-r3` sits near the top of that gap
+  with TTFT ten times slower early than late, which is plausibly a cold opening and saturation at
+  once; the backlog decides it.
 - **A window shorter than one visit period still pools.** The check is told the workload's turns per
   session and compares within each, but it cannot compare an index that the window never offered
   twice. Such a cell reports every missing index as confined to one half, which is the right

@@ -204,6 +204,22 @@ type Summary struct {
 	// as not having held its schedule, so the flag can be read against what it
 	// was judged by.
 	ScheduleLagThresholdNs int64 `json:"schedule_lag_threshold_ns" parquet:"schedule_lag_threshold_ns"`
+	// Backlog is the share of the requests an open-loop cell offered over its
+	// measured window that were still unanswered when that window closed: 0.30 means three in ten
+	// of what was offered had not come back by the time arrivals stopped.
+	//
+	// It is what says whether the fleet kept up. One that does answers all but
+	// the last latency's worth of what it is offered, whatever the rate; one
+	// past its knee serves less than it is offered, its queue grows for as long
+	// as arrivals keep coming, and the excess is left behind at the close. A
+	// cell like that never reaches a steady state, so its latency percentiles
+	// are a transient and its goodput is the result (#33).
+	//
+	// Zero under the closed-loop driver, whose virtual users wait for their
+	// answers and so offer only what the fleet serves — and zero on a record
+	// written before it existed, which reads as a fleet that kept up and is
+	// judged as strictly as it was when it ran.
+	Backlog float64 `json:"backlog,omitempty" parquet:"backlog"`
 
 	// PromptBytes is the prompt bytes this cell offered over its measured
 	// window, counted across every request it sent rather than only the ones
@@ -343,6 +359,7 @@ func Summarize(results []Result, opts SummaryOptions) Summary {
 		s.ThroughputRPS = float64(s.Successes) / offered.Seconds()
 		s.GoodputRPS = float64(met) / offered.Seconds()
 	}
+	s.Backlog = window.backlog(results)
 
 	slices.Sort(ttft)
 	slices.Sort(total)
@@ -429,6 +446,33 @@ func (w cellWindow) arrivals() (opens, closes time.Time) {
 		return w.firstDue, w.lastDue.Add(time.Duration(float64(time.Second) / w.rate))
 	}
 	return w.first, w.last
+}
+
+// backlog is the share of the scheduled measured requests whose response had not
+// ended when the arrival window closed, and zero for a cell with no schedule. See
+// Summary.Backlog.
+//
+// Every outcome counts as answered once it ended, a failure included: what the
+// figure measures is the queue, and a request that has failed is no longer in it.
+func (w cellWindow) backlog(results []Result) float64 {
+	if !w.scheduled() {
+		return 0
+	}
+	_, closes := w.arrivals()
+	offered, unanswered := 0, 0
+	for _, r := range results {
+		if r.Warmup || r.ScheduledAtNs == 0 {
+			continue
+		}
+		offered++
+		if r.EndedAt().After(closes) {
+			unanswered++
+		}
+	}
+	if offered == 0 {
+		return 0
+	}
+	return float64(unanswered) / float64(offered)
 }
 
 // flag records every reason this cell should not be silently averaged in with

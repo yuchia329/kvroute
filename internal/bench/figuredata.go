@@ -92,6 +92,9 @@ type PolicyPoint struct {
 	// requests than the threshold allows; a plot marks the point when it is not
 	// zero.
 	OverFailureThreshold int `json:"over_failure_threshold"`
+	// Saturated is how many of them the fleet fell behind its offered load in; a
+	// plot marks the point for those too, and draws no latency from them.
+	Saturated int `json:"saturated"`
 
 	// Every figure below is null where what it is made of was not measured, for
 	// the reason the table prints an em dash: an unread counter is not a cache
@@ -160,6 +163,7 @@ func (r ComparisonRow) point(name string) (PolicyPoint, bool) {
 		GoodputMin:           g.MinRPS,
 		GoodputMax:           g.MaxRPS,
 		OverFailureThreshold: g.OverFailureThreshold,
+		Saturated:            g.Saturated,
 	}
 	if l, ok := r.Latency[name]; ok {
 		p.TTFTP50Ms, p.TTFTP90Ms, p.TTFTP99Ms = ref(milliseconds(l.P50Ns)), ref(milliseconds(l.P90Ns)), ref(milliseconds(l.P99Ns))

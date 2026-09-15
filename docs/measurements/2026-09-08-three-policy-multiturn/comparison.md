@@ -11,8 +11,8 @@ load point, which is what makes them comparable at all:
 Each figure is the median of that cell's repetitions, with the range across them. A
 difference smaller than those ranges is a difference between a policy and itself.
 
-Prompt bytes per token: **1.59 bytes per token**, measured as the 410024191 prompt bytes these
-cells offered over the 258235143 prompt tokens the engines reported processing. A prefix match
+Prompt bytes per token: **1.59 bytes per token**, measured as the 421975139 prompt bytes these
+cells offered over the 265440151 prompt tokens the engines reported processing. A prefix match
 is recorded in bytes, and this is what converts it — it is not assumed.
 
 | driver | load | round_robin | least_outstanding | session_affinity | Δ least_outstanding vs round_robin | Δ session_affinity vs round_robin |
@@ -25,15 +25,15 @@ is recorded in bytes, and this is what converts it — it is not assumed.
 | closed-loop | 64 users | 2.63 (2.63–2.77, n=2) | 5.56 (5.05–5.57, n=3) | 7.08 (5.91–7.48, n=3) | +111.7% | +169.6% |
 | closed-loop | 128 users | 1.33 (1.33–1.37, n=2) | 0.03 (0.03–0.12, n=2) | 4.17 (3.37–6.09, n=3) | -97.8% | +212.5% |
 | closed-loop | 256 users | 0.05 (0.02–0.25, n=3) | 0.00 (0.00–0.00, n=3) | — | -100.0% | — |
-| open-loop | 2 req/s | — | 1.74 (n=1) | 2.00 (2.00–2.00, n=3) | — | — |
-| open-loop | 4 req/s | — | 3.31 (n=1) | 4.00 (3.98–4.00, n=3) | — | — |
+| open-loop | 2 req/s | 1.74 (1.68–1.74, n=3) | 1.74 (1.68–1.75, n=3) | 2.00 (2.00–2.00, n=3) | +0.0% (within spread) | +15.0% |
+| open-loop | 4 req/s | 3.45 (3.42–3.55, n=3) | 3.37 (3.31–3.49, n=3) | 4.00 (3.98–4.00, n=3) | -2.2% (within spread) | +16.1% |
 | open-loop | 6 req/s | 3.90 (3.84–3.99, n=3) | 3.48 (3.48–3.82, n=2) | 5.98 (5.97–6.00, n=3) | -10.6% | +53.5% |
-| open-loop | 8 req/s | 0.06 (0.00–0.11, n=3) | 0.00 (0.00–0.00, n=3) | 7.63 (7.31–7.80, n=3) | -100.0% (within spread) | +12300.0% |
-| open-loop | 10 req/s | 0.00 (0.00–0.00, n=3) | 0.00 (0.00–0.00, n=3) | 8.80 (5.00–9.51, n=3) | +0.00/s over a baseline of zero | +8.80/s over a baseline of zero |
-| open-loop | 12 req/s | 0.00 (0.00–0.00, n=3) | 0.00 (0.00–0.00, n=3) | 9.59 (7.96–9.65, n=3) | +0.00/s over a baseline of zero | +9.59/s over a baseline of zero |
-| open-loop | 14 req/s | 0.00 (0.00–0.00, n=3) | 0.00 (0.00–0.00, n=3) | 8.05 (8.05–9.64, n=2) | +0.00/s over a baseline of zero | +8.05/s over a baseline of zero |
-| open-loop | 16 req/s | 0.00 (0.00–0.00, n=3) | 0.00 (0.00–0.00, n=3) | 3.88 (3.88–4.05, n=2) | +0.00/s over a baseline of zero | +3.88/s over a baseline of zero |
-| open-loop | 20 req/s | 0.00 (0.00–0.00, n=3) | 0.00 (0.00–0.00, n=3) | 3.12 (1.20–3.14, n=3) | +0.00/s over a baseline of zero | +3.12/s over a baseline of zero |
+| open-loop | 8 req/s | 0.06 (0.00–0.11, n=3) ⚠ | 0.00 (0.00–0.00, n=3) ⚠ | 7.63 (7.31–7.80, n=3) | -100.0% (within spread) ⚠ | +12300.0% ⚠ |
+| open-loop | 10 req/s | 0.00 (0.00–0.00, n=3) ⚠ | 0.00 (0.00–0.00, n=3) ⚠ | 8.80 (8.80–9.51, n=2) | +0.00/s over a baseline of zero ⚠ | +8.80/s over a baseline of zero ⚠ |
+| open-loop | 12 req/s | 0.00 (0.00–0.00, n=3) ⚠ | 0.00 (0.00–0.00, n=3) ⚠ | 9.59 (7.96–9.65, n=3) | +0.00/s over a baseline of zero ⚠ | +9.59/s over a baseline of zero ⚠ |
+| open-loop | 14 req/s | 0.00 (0.00–0.00, n=3) ⚠ | 0.00 (0.00–0.00, n=3) ⚠ | 8.05 (8.05–9.64, n=2) | +0.00/s over a baseline of zero ⚠ | +8.05/s over a baseline of zero ⚠ |
+| open-loop | 16 req/s | 0.00 (0.00–0.00, n=3) ⚠ | 0.00 (0.00–0.00, n=3) ⚠ | 4.05 (3.88–6.82, n=3) ⚠ | +0.00/s over a baseline of zero ⚠ | +4.05/s over a baseline of zero ⚠ |
+| open-loop | 20 req/s | 0.00 (0.00–0.00, n=3) ⚠ | 0.00 (0.00–0.00, n=3) ⚠ | 3.12 (1.20–3.14, n=3) ⚠ | +0.00/s over a baseline of zero ⚠ | +3.12/s over a baseline of zero ⚠ |
 
 ## What produced it — TTFT percentiles, prefix cache hit rate and prefill work
 
@@ -88,53 +88,105 @@ published results where they did.
 | closed-loop | 256 users | round_robin | 7067ms | — | 30234ms | 22.9% | 1432 | 3938171 | 2750.1 | — | — |
 | closed-loop | 256 users | least_outstanding | 13002ms | — | 31759ms | 28.5% | 1419 | 4096361 | 2886.8 | — | — |
 | closed-loop | 256 users | session_affinity | — | — | — | — | — | — | — | — | — |
-| open-loop | 2 req/s | round_robin | — | — | — | — | — | — | — | — | — |
-| open-loop | 2 req/s | least_outstanding | 604ms | — | 1308ms | 23.1% | 130 | 301329 | 2317.9 | — | — |
-| open-loop | 2 req/s | session_affinity | 349ms | — | 410ms | 63.2% | 390 | 434108 | 1113.1 | — | — |
-| open-loop | 4 req/s | round_robin | — | — | — | — | — | — | — | — | — |
-| open-loop | 4 req/s | least_outstanding | 616ms | — | 2101ms | 27.6% | 260 | 568984 | 2188.4 | — | — |
-| open-loop | 4 req/s | session_affinity | 354ms | — | 557ms | 67.2% | 780 | 772668 | 990.6 | — | — |
+| open-loop | 2 req/s | round_robin | 596ms | — | 1298ms | 25.5% | 390 | 877724 | 2250.6 | +1137.5 | +443616 |
+| open-loop | 2 req/s | least_outstanding | 601ms | — | 1299ms | 24.7% | 390 | 886620 | 2273.4 | +1160.3 | +452512 |
+| open-loop | 2 req/s | session_affinity | 349ms | — | 410ms | 63.2% | 390 | 434108 | 1113.1 | best | best |
+| open-loop | 4 req/s | round_robin | 608ms | — | 1409ms | 30.0% | 780 | 1650076 | 2115.5 | +1124.9 | +877408 |
+| open-loop | 4 req/s | least_outstanding | 616ms | — | 1815ms | 29.8% | 780 | 1656044 | 2123.1 | +1132.5 | +883376 |
+| open-loop | 4 req/s | session_affinity | 354ms | — | 557ms | 67.2% | 780 | 772668 | 990.6 | best | best |
 | open-loop | 6 req/s | round_robin | 666ms | — | 3054ms | 28.7% | 1173 | 2527082 | 2154.4 | +1220.2 | +1431305 |
 | open-loop | 6 req/s | least_outstanding | 665ms | — | 3124ms | 28.9% | 782 | 1679825 | 2148.1 | +1213.9 | +949307 |
 | open-loop | 6 req/s | session_affinity | 363ms | — | 842ms | 69.1% | 1173 | 1095777 | 934.2 | best | best |
-| open-loop | 8 req/s | round_robin | 6545ms | — | 16322ms | 29.6% | 1560 | 3428102 | 2197.5 | +1362.6 | +2125599 |
-| open-loop | 8 req/s | least_outstanding | 6830ms | — | 15803ms | 31.3% | 1560 | 3366122 | 2157.8 | +1322.8 | +2063619 |
+| open-loop | 8 req/s | round_robin | — | — | — | 29.6% | 1560 | 3428102 | 2197.5 | +1362.6 | +2125599 |
+| open-loop | 8 req/s | least_outstanding | — | — | — | 31.3% | 1560 | 3366122 | 2157.8 | +1322.8 | +2063619 |
 | open-loop | 8 req/s | session_affinity | 368ms | — | 1229ms | 72.4% | 1560 | 1302503 | 834.9 | best | best |
-| open-loop | 10 req/s | round_robin | 20456ms | — | 35057ms | 30.8% | 1950 | 4374664 | 2243.4 | +1445.3 | +2818272 |
-| open-loop | 10 req/s | least_outstanding | 21310ms | — | 42693ms | 30.9% | 1950 | 4424548 | 2269.0 | +1470.8 | +2868156 |
-| open-loop | 10 req/s | session_affinity | 373ms | — | 2022ms | 73.7% | 1950 | 1556392 | 798.1 | best | best |
-| open-loop | 12 req/s | round_robin | 33440ms | — | 62256ms | 31.8% | 2343 | 5391341 | 2301.0 | +1530.1 | +3585018 |
-| open-loop | 12 req/s | least_outstanding | 33962ms | — | 61362ms | 32.5% | 2343 | 5359552 | 2287.5 | +1516.5 | +3553229 |
+| open-loop | 10 req/s | round_robin | — | — | — | 30.8% | 1950 | 4374664 | 2243.4 | +1462.5 | +2851930 |
+| open-loop | 10 req/s | least_outstanding | — | — | — | 30.9% | 1950 | 4424548 | 2269.0 | +1488.1 | +2901814 |
+| open-loop | 10 req/s | session_affinity | 363ms | — | 1520ms | 74.2% | 1300 | 1015156 | 780.9 | best | best |
+| open-loop | 12 req/s | round_robin | — | — | — | 31.8% | 2343 | 5391341 | 2301.0 | +1530.1 | +3585018 |
+| open-loop | 12 req/s | least_outstanding | — | — | — | 32.5% | 2343 | 5359552 | 2287.5 | +1516.5 | +3553229 |
 | open-loop | 12 req/s | session_affinity | 426ms | — | 2773ms | 74.5% | 2343 | 1806323 | 770.9 | best | best |
-| open-loop | 14 req/s | round_robin | 48134ms | — | 83018ms | 32.5% | 2733 | 6412355 | 2346.3 | +1631.3 | +4458233 |
-| open-loop | 14 req/s | least_outstanding | 47929ms | — | 79508ms | 33.7% | 2733 | 6278831 | 2297.4 | +1582.4 | +4324709 |
+| open-loop | 14 req/s | round_robin | — | — | — | 32.5% | 2733 | 6412355 | 2346.3 | +1631.3 | +4458233 |
+| open-loop | 14 req/s | least_outstanding | — | — | — | 33.7% | 2733 | 6278831 | 2297.4 | +1582.4 | +4324709 |
 | open-loop | 14 req/s | session_affinity | 422ms | — | 11170ms | 76.6% | 1822 | 1302748 | 715.0 | best | best |
-| open-loop | 16 req/s | round_robin | 63853ms | — | 105838ms | 32.4% | 3120 | 7395296 | 2370.3 | +1634.9 | +5100851 |
-| open-loop | 16 req/s | least_outstanding | 64403ms | — | 113659ms | 31.9% | 3120 | 7492044 | 2401.3 | +1665.9 | +5197599 |
-| open-loop | 16 req/s | session_affinity | 2529ms | — | 29525ms | 76.9% | 2080 | 1529630 | 735.4 | best | best |
-| open-loop | 20 req/s | round_robin | 100020ms | — | 162347ms | 29.3% | 3900 | 10003986 | 2565.1 | +1811.3 | +7064255 |
-| open-loop | 20 req/s | least_outstanding | 101395ms | — | 161645ms | 29.6% | 3900 | 9928161 | 2545.7 | +1791.9 | +6988430 |
-| open-loop | 20 req/s | session_affinity | 11934ms | — | 46664ms | 76.5% | 3900 | 2939731 | 753.8 | best | best |
+| open-loop | 16 req/s | round_robin | — | — | — | 32.4% | 3120 | 7395296 | 2370.3 | +1636.6 | +5106229 |
+| open-loop | 16 req/s | least_outstanding | — | — | — | 31.9% | 3120 | 7492044 | 2401.3 | +1667.6 | +5202977 |
+| open-loop | 16 req/s | session_affinity | — | — | — | 76.9% | 3120 | 2289067 | 733.7 | best | best |
+| open-loop | 20 req/s | round_robin | — | — | — | 29.3% | 3900 | 10003986 | 2565.1 | +1811.3 | +7064255 |
+| open-loop | 20 req/s | least_outstanding | — | — | — | 29.6% | 3900 | 9928161 | 2545.7 | +1791.9 | +6988430 |
+| open-loop | 20 req/s | session_affinity | — | — | — | 76.5% | 3900 | 2939731 | 753.8 | best | best |
+
+## How evenly it loaded the fleet
+
+Counted from the rows — how many measured requests each replica served — and not read
+off the router's per-decision inflight column, which recorded zero on every
+session-affinity row ever written before 9311e68 (#27). Every row is counted whatever
+its outcome: a request a replica accepted and then failed still occupied it.
+
+**Nothing here counted its placements.** Every policy in this table has a repetition
+recorded before 9311e68, so no imbalance figure can be pooled from it — and the inflight
+column those cells do carry reads zero throughout, which means "not recorded" and not
+"idle". Imbalance for these is still recoverable, by counting the per-request rows kept
+beside them.
+
+
+⚠ In the figures above, marked — these dropped or failed more of their requests than the
+threshold allows, or fell behind the load they were offered. That is what the policy did to
+the fleet at that load, not a broken measurement, so it is shown rather than dropped. A cell
+that fell behind is in the goodput and not in the TTFT percentiles, which never settled:
+
+- `least_outstanding-a10-r1`: the fleet fell behind its offered load: 75% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 48% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a10-r2`: the fleet fell behind its offered load: 70% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 52% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a10-r3`: the fleet fell behind its offered load: 75% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 54% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a12-r1`: the fleet fell behind its offered load: 79% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 52% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a12-r2`: the fleet fell behind its offered load: 80% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 46% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a12-r3`: the fleet fell behind its offered load: 80% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 51% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a14-r1`: the fleet fell behind its offered load: 86% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 52% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a14-r2`: the fleet fell behind its offered load: 83% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 53% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a14-r3`: the fleet fell behind its offered load: 87% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 48% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a16-r1`: the fleet fell behind its offered load: 93% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 50% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a16-r2`: the fleet fell behind its offered load: 91% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 53% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a16-r3`: the fleet fell behind its offered load: 91% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 51% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a20-r1`: the fleet fell behind its offered load: 99% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 52% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a20-r2`: the fleet fell behind its offered load: 98% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 51% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a20-r3`: the fleet fell behind its offered load: 98% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 53% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a8-r1`: the fleet fell behind its offered load: 56% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 54% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a8-r2`: the fleet fell behind its offered load: 55% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 47% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `least_outstanding-a8-r3`: the fleet fell behind its offered load: 57% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 54% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a10-r1`: the fleet fell behind its offered load: 73% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 55% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a10-r2`: the fleet fell behind its offered load: 76% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 53% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a10-r3`: the fleet fell behind its offered load: 73% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 53% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a12-r1`: the fleet fell behind its offered load: 81% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 53% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a12-r2`: the fleet fell behind its offered load: 80% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 54% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a12-r3`: the fleet fell behind its offered load: 80% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 51% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a14-r1`: the fleet fell behind its offered load: 86% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 52% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a14-r2`: the fleet fell behind its offered load: 85% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 51% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a14-r3`: the fleet fell behind its offered load: 86% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 52% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a16-r1`: the fleet fell behind its offered load: 91% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 52% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a16-r2`: the fleet fell behind its offered load: 91% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 51% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a16-r3`: the fleet fell behind its offered load: 93% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 52% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a20-r1`: the fleet fell behind its offered load: 99% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 51% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a20-r2`: the fleet fell behind its offered load: 97% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 54% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a20-r3`: the fleet fell behind its offered load: 98% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 52% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a8-r1`: the fleet fell behind its offered load: 58% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 51% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a8-r2`: the fleet fell behind its offered load: 54% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 53% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `round_robin-a8-r3`: the fleet fell behind its offered load: 56% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 55% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `session_affinity-a16-r1`: the fleet fell behind its offered load: 38% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 79% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `session_affinity-a16-r2`: the fleet fell behind its offered load: 32% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 43% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `session_affinity-a16-r3`: the fleet fell behind its offered load: 28% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 1009% slower early than late, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `session_affinity-a20-r1`: the fleet fell behind its offered load: 49% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 62% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `session_affinity-a20-r2`: the fleet fell behind its offered load: 43% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 52% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
+- `session_affinity-a20-r3`: the fleet fell behind its offered load: 48% of the requests offered were still unanswered when arrivals stopped, over a 20% backlog, and TTFT p50 was 56% slower late than early, compared within each of 4 turn indices. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run
 
 Excluded from every figure above — §6 discards these rather than averaging them in:
 
-- `least_outstanding-a2-r1`: still warming up: the first half of the measured window was 54% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `least_outstanding-a2-r3`: still warming up: the first half of the measured window was 48% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `least_outstanding-a4-r1`: still warming up: the first half of the measured window was 49% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `least_outstanding-a4-r2`: still warming up: the first half of the measured window was 43% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `least_outstanding-a6-r2`: still warming up: the first half of the measured window was 41% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+- `least_outstanding-a6-r2`: still warming up: TTFT p50 was 33% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run
 - `least_outstanding-c128-r1`: still warming up: the first half of the measured window was 46% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `round_robin-a2-r1`: still warming up: the first half of the measured window was 68% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `round_robin-a2-r2`: still warming up: the first half of the measured window was 64% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `round_robin-a2-r3`: still warming up: the first half of the measured window was 54% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `round_robin-a4-r1`: still warming up: the first half of the measured window was 60% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `round_robin-a4-r2`: still warming up: the first half of the measured window was 46% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `round_robin-a4-r3`: still warming up: the first half of the measured window was 54% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
 - `round_robin-c128-r2`: still warming up: the first half of the measured window was 53% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
 - `round_robin-c64-r3`: still warming up: the first half of the measured window was 36% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
 - `round_robin-c8-r3`: still warming up: the first half of the measured window was 53% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `session_affinity-a14-r2`: still warming up: the first half of the measured window was 33% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
-- `session_affinity-a16-r3`: still warming up: the first half of the measured window was 619% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
+- `session_affinity-a10-r3`: still warming up: TTFT p50 was 49% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run
+- `session_affinity-a14-r2`: still warming up: TTFT p50 was 137% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run
 - `session_affinity-c256-r1`: still warming up: the first half of the measured window was 359% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
 - `session_affinity-c256-r2`: still warming up: the first half of the measured window was 252% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run
 - `session_affinity-c256-r3`: still warming up: the first half of the measured window was 78% slower than the second by TTFT p50, over a 25% threshold. Lengthen the warm-up and re-run

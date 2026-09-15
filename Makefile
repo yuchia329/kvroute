@@ -786,9 +786,10 @@ divergence: build ## Measure how far the router's index was from what the engine
 # every open-loop run this repository holds the rows for; name others to check a
 # run whose rows are still on the box.
 #
-# It writes nothing back into the cell records, so it is safe to run over
+# The target writes nothing back into the cell records, so it is safe to run over
 # anything: a recorded cell says what was concluded when it ran, and the report
-# is the account of what the current check would say instead.
+# is the account of what the current check would say instead. Writing the
+# verdict back is `bin/rescore -write`, run by hand once that report is published.
 RESCORE_DIRS ?= docs/measurements/2026-09-08-policy-comparison/goodput docs/measurements/2026-09-08-three-policy-multiturn/goodput
 RESCORE_OUT  ?= runs/rescore.md
 

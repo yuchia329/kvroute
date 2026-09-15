@@ -54,11 +54,6 @@ func Compact(dir string) (Compaction, error) {
 	if err != nil {
 		return Compaction{}, fmt.Errorf("bench: list cell rows: %w", err)
 	}
-	cellFiles, err := filepath.Glob(filepath.Join(cellDir, "*.json"))
-	if err != nil {
-		return Compaction{}, fmt.Errorf("bench: list cell records: %w", err)
-	}
-
 	result := Compaction{
 		RequestsPath: filepath.Join(dir, RequestsParquet),
 		CellsPath:    filepath.Join(dir, CellsParquet),
@@ -66,7 +61,7 @@ func Compact(dir string) (Compaction, error) {
 	if result.Requests, err = compact[Result](rowFiles, result.RequestsPath); err != nil {
 		return Compaction{}, err
 	}
-	if result.Cells, err = compact[Cell](cellFiles, result.CellsPath); err != nil {
+	if result.Cells, err = compactCells(dir); err != nil {
 		return Compaction{}, err
 	}
 
@@ -83,6 +78,17 @@ func Compact(dir string) (Compaction, error) {
 		}
 	}
 	return result, nil
+}
+
+// compactCells rewrites a sweep's cell records as its cells.parquet. Its own
+// function because the records change after a sweep ends — re-scoring writes
+// verdicts back into them — and the compacted copy has to follow.
+func compactCells(dir string) (int, error) {
+	records, err := filepath.Glob(filepath.Join(dir, "cells", "*.json"))
+	if err != nil {
+		return 0, fmt.Errorf("bench: list cell records: %w", err)
+	}
+	return compact[Cell](records, filepath.Join(dir, CellsParquet))
 }
 
 // compact decodes every JSON value in the given files and writes them to one

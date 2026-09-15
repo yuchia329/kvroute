@@ -166,6 +166,10 @@ type PolicyGoodput struct {
 	// OverFailureThreshold is how many of those repetitions dropped or failed more of their requests
 	// than the threshold allows. They are in the figure, and the figure says so.
 	OverFailureThreshold int
+	// Saturated is how many of those repetitions the fleet fell behind its
+	// offered load in. They are in the figure, and the figure says so; they are
+	// not in the latency beside it.
+	Saturated int
 }
 
 // String is the figure as a table cell: the median, and the range it came from
@@ -173,18 +177,22 @@ type PolicyGoodput struct {
 //
 // A single repetition prints no range rather than a range of zero. A spread of
 // zero is a claim about reproducibility that one run cannot make. A figure that
-// rests on a repetition past the failure threshold carries a ⚠, so it cannot be
-// read as a healthy fleet's.
+// rests on a repetition past the failure threshold or past saturation carries a
+// ⚠, so it cannot be read as a healthy fleet's.
 func (g PolicyGoodput) String() string {
 	s := fmt.Sprintf("%.2f (%.2f–%.2f, n=%d)", g.MedianRPS, g.MinRPS, g.MaxRPS, g.Repetitions)
 	if g.Repetitions <= 1 {
 		s = fmt.Sprintf("%.2f (n=1)", g.MedianRPS)
 	}
-	if g.OverFailureThreshold > 0 {
+	if g.marked() {
 		s += " ⚠"
 	}
 	return s
 }
+
+// marked reports whether this figure rests on a repetition of a fleet that was
+// falling over.
+func (g PolicyGoodput) marked() bool { return g.OverFailureThreshold > 0 || g.Saturated > 0 }
 
 // overlaps reports whether two policies' repetition ranges overlap, which is when
 // the difference between their medians is inside the spread of either.
@@ -231,8 +239,10 @@ func Compare(cells []Cell) (Comparison, error) {
 			}
 			continue
 		}
-		if overFailureThreshold(cell) {
-			c.Surfaced = append(c.Surfaced, fmt.Sprintf("`%s`: %s", cell.ID, cell.FlagReasons[0]))
+		if surfaced(cell) {
+			for _, reason := range cell.FlagReasons {
+				c.Surfaced = append(c.Surfaced, fmt.Sprintf("`%s`: %s", cell.ID, reason))
+			}
 		}
 		if usable[cell.Policy] == nil {
 			usable[cell.Policy] = map[Load][]Cell{}
@@ -264,7 +274,8 @@ func Compare(cells []Cell) (Comparison, error) {
 			if pooled, ok := pool(name, load, cells); ok {
 				row.Goodput[name] = pooled
 			}
-			if pooled, ok := poolLatency(name, load, cells); ok {
+			settled := slices.DeleteFunc(slices.Clone(cells), pastSaturation)
+			if pooled, ok := poolLatency(name, load, settled); ok {
 				row.Latency[name] = pooled
 			}
 			if pooled, ok := poolImbalance(name, load, cells); ok {
@@ -441,10 +452,10 @@ func checkComparable(cells []Cell) error {
 // no flag must not be pooled into a published median on the strength of an
 // inference about how it was written.
 //
-// A cell whose only flag is its failure rate is the exception, and is not
-// excluded: see overFailureThreshold.
+// A cell whose only flags say the fleet was falling over is the exception, and is
+// not excluded: see surfaced.
 func whyExcluded(cell Cell) []string {
-	if cell.Flagged && !overFailureThreshold(cell) {
+	if cell.Flagged && !surfaced(cell) {
 		if len(cell.FlagReasons) == 0 {
 			return []string{"flagged, with no reason recorded"}
 		}
@@ -456,9 +467,8 @@ func whyExcluded(cell Cell) []string {
 	return nil
 }
 
-// overFailureThreshold reports whether a cell's one defect is that it dropped or failed more of
-// its requests than the threshold allows, which surfaces it rather than
-// excluding it.
+// surfaced reports whether every flag on a clean cell says the fleet was falling
+// over, which keeps it in the figures, marked, rather than excluding it.
 //
 // The distinction is between a broken measurement and a measurement of a broken
 // fleet. A foreign process, a warm-up that was too short or a replica ejected
@@ -467,12 +477,41 @@ func whyExcluded(cell Cell) []string {
 // table that dropped it would show a policy collapsing at high load as a gap —
 // which reads as "did not run". So it stays in, marked, and named.
 //
-// Read from the failure rate the summary recorded against its own threshold,
-// with that flag the only one on a clean cell: any second reason is a defect of
-// the other kind, and it wins.
+// Two flags say that: a failure rate past the threshold, and a queue that was
+// still growing when arrivals stopped (#33). Either or both, and nothing else —
+// any other reason is a defect of the first kind, and it wins.
+func surfaced(cell Cell) bool {
+	if !cell.Clean || !cell.Flagged {
+		return false
+	}
+	falling := 0
+	if failedPastThreshold(cell) {
+		falling++
+	}
+	if slices.Contains(cell.WarmupDriftCauses(), WarmupDriftSaturated) {
+		falling++
+	}
+	return falling > 0 && falling == len(cell.FlagReasons)
+}
+
+// failedPastThreshold reports whether the cell dropped or failed more of its
+// requests than the threshold it recorded, with the check switched on.
+func failedPastThreshold(cell Cell) bool {
+	return cell.FailureThreshold > 0 && cell.FailureRate > cell.FailureThreshold
+}
+
+// overFailureThreshold reports whether a surfaced cell is in the figures because
+// it dropped or failed more of its requests than the threshold allows.
 func overFailureThreshold(cell Cell) bool {
-	return cell.Clean && cell.Flagged && len(cell.FlagReasons) == 1 &&
-		cell.FailureThreshold > 0 && cell.FailureRate > cell.FailureThreshold
+	return surfaced(cell) && failedPastThreshold(cell)
+}
+
+// pastSaturation reports whether a surfaced cell is in the figures because the
+// fleet fell behind its offered load. Its goodput is pooled and its latency is
+// not: percentiles taken over a queue that never settled describe the moment the
+// cell stopped, not the policy.
+func pastSaturation(cell Cell) bool {
+	return surfaced(cell) && slices.Contains(cell.WarmupDriftCauses(), WarmupDriftSaturated)
 }
 
 // pool reduces a policy's repetitions at one load point to one figure.
@@ -481,11 +520,14 @@ func pool(name string, load Load, cells []Cell) (PolicyGoodput, bool) {
 		return PolicyGoodput{}, false
 	}
 	rates := make([]float64, 0, len(cells))
-	failing := 0
+	failing, saturated := 0, 0
 	for _, cell := range cells {
 		rates = append(rates, cell.GoodputRPS)
 		if overFailureThreshold(cell) {
 			failing++
+		}
+		if pastSaturation(cell) {
+			saturated++
 		}
 	}
 	slices.Sort(rates)
@@ -500,6 +542,7 @@ func pool(name string, load Load, cells []Cell) (PolicyGoodput, bool) {
 		MinRPS:               rates[0],
 		MaxRPS:               rates[len(rates)-1],
 		OverFailureThreshold: failing,
+		Saturated:            saturated,
 	}, true
 }
 
@@ -720,16 +763,17 @@ func (c Comparison) Report() string {
 	return b.String()
 }
 
-// reportSurfaced names the cells a figure rests on that are past the failure
-// threshold. One rendering, used by the comparison and by the map, so the two
-// cannot come to describe the same cells differently.
+// reportSurfaced names the cells a figure rests on that measured a fleet falling
+// over. One rendering, used by the comparison and by the map, so the two cannot
+// come to describe the same cells differently.
 func reportSurfaced(b *strings.Builder, surfaced []string) {
 	if len(surfaced) == 0 {
 		return
 	}
 	fmt.Fprintf(b, "\n⚠ In the figures above, marked — these dropped or failed more of their requests than the\n")
-	fmt.Fprintf(b, "threshold allows. That is what the policy did to the fleet at that load, not a broken\n")
-	fmt.Fprintf(b, "measurement, so it is shown rather than dropped:\n\n")
+	fmt.Fprintf(b, "threshold allows, or fell behind the load they were offered. That is what the policy did to\n")
+	fmt.Fprintf(b, "the fleet at that load, not a broken measurement, so it is shown rather than dropped. A cell\n")
+	fmt.Fprintf(b, "that fell behind is in the goodput and not in the TTFT percentiles, which never settled:\n\n")
 	for _, reason := range surfaced {
 		fmt.Fprintf(b, "- %s\n", reason)
 	}
@@ -921,7 +965,7 @@ func (r ComparisonRow) delta(baseline, challenger string) string {
 	if !hasBase || !hasOther {
 		return "—"
 	}
-	if base.OverFailureThreshold > 0 || other.OverFailureThreshold > 0 {
+	if base.marked() || other.marked() {
 		return r.unmarkedDelta(base, other) + " ⚠"
 	}
 	return r.unmarkedDelta(base, other)

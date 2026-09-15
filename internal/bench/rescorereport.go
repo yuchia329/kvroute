@@ -96,8 +96,8 @@ func writeCells(b *strings.Builder, scored []Rescored, everyCell bool) {
 		fmt.Fprintln(b, "## Cells whose verdict changed")
 	}
 	fmt.Fprintln(b)
-	fmt.Fprintln(b, "| run | cell | rate | think | periods | recorded drift | current drift | basis | compared | confined | recorded verdict | current verdict |")
-	fmt.Fprintln(b, "|---|---|---:|---:|---:|---:|---:|---|---:|---:|---|---|")
+	fmt.Fprintln(b, "| run | cell | rate | think | periods | recorded drift | current drift | basis | compared | confined | backlog | recorded verdict | current verdict |")
+	fmt.Fprintln(b, "|---|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---|---|")
 	var changed int
 	for _, r := range scored {
 		if r.Changed() {
@@ -105,14 +105,14 @@ func writeCells(b *strings.Builder, scored []Rescored, everyCell bool) {
 		} else if !everyCell {
 			continue
 		}
-		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %+.3f | %+.3f | %s | %d | %d | %s | %s |\n",
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %+.3f | %+.3f | %s | %d | %d | %.0f%% | %s | %s |\n",
 			r.Dir, r.Cell, rateOf(r), thinkOf(r), periodsOf(r),
 			r.Was.WarmupDrift, r.Now.WarmupDrift,
-			basisOf(r.Now), r.Now.WarmupDriftTurnsCompared, r.Now.WarmupDriftTurnsConfined,
+			basisOf(r.Now), r.Now.WarmupDriftTurnsCompared, r.Now.WarmupDriftTurnsConfined, r.Now.Backlog*100,
 			r.Was.WarmupDriftVerdict(), r.Now.WarmupDriftVerdict())
 	}
 	if changed == 0 && !everyCell {
-		fmt.Fprintln(b, "| — | no cell changed verdict | | | | | | | | | | |")
+		fmt.Fprintln(b, "| — | no cell changed verdict | | | | | | | | | | | |")
 	}
 	fmt.Fprintf(b, "\n%d of %d cells changed verdict.\n\n", changed, len(scored))
 }

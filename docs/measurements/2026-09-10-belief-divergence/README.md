@@ -129,7 +129,7 @@ number of visit periods rather than as a fleet that was still warming up:
 | cell | periods measured | drift as recorded | drift within each turn index | indices not compared | verdict now |
 |---|---:|---:|---:|---:|---|
 | think30 r1 / r2 / r3 | 1.88 | +0.936 / +2.311 / +1.933 | +1.035 / +1.505 / +1.578 | 0 | cold opening |
-| think75 r1 / r2 / r3 | 1.05 | +3.246 / +4.248 / +0.514 | −0.056 / −0.228 / −0.324 | 2 | fractional visit periods |
+| think75 r1 / r2 / r3 | 1.05 | +3.246 / +4.248 / +0.514 | −0.056 / −0.228 / −0.324 | 2 | fractional visit periods; r3 also fleet degrading, at −0.324 past the 25% threshold |
 
 So the "51% to 425% slower" above is, at think 75 s, two different workloads being compared rather
 than a fleet three times slower at the start. The verdict on this table does not change — it is

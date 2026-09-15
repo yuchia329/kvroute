@@ -2,6 +2,7 @@ package bench
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -11,7 +12,7 @@ import (
 )
 
 // Warm-up drift: whether a cell's latencies moved across the window it was
-// measured over, and if so which of three things moved them.
+// measured over, and if so which of four things moved them.
 //
 // The check exists because a warm-up length cannot be chosen in advance and
 // then trusted. What it must not do is fire on a cell that was perfectly steady,
@@ -19,7 +20,7 @@ import (
 // version of it did, on all six of #17's recency cells, for a reason no warm-up
 // could have fixed.
 //
-// The three things it separates:
+// The four things it separates:
 //
 //   - A still-cold opening period. The fleet was genuinely faster later than
 //     earlier; the warm-up was too short. This is the one "lengthen the warm-up
@@ -27,6 +28,10 @@ import (
 //   - A fleet genuinely degrading. The second half is the slower one. A cell
 //     whose TTFT p50 doubled across its window is as unpoolable as one that
 //     halved, and a check that tests only one direction publishes it unflagged.
+//   - An open-loop cell past saturation. It was offered more than the fleet
+//     could serve, so its queue grew for as long as arrivals kept coming and its
+//     TTFT moved whichever way the split fell. Its backlog says so, and it is
+//     not a broken measurement: its goodput is the result.
 //   - A fractional number of visit periods. Under the open-loop rotation the
 //     turn index is the round, so the whole conversation pool advances together
 //     and rolls over every TurnsPerSession rounds. TTFT is therefore periodic
@@ -35,7 +40,7 @@ import (
 //     its split. The two medians are then over two different workloads, for as
 //     long as the cell runs and however warm the fleet is.
 //
-// The third is cancelled rather than detected-and-excused: drift is compared
+// The last is cancelled rather than detected-and-excused: drift is compared
 // within each turn index, so the composition of the halves falls out of the
 // arithmetic for any cell length, any warm-up and any rate, with no
 // per-configuration geometry to derive. What remains detectable — and is
@@ -228,7 +233,24 @@ const (
 	// WarmupDriftFractional is a measured window holding a fractional number of
 	// visit periods, so the halves held different turn indices.
 	WarmupDriftFractional WarmupDriftCause = "fractional visit periods"
+	// WarmupDriftSaturated is an open-loop cell offered more than the fleet
+	// could serve: its latency moved because its queue grew, in whichever
+	// direction the split fell. Not a defect of the measurement, so nothing to
+	// re-run — its goodput is the result and its percentiles are a transient.
+	WarmupDriftSaturated WarmupDriftCause = "past saturation"
 )
+
+// saturatedBacklog is the backlog above which a cell whose latency moved is read
+// as past saturation rather than as cold or degrading: the fleet answered fewer
+// than four in five of the requests it was offered while they were still
+// arriving.
+//
+// Set in the gap the recorded cells leave. Of the 216 open-loop cells re-scored
+// for #33, every one whose TTFT moved past the drift threshold left either 16% or
+// less of its requests unanswered at the close — a cold opening, or a fleet that
+// slowed while keeping up — or 28% and more, which is every cell offered a rate
+// past its policy's knee.
+const saturatedBacklog = 0.20
 
 // warmupDriftOpenings is the sentence each cause's flag opens with.
 //
@@ -241,11 +263,12 @@ var warmupDriftOpenings = map[WarmupDriftCause]string{
 	WarmupDriftCold:       "still warming up",
 	WarmupDriftDegrading:  "the fleet slowed across the measured window",
 	WarmupDriftFractional: "the measured window is not a whole number of visit periods",
+	WarmupDriftSaturated:  "the fleet fell behind its offered load",
 }
 
 // warmupDriftCauseOrder is the order causes are read and reported in, so a cell
 // flagged for two of them renders the same way every time.
-var warmupDriftCauseOrder = []WarmupDriftCause{WarmupDriftFractional, WarmupDriftCold, WarmupDriftDegrading}
+var warmupDriftCauseOrder = []WarmupDriftCause{WarmupDriftFractional, WarmupDriftCold, WarmupDriftDegrading, WarmupDriftSaturated}
 
 // WarmupDriftCauses is every drift cause this summary was flagged for.
 //
@@ -288,7 +311,7 @@ func (s Summary) WarmupDriftVerdict() string {
 // The old message ended "Lengthen the warm-up and re-run", which is the one fix
 // that cannot work for a window holding a fractional number of visit periods —
 // and that sentence is what shaped #29's acceptance criteria, which #29 then
-// spent its first design pass undoing. The three causes have three different
+// spent its first design pass undoing. The four causes have four different
 // fixes and the flag says which it is looking at.
 func (s *Summary) flagDrift(threshold float64) {
 	if threshold <= 0 || s.WarmupDriftBasis == "" {
@@ -312,7 +335,19 @@ func (s *Summary) flagDrift(threshold float64) {
 			s.WarmupDriftTurnsConfined, plural(s.WarmupDriftTurnsConfined, "index is", "indices are"), rest)
 	}
 
-	if s.WarmupDrift > threshold {
+	if moved := math.Abs(s.WarmupDrift); moved > threshold && s.Backlog > saturatedBacklog {
+		// Before the two directions, because past saturation the direction is
+		// an accident of where the split fell in a queue that never settled —
+		// and "lengthen the warm-up" or "look for a throttled card" would each
+		// send someone to re-run a cell that measured exactly what it was for.
+		slower := "late than early"
+		if s.WarmupDrift > 0 {
+			slower = "early than late"
+		}
+		s.flagDriftCause(WarmupDriftSaturated,
+			"%.0f%% of the requests offered were still unanswered when arrivals stopped, over a %.0f%% backlog, and TTFT p50 was %.0f%% slower %s, %s. The fleet was offered more than it can serve, so this cell's latency percentiles are a transient and are not pooled; its goodput is the result, and there is nothing to re-run",
+			s.Backlog*100, saturatedBacklog*100, moved*100, slower, s.driftBasisPhrase())
+	} else if s.WarmupDrift > threshold {
 		s.flagDriftCause(WarmupDriftCold,
 			"TTFT p50 was %.0f%% slower early in the measured window than late, %s, over a %.0f%% threshold. Lengthen the warm-up and re-run",
 			s.WarmupDrift*100, s.driftBasisPhrase(), threshold*100)

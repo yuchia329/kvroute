@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/parquet-go/parquet-go"
+
 	"github.com/yuchia329/kvroute/internal/bench"
 )
 
@@ -125,6 +127,107 @@ func TestARecordedCellIsPutBesideWhatTheCurrentCheckMakesOfItsRows(t *testing.T)
 		if !strings.Contains(report, want) {
 			t.Errorf("the report does not say %q:\n%s", want, report)
 		}
+	}
+}
+
+// Writing the re-score back is what lets every table and figure downstream of a
+// cell record — the comparison, the figures, the map — judge it by the current
+// check without each of them re-deriving summaries from rows. The recorded
+// verdict is not lost by it: the re-score report published beside the change is
+// the record of what moved, and git holds the old files.
+//
+// What it must not do is lose the evidence the rows cannot supply. A replica
+// ejected mid-cell is known only from the record, so the flag it raised is
+// reapplied, exactly as a sweep reapplies it when it resummarises a cached cell.
+func TestWritingTheRescoreBackUpdatesTheRecordAndKeepsItsOwnEvidence(t *testing.T) {
+	// The record as the run wrote it: the summary its rows produce with no drift
+	// check to stop it, on a clean fleet that lost a replica mid-cell.
+	rows := degradingRows()
+	summary := bench.Summarize(rows, bench.SummaryOptions{WarmupDriftThreshold: -1})
+	summary.Flag("the router ejected a replica 1 time(s) during this cell, so it measured a smaller fleet for part of its window; " +
+		"nothing was dropped to show it, because the router reroutes around a missing replica. Re-run it")
+	// A column added after this cell ran. The rows could fill it in, but writing
+	// the drift verdict back is not the place to publish a figure nobody asked
+	// for, so it has to stay as it was recorded.
+	summary.TTFTP90Ns = 0
+	dir := recordedCell(t, "multiturn(sessions=922,ws=3,skew=1,turns=4)", rows, summary)
+	path := filepath.Join(dir, "cells", "prefix_affinity-a8-r1.json")
+	var recorded map[string]any
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(contents, &recorded); err != nil {
+		t.Fatal(err)
+	}
+	recorded["ejections"] = 1
+	recorded["contamination"] = map[string]any{"gpu_samples": 12, "clean": true}
+	if contents, err = json.Marshal(recorded); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bench.Compact(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	scored, err := bench.Rescore([]string{dir}, bench.DefaultWarmupDriftThreshold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bench.WriteRescored(scored); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded, err := bench.LoadCells(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(reloaded[0].FlagReasons, " | ")
+	if reloaded[0].WarmupDriftVerdict() != string(bench.WarmupDriftDegrading) {
+		t.Errorf("the written record's verdict is %q, want %q: %s", reloaded[0].WarmupDriftVerdict(), bench.WarmupDriftDegrading, got)
+	}
+	if !strings.Contains(got, "ejected a replica") {
+		t.Errorf("writing the re-score back dropped the flag only the record could supply: %s", got)
+	}
+	if reloaded[0].TTFTP90Ns != 0 {
+		t.Errorf("writing the drift verdict back also filled in TTFT p90 (%v), a column the record never had", time.Duration(reloaded[0].TTFTP90Ns))
+	}
+
+	// The compacted copy of the records is rebuilt from them, so the two forms a
+	// sweep directory keeps cannot disagree about a verdict.
+	compacted, err := parquet.ReadFile[bench.Cell](filepath.Join(dir, bench.CellsParquet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compacted) != 1 || compacted[0].WarmupDriftVerdict() != string(bench.WarmupDriftDegrading) {
+		t.Errorf("cells.parquet still holds the old verdict: %+v", compacted)
+	}
+}
+
+// A cell whose rows do not reproduce its record is not written back: a verdict
+// read off the wrong rows would overwrite a record with a summary of something
+// else.
+func TestACellWhoseRowsDoNotReproduceItIsNotWrittenBack(t *testing.T) {
+	dir := recordedCell(t, "multiturn(sessions=922,ws=3,skew=1,turns=4)", degradingRows(), bench.Summary{
+		Requests: 99, Successes: 99, FailureThreshold: -1, ScheduleLagThresholdNs: -1,
+	})
+	path := filepath.Join(dir, "cells", "prefix_affinity-a8-r1.json")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scored, err := bench.Rescore([]string{dir}, bench.DefaultWarmupDriftThreshold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bench.WriteRescored(scored); err == nil || !strings.Contains(err.Error(), "prefix_affinity-a8-r1") {
+		t.Errorf("writing back a cell whose rows disagree with its record returned %v, want an error naming it", err)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Error("the record was overwritten although its rows do not reproduce it")
 	}
 }
 
