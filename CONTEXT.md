@@ -590,6 +590,25 @@ than prefix affinity wins beyond the spread.
 _Avoid_: heatmap, pressure map (that is one baseline's delta against one challenger; this names a
 winner among every policy present)
 
+**Turn geometry**:
+The two halves of what a cell's conversations are shaped like: its **turns per session**, how many
+turns a conversation runs for, and its **prompt tokens per turn**, how much new user text each of
+those turns contributes on top of the history it resends. One term for the two because they are one
+physical quantity split in half — a session's KV footprint is turns × (prompt + output) — so a turn
+count stated without a prompt size names a pressure it may not have applied. Every published cell
+ran at one geometry, four turns of 448 tokens, and both halves are now axes of their own. Prompt
+tokens per turn is not the engine's `prompt_tokens`, which counts the whole rendered prompt
+including the resent history.
+_Avoid_: prompt length (unqualified — that is the whole prompt the engine sees), conversation
+length, turn count (unqualified)
+
+**Session pool**:
+How many distinct conversations a cell's workload draws from. The realised count rather than the
+configured one: a cell given a working set ratio has its pool derived from the measured fleet
+capacity, and a sweep along the turns axis rescales it so offered session tokens hold at their
+level. Recorded per cell so that rescaling is checkable from the rows rather than asserted.
+_Avoid_: session count, users, concurrency (that is the load axis)
+
 **Working set ratio**:
 Total session tokens offered divided by aggregate fleet KV capacity. The axis of the pressure grid
 that creates memory pressure, because it determines whether the fleet can hold every session at

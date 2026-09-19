@@ -150,6 +150,15 @@ func (s shifted) WorkingSet() float64 { return OfferedWorkingSet(s.inner) }
 // report the whole pressure grid as uniform.
 func (s shifted) Skew() float64 { return OfferedSkew(s.inner) }
 
+// TurnsPerSession, PromptTokens and Sessions forward the wrapped workload's
+// own, for the reason WorkingSet and Skew are forwarded: every cell the sweep
+// runs is Shifted, and a wrapper that swallowed the question would report the
+// whole of both new axes as unstated — an empty column no test would fail over,
+// and a user-space partition that put every geometry point back on one slice.
+func (s shifted) TurnsPerSession() int { return OfferedGeometry(s.inner).TurnsPerSession }
+func (s shifted) PromptTokens() int    { return OfferedGeometry(s.inner).PromptTokens }
+func (s shifted) Sessions() int        { return OfferedSessions(s.inner) }
+
 // ConfiguredWorkingSet forwards the wrapped workload's own, for the reason
 // WorkingSet and Skew are forwarded: the sweep hands every cell a shifted
 // workload, and a wrapper that swallowed the question would report every cell as
