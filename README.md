@@ -16,7 +16,7 @@ This page is the two-minute version: five findings, one figure each, then the co
 | fleet | six replicas of `Meta-Llama-3.1-8B-Instruct-AWQ-INT4`, one RTX 3090 each; five used for the comparison — GPU 3 thermally throttles and is excluded ([#25](https://github.com/yuchia329/kvroute/issues/25)) |
 | policies | 6 implemented — round robin, least outstanding, session affinity, prefix affinity, exact residency, prefix hash; 5 measured on the fleet |
 | SLO | TTFT < 990 ms, inter-token p50 < 24 ms — **3× the measured latency floor** (329 ms / 7.8 ms), derived rather than chosen |
-| records | 746 cell records across 17 measurement campaigns; the largest, ~122,500 requests |
+| records | 788 cell records across 18 measurement campaigns; the largest, ~122,500 requests |
 | repetitions | 3 per cell, spread published, ranges beside every median |
 | reproduce | `make figures` — no fleet, no GPU |
 
@@ -26,17 +26,25 @@ This page is the two-minute version: five findings, one figure each, then the co
 
 ![Pressure map: goodput delta, prefix affinity against session affinity, across working set ratio and skew](docs/figures/pressuremap.svg)
 
-At the frozen comparison point (working set 1, skew 0) prefix affinity beats session affinity by
-**+66.2%**, non-overlapping repetition ranges. At the opposite corner — working set 0.25, skew 0,
-whole working set in cache, no imbalance to fix — it is **−6.8%, within spread**: indistinguishable,
-exactly where idea.md §0 predicted.
+At the frozen comparison point (working set 1, skew 0) prefix affinity beats **bounded session
+affinity** — the same consistent-hash ring with a load bound, the hardest baseline a plain load
+balancer offers — by **+31.5%**, and load-blind **session affinity** by **+66.2%**, both with
+non-overlapping repetition ranges. At the opposite corner — working set 0.25, skew 0, whole working
+set in cache, no imbalance to fix — it is within spread of both: indistinguishable, exactly where
+idea.md §0 predicted. Every margin names the baseline it is over
+([ADR-0016](docs/adr/0016-the-load-bounded-ring-is-the-second-baseline-and-every-delta-names-the-baseline-it-is-against.md)).
+
+Prefix affinity **over bounded session affinity** (ε = 0.25, CacheRoute's setting):
 
 | WS \ skew | 0 | 1 | 1.4 |
 |---|---:|---:|---:|
-| **0.25** | −6.8% (within spread) | +289.8%¹ | +373.0% |
-| **1** | +66.2% | +38.6% | +171.2% |
-| **3** | +24.6% | +51.4%² | +346.9% |
-| **8** | +21.0% | +25.3% | +162.4% |
+| **0.25** | +0.6% (within spread) | +12.7% | +5.7% |
+| **1** | +31.5% | +18.7% | +13.7% |
+| **3** | +22.9% | +18.5% | +13.0% |
+| **8** | +21.4% | +15.1% | +12.5% |
+
+[Measurement](docs/measurements/2026-09-19-bounded-session-affinity/). Prefix affinity **over
+session affinity**, which has no load bound — the figure above draws this one:
 
 ¹ Two repetitions: one flagged for warm-up drift, re-run, drifted harder; direction holds either
 way. ² Also two repetitions, after the rebuilt drift check set one aside as a cold opening
@@ -51,6 +59,7 @@ every point of the grid. What separates them is where load lands.
 | | |
 |---|---|
 | hit rate gap, session vs prefix affinity | 0.0–2.2 points |
+| hit rate gap, bounded session vs prefix affinity | 0.4–8.7 points — the bound's deflected turns miss the cache |
 | spill-off arm (prefix affinity, rule disabled) | loses 5–51% of goodput at 11 of 12 points |
 | busiest replica's share of requests, rule on | 21–22% (fair share) |
 | share of decisions the spill rule fires on | 0.2–2.5% |
@@ -186,11 +195,17 @@ Narrower here:
   routing belongs to.
 - **Where recovery costs land**: after the kill for session affinity, during it for prefix affinity.
 
-Not yet measured, and the most likely objection: the session-affinity baseline has **no load
-bound**. Envoy (`hash_balance_factor`) and HAProxy (`hash-balance-factor`) turn on consistent
-hashing with bounded loads with one setting, CacheRoute uses it as a baseline, and the second
-finding says the win is load. Until that policy is on the grid, the margins above are against
-load-blind stickiness, not against the best a plain load balancer offers. See
+Measured, and the most likely objection: session affinity has **no load bound**, while Envoy
+(`hash_balance_factor`) and HAProxy (`hash-balance-factor`) turn on consistent hashing with bounded
+loads with one setting and CacheRoute uses it as a baseline. With that bound on the grid at
+CacheRoute's ε = 0.25, prefix affinity still leads at 11 of 12 points, by +5.7% to +31.5%. But at
+skew 1.4 the bound alone closes 81–93% of the gap between session affinity and prefix affinity:
+the +162% to +373% in that column is mostly what one load-balancer setting buys, and the index's
+own share of it is +5.7% to +13.7%. The bound is not free — it sends 14–42% of turns away from the
+replica that served their conversation and gives up 1–8 points of prefix cache hit rate — and at
+skew 0 above working set 1 it buys nothing over the load-blind ring. One ε, not swept; the
+objection that 0.25 was a bad choice is open.
+[Measurement](docs/measurements/2026-09-19-bounded-session-affinity/). See
 [`docs/research/prior-art-routing.md`](docs/research/prior-art-routing.md), carrying a permanent
 re-verify warning — three of its claims moved within four weeks of research.
 

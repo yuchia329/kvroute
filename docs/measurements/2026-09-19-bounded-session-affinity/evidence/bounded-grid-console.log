@@ -1,0 +1,58 @@
+[10:36:12] === bounded session affinity (#36): grid ===
+[10:41:21] fleet is up on GPUs 0 1 2 4 5
+[10:41:22] usage probe passed: the engines report cached prompt tokens
+[10:41:22] restarting the fleet before the next policy (ADR-0004)
+[10:46:52] fleet is back up
+[10:46:55] bounded_session_affinity: router up
+[10:46:55] bounded_session_affinity at bound 0.25: WS 0.25 skew 0 (3 reps, 300s cells)
+  bounded_session_affinity-c32-r1  bound 0.25  goodput 31.86/s  p90 TTFT 327 ms  kept 6778 (84.7%)  deflected 1228 (15.3%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.25  goodput 31.43/s  p90 TTFT 337 ms  kept 6757 (85.4%)  deflected 1153 (14.6%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.25  goodput 32.87/s  p90 TTFT 146 ms  kept 7339 (88.9%)  deflected 917 (11.1%)  unidentified 0  undecided 0  flagged False 
+[11:02:22] bounded_session_affinity at bound 0.25: WS 0.25 skew 1 (3 reps, 300s cells)
+  bounded_session_affinity-c32-r1  bound 0.25  goodput 30.63/s  p90 TTFT 369 ms  kept 5252 (68.0%)  deflected 2474 (32.0%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.25  goodput 30.55/s  p90 TTFT 355 ms  kept 4878 (63.5%)  deflected 2805 (36.5%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.25  goodput 30.46/s  p90 TTFT 376 ms  kept 4697 (61.4%)  deflected 2957 (38.6%)  unidentified 0  undecided 0  flagged False 
+[11:17:49] bounded_session_affinity at bound 0.25: WS 0.25 skew 1.4 (3 reps, 300s cells)
+  bounded_session_affinity-c32-r1  bound 0.25  goodput 32.35/s  p90 TTFT 141 ms  kept 3995 (49.0%)  deflected 4152 (51.0%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.25  goodput 32.93/s  p90 TTFT 135 ms  kept 4897 (59.0%)  deflected 3396 (41.0%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.25  goodput 33.75/s  p90 TTFT 128 ms  kept 5534 (65.2%)  deflected 2951 (34.8%)  unidentified 0  undecided 0  flagged False 
+[11:33:17] bounded_session_affinity at bound 0.25: WS 1 skew 0 (3 reps, 300s cells)
+  bounded_session_affinity-c32-r1  bound 0.25  goodput 11.42/s  p90 TTFT 996 ms  kept 2581 (80.3%)  deflected 634 (19.7%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.25  goodput 11.19/s  p90 TTFT 1023 ms  kept 2540 (79.8%)  deflected 641 (20.2%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.25  goodput 11.37/s  p90 TTFT 1016 ms  kept 2494 (77.3%)  deflected 731 (22.7%)  unidentified 0  undecided 0  flagged False 
+[11:48:46] bounded_session_affinity at bound 0.25: WS 1 skew 1 (3 reps, 300s cells)
+  bounded_session_affinity-c32-r1  bound 0.25  goodput 20.22/s  p90 TTFT 659 ms  kept 4136 (78.9%)  deflected 1104 (21.1%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.25  goodput 19.80/s  p90 TTFT 609 ms  kept 4088 (80.0%)  deflected 1022 (20.0%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.25  goodput 19.15/s  p90 TTFT 670 ms  kept 3371 (68.3%)  deflected 1568 (31.7%)  unidentified 0  undecided 0  flagged False 
+[12:04:13] bounded_session_affinity at bound 0.25: WS 1 skew 1.4 (3 reps, 300s cells)
+  bounded_session_affinity-c32-r1  bound 0.25  goodput 26.57/s  p90 TTFT 414 ms  kept 4272 (63.3%)  deflected 2474 (36.7%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.25  goodput 28.35/s  p90 TTFT 408 ms  kept 3941 (54.9%)  deflected 3234 (45.1%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.25  goodput 26.77/s  p90 TTFT 420 ms  kept 4124 (60.9%)  deflected 2653 (39.1%)  unidentified 0  undecided 0  flagged False 
+[12:19:42] bounded_session_affinity at bound 0.25: WS 3 skew 0 (3 reps, 300s cells)
+  bounded_session_affinity-c32-r1  bound 0.25  goodput 9.43/s  p90 TTFT 1144 ms  kept 2318 (81.8%)  deflected 516 (18.2%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.25  goodput 9.56/s  p90 TTFT 1138 ms  kept 2353 (82.6%)  deflected 496 (17.4%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.25  goodput 9.44/s  p90 TTFT 1144 ms  kept 2257 (80.0%)  deflected 566 (20.0%)  unidentified 0  undecided 0  flagged False 
+[12:35:12] bounded_session_affinity at bound 0.25: WS 3 skew 1 (3 reps, 300s cells)
+  bounded_session_affinity-c32-r1  bound 0.25  goodput 16.54/s  p90 TTFT 743 ms  kept 3436 (79.3%)  deflected 899 (20.7%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.25  goodput 16.01/s  p90 TTFT 744 ms  kept 3166 (74.8%)  deflected 1066 (25.2%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.25  goodput 15.80/s  p90 TTFT 764 ms  kept 3253 (77.3%)  deflected 954 (22.7%)  unidentified 0  undecided 0  flagged False 
+[12:50:40] bounded_session_affinity at bound 0.25: WS 3 skew 1.4 (3 reps, 300s cells)
+  bounded_session_affinity-c32-r1  bound 0.25  goodput 25.20/s  p90 TTFT 427 ms  kept 3462 (54.3%)  deflected 2915 (45.7%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.25  goodput 26.77/s  p90 TTFT 420 ms  kept 4806 (70.9%)  deflected 1970 (29.1%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.25  goodput 25.48/s  p90 TTFT 429 ms  kept 3758 (58.0%)  deflected 2721 (42.0%)  unidentified 0  undecided 0  flagged False 
+[13:06:07] bounded_session_affinity at bound 0.25: WS 8 skew 0 (3 reps, 300s cells)
+  bounded_session_affinity-c32-r1  bound 0.25  goodput 9.04/s  p90 TTFT 1268 ms  kept 2326 (84.7%)  deflected 420 (15.3%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.25  goodput 8.80/s  p90 TTFT 1312 ms  kept 2262 (83.3%)  deflected 455 (16.7%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.25  goodput 8.58/s  p90 TTFT 1345 ms  kept 2136 (80.0%)  deflected 535 (20.0%)  unidentified 0  undecided 0  flagged False 
+[13:21:36] bounded_session_affinity at bound 0.25: WS 8 skew 1 (3 reps, 300s cells)
+  bounded_session_affinity-c32-r1  bound 0.25  goodput 14.69/s  p90 TTFT 805 ms  kept 3184 (80.5%)  deflected 770 (19.5%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.25  goodput 14.27/s  p90 TTFT 793 ms  kept 2986 (78.1%)  deflected 839 (21.9%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.25  goodput 14.80/s  p90 TTFT 863 ms  kept 3393 (84.9%)  deflected 602 (15.1%)  unidentified 0  undecided 0  flagged False 
+[13:37:04] bounded_session_affinity at bound 0.25: WS 8 skew 1.4 (3 reps, 300s cells)
+  bounded_session_affinity-c32-r1  bound 0.25  goodput 25.37/s  p90 TTFT 428 ms  kept 4254 (66.2%)  deflected 2175 (33.8%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.25  goodput 24.92/s  p90 TTFT 433 ms  kept 4413 (69.8%)  deflected 1906 (30.2%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.25  goodput 24.92/s  p90 TTFT 431 ms  kept 3807 (60.2%)  deflected 2519 (39.8%)  unidentified 0  undecided 0  flagged False 
+[13:52:31] router drained
+[13:52:31] bounded_session_affinity: all 12 points done in 3h16m
+[13:52:31] === grid complete: runs/pressuremap-bounded-vs-prefix.md, runs/pressuremap-session-vs-bounded.md, runs/regimemap-bounded.md ===
+[13:52:39] fleet down; GPUs released

@@ -1,0 +1,10 @@
+[09:41:16] === bounded session affinity (#36): smoke ===
+[09:46:25] fleet is up on GPUs 0 1 2 4 5
+[09:46:25] usage probe passed: the engines report cached prompt tokens
+[09:46:28] bounded_session_affinity: router up
+[09:46:28] bounded_session_affinity at bound 0.25: WS 1 skew 1.4 (1 reps, 60s cells)
+[09:47:33] router drained
+  bounded_session_affinity-c32-r1  bound 0.25  goodput 25.61/s  p90 TTFT 431 ms  kept 768 (71.7%)  deflected 303 (28.3%)  unidentified 0  undecided 0  flagged False 
+  SMOKE PASSED
+[09:47:33] === smoke passed ===
+[09:47:39] fleet down; GPUs released
