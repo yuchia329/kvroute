@@ -16,7 +16,7 @@ This page is the two-minute version: five findings, one figure each, then the co
 | fleet | six replicas of `Meta-Llama-3.1-8B-Instruct-AWQ-INT4`, one RTX 3090 each; five used for the comparison — GPU 3 thermally throttles and is excluded ([#25](https://github.com/yuchia329/kvroute/issues/25)) |
 | policies | 6 implemented — round robin, least outstanding, session affinity, prefix affinity, exact residency, prefix hash; 5 measured on the fleet |
 | SLO | TTFT < 990 ms, inter-token p50 < 24 ms — **3× the measured latency floor** (329 ms / 7.8 ms), derived rather than chosen |
-| records | 788 cell records across 18 measurement campaigns; the largest, ~122,500 requests |
+| records | 806 cell records across 18 measurement campaigns; the largest, ~122,500 requests |
 | repetitions | 3 per cell, spread published, ranges beside every median |
 | reproduce | `make figures` — no fleet, no GPU |
 
@@ -43,8 +43,10 @@ Prefix affinity **over bounded session affinity** (ε = 0.25, CacheRoute's setti
 | **3** | +22.9% | +18.5% | +13.0% |
 | **8** | +21.4% | +15.1% | +12.5% |
 
+![Pressure map: goodput delta, prefix affinity against bounded session affinity](docs/figures/pressuremap-bounded.svg)
+
 [Measurement](docs/measurements/2026-09-19-bounded-session-affinity/). Prefix affinity **over
-session affinity**, which has no load bound — the figure above draws this one:
+session affinity**, which has no load bound — the first figure draws this one:
 
 ¹ Two repetitions: one flagged for warm-up drift, re-run, drifted harder; direction holds either
 way. ² Also two repetitions, after the rebuilt drift check set one aside as a cold opening
@@ -210,8 +212,10 @@ skew 1.4 the bound alone closes 81–93% of the gap between session affinity and
 the +162% to +373% in that column is mostly what one load-balancer setting buys, and the index's
 own share of it is +5.7% to +13.7%. The bound is not free — it sends 14–42% of turns away from the
 replica that served their conversation and gives up 1–8 points of prefix cache hit rate — and at
-skew 0 above working set 1 it buys nothing over the load-blind ring. One ε, not swept; the
-objection that 0.25 was a bad choice is open.
+skew 0 above working set 1 it buys nothing over the load-blind ring. A looser bound, ε = 0.5, was
+checked at the two working-set-1 points and moved goodput by +2.2% and −2.7%, so 0.25 was not
+handicapping the baseline; and a same-night re-run of both older baselines there landed within
++1.4% to +7.4% of the published medians. ε was not swept beyond that.
 [Measurement](docs/measurements/2026-09-19-bounded-session-affinity/). See
 [`docs/research/prior-art-routing.md`](docs/research/prior-art-routing.md), carrying a permanent
 re-verify warning — three of its claims moved within four weeks of research.

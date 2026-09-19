@@ -893,6 +893,10 @@ load-comparison: build ## Report what the spill rule's load condition compared a
 # measurement before repointing.
 FIGURES_DIR ?= docs/figures
 FIGURES_PRESSURE ?= $(wildcard docs/measurements/2026-09-11-pressure-grid/grid/ws*-skew*)
+# #36's cells, handed to pressuremap beside FIGURES_PRESSURE for the one figure
+# drawn against the second baseline (ADR-0016). Kept out of FIGURES_PRESSURE so
+# that every figure published before it regenerates byte for byte.
+FIGURES_PRESSURE_BOUNDED ?= $(wildcard docs/measurements/2026-09-19-bounded-session-affinity/grid/ws*-skew*)
 FIGURES_COMPARE ?= docs/measurements/2026-09-08-three-policy-multiturn/concurrency docs/measurements/2026-09-08-three-policy-multiturn/goodput
 FIGURES_ROUTER_ROWS ?= $(wildcard docs/measurements/2026-09-08-three-policy-multiturn/router-*.jsonl.gz)
 FIGURES_CHAOS_ROUTER_ROWS ?= docs/measurements/2026-09-11-chaos-recovery/evidence/router-session_affinity.jsonl docs/measurements/2026-09-11-chaos-recovery/evidence/router-prefix_affinity-spilloff.jsonl
@@ -908,6 +912,7 @@ figures: ## Regenerate every published figure from the committed measurements, i
 	$(GO) build -o $(BIN)/ ./cmd/pressuremap ./cmd/compare ./cmd/overhead ./cmd/recovery ./cmd/regimemap
 	rm -f $(FIGURES_DIR)/data/*.json $(FIGURES_DIR)/*.svg
 	$(BIN)/pressuremap -data $(FIGURES_DIR)/data/pressuremap.json $(FIGURES_PRESSURE) >/dev/null
+	$(BIN)/pressuremap -baseline bounded_session_affinity -data $(FIGURES_DIR)/data/pressuremap-bounded.json $(FIGURES_PRESSURE) $(FIGURES_PRESSURE_BOUNDED) >/dev/null
 	$(BIN)/regimemap -data $(FIGURES_DIR)/data/regimemap.json $(FIGURES_PRESSURE) >/dev/null
 	$(BIN)/regimemap -load-axis -data $(FIGURES_DIR)/data/regimemap-load.json $(FIGURES_COMPARE) >/dev/null
 	$(BIN)/compare -data $(FIGURES_DIR)/data/comparison.json $(FIGURES_COMPARE) >/dev/null

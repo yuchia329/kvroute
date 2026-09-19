@@ -1,0 +1,60 @@
+[17:19:35] === bounded session affinity (#36): followup ===
+[17:24:44] fleet is up on GPUs 0 1 2 4 5
+[17:24:45] usage probe passed: the engines report cached prompt tokens
+[17:24:45] restarting the fleet before the next policy (ADR-0004)
+[17:30:13] fleet is back up
+[17:30:17] session_affinity: router up
+[17:30:17] session_affinity []: WS 1 skew 0 (3 reps, 300s cells)
+[17:45:44] router drained
+  session_affinity-c32-r1  bound 0  goodput 10.62/s  p90 TTFT 888 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+  session_affinity-c32-r2  bound 0  goodput 9.40/s  p90 TTFT 960 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+  session_affinity-c32-r3  bound 0  goodput 8.48/s  p90 TTFT 1016 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+[17:45:44] restarting the fleet before the next policy (ADR-0004)
+[17:51:14] fleet is back up
+[17:51:17] prefix_affinity: router up
+[17:51:17] prefix_affinity [-spill 0/2]: WS 1 skew 0 (3 reps, 300s cells)
+[18:06:45] router drained
+  prefix_affinity-c32-r1  bound 0  goodput 15.19/s  p90 TTFT 778 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+  prefix_affinity-c32-r2  bound 0  goodput 15.44/s  p90 TTFT 793 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+  prefix_affinity-c32-r3  bound 0  goodput 14.97/s  p90 TTFT 795 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+  session_affinity-c32-r1  bound 0  goodput 10.62/s  p90 TTFT 888 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+  session_affinity-c32-r2  bound 0  goodput 9.40/s  p90 TTFT 960 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+  session_affinity-c32-r3  bound 0  goodput 8.48/s  p90 TTFT 1016 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+[18:06:45] restarting the fleet before the next policy (ADR-0004)
+[18:12:15] fleet is back up
+[18:12:18] session_affinity: router up
+[18:12:18] session_affinity []: WS 1 skew 1.4 (3 reps, 300s cells)
+[18:27:46] router drained
+  session_affinity-c32-r1  bound 0  goodput 13.77/s  p90 TTFT 381 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+  session_affinity-c32-r2  bound 0  goodput 10.36/s  p90 TTFT 386 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+  session_affinity-c32-r3  bound 0  goodput 11.11/s  p90 TTFT 397 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged True ['still warming up: TTFT p50 was 32% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run']
+[18:27:46] restarting the fleet before the next policy (ADR-0004)
+[18:33:15] fleet is back up
+[18:33:18] prefix_affinity: router up
+[18:33:18] prefix_affinity [-spill 0/2]: WS 1 skew 1.4 (3 reps, 300s cells)
+[18:48:46] router drained
+  prefix_affinity-c32-r1  bound 0  goodput 30.86/s  p90 TTFT 390 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+  prefix_affinity-c32-r2  bound 0  goodput 32.01/s  p90 TTFT 388 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+  prefix_affinity-c32-r3  bound 0  goodput 30.57/s  p90 TTFT 400 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+  session_affinity-c32-r1  bound 0  goodput 13.77/s  p90 TTFT 381 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+  session_affinity-c32-r2  bound 0  goodput 10.36/s  p90 TTFT 386 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged False 
+  session_affinity-c32-r3  bound 0  goodput 11.11/s  p90 TTFT 397 ms  kept 0 (0.0%)  deflected 0 (0.0%)  unidentified 0  undecided 0  flagged True ['still warming up: TTFT p50 was 32% slower early in the measured window than late, compared within each of 4 turn indices, over a 25% threshold. Lengthen the warm-up and re-run']
+[18:48:46] === control complete in 89m ===
+[18:48:46] restarting the fleet before the next policy (ADR-0004)
+[18:54:15] fleet is back up
+[18:54:18] bounded_session_affinity: router up
+[18:54:18] bounded_session_affinity [-inflight-bound 0.5]: WS 1 skew 0 (3 reps, 300s cells)
+[19:09:47] router drained
+  bounded_session_affinity-c32-r1  bound 0.5  goodput 12.28/s  p90 TTFT 937 ms  kept 2994 (88.8%)  deflected 378 (11.2%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.5  goodput 11.78/s  p90 TTFT 944 ms  kept 2880 (88.9%)  deflected 361 (11.1%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.5  goodput 11.49/s  p90 TTFT 1018 ms  kept 2801 (85.9%)  deflected 461 (14.1%)  unidentified 0  undecided 0  flagged False 
+[19:09:47] restarting the fleet before the next policy (ADR-0004)
+[19:15:17] fleet is back up
+[19:15:20] bounded_session_affinity: router up
+[19:15:20] bounded_session_affinity [-inflight-bound 0.5]: WS 1 skew 1.4 (3 reps, 300s cells)
+[19:30:46] router drained
+  bounded_session_affinity-c32-r1  bound 0.5  goodput 26.90/s  p90 TTFT 398 ms  kept 5199 (76.8%)  deflected 1567 (23.2%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.5  goodput 27.27/s  p90 TTFT 402 ms  kept 4617 (67.2%)  deflected 2252 (32.8%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.5  goodput 26.16/s  p90 TTFT 408 ms  kept 4633 (70.4%)  deflected 1952 (29.6%)  unidentified 0  undecided 0  flagged False 
+[19:30:46] === followup complete in 131m: runs/pressure-bounded-control, runs/pressure-bounded-eps0.5 ===
+[19:30:53] fleet down; GPUs released
