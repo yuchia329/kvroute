@@ -1,5 +1,12 @@
 # Pressure grid — working set × skew, four policies — 2026-09-11
 
+> **Note, 2026-09-19 (ADR-0016).** Every margin in this directory is over **session affinity**,
+> which has no load bound. The same grid has since been run for **bounded session affinity**, the
+> same ring with a load bound at ε = 0.25: see
+> [`2026-09-19-bounded-session-affinity`](../2026-09-19-bounded-session-affinity/). Over that
+> baseline prefix affinity's margin at WS 1 / skew 0 is +31.5% rather than +66.2%, and the skew 1.4
+> column is +5.7% to +13.7% rather than +162% to +373%. Nothing here was re-run or re-judged.
+
 #18's headline figure: the goodput delta between session affinity and prefix affinity across
 working set ratio crossed with Zipf skew, at one concurrency, with round robin and least
 outstanding beside them for context.

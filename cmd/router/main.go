@@ -82,6 +82,10 @@ func run() error {
 		hashWeight = flag.Float64("hash-weight", 0,
 			"what one step down "+policy.PrefixHashName+"'s ranking of the replicas is worth, in inflight requests. "+
 				"0 routes on load alone and a weight above any imbalance the fleet can show routes on the hash alone; the axis between them is the policy")
+		inflightBound = flag.Float64("inflight-bound", 0,
+			"how far above the fleet's mean inflight "+policy.BoundedSessionAffinityName+" lets a replica run before it walks a session past it to the next replica on the ring, as a fraction of that mean: 0.25 holds every replica to a quarter above it. "+
+				"It is the ε of consistent hashing with bounded loads; Envoy's and HAProxy's hash_balance_factor is 100 × (1 + this). "+
+				"Required by that policy and not defaulted: the bound is a judgement rather than a measurement, so every run states its own")
 		kvEvents = flag.String("kv-events", "",
 			"comma-separated id=tcp://host:port specs naming each replica's KV cache event publisher, as `ops/fleet.sh kv-events` prints them. "+
 				"Required by "+policy.ExactResidencyName+", which routes on what the engines report holding")
@@ -141,6 +145,7 @@ func run() error {
 		MeanInflightDenominator: *meanInflightDenominator,
 	}
 	options.HashPoint = policy.HashPoint{LeadingBlocks: *hashLeadingBlocks, HashWeight: *hashWeight}
+	options.InflightBound = policy.InflightBound(*inflightBound)
 
 	// Exact residency's index is fed by every engine's event stream, and it is
 	// started — and connected — before the policy routes anything on it.
@@ -196,6 +201,11 @@ func run() error {
 	// decision was made at.
 	if _, tuned := chosen.(policy.HashTuned); (options.HashPoint.Stated() || options.HashPoint.HashWeight != 0) && !tuned {
 		return fmt.Errorf("-hash-leading-blocks and -hash-weight configure %s, and %s hashes nothing: it would ignore them and its cells would be labelled with a grid point nothing applied", policy.PrefixHashName, *policyName)
+	}
+	// And the inflight bound, one policy over again. Session affinity handed a
+	// bound would ignore it, and its cells would read as the bounded baseline.
+	if _, tuned := chosen.(policy.BoundTuned); *inflightBound != 0 && !tuned {
+		return fmt.Errorf("-inflight-bound configures %s, and %s has no bound: it would ignore it and its cells would be labelled with a bound nothing applied", policy.BoundedSessionAffinityName, *policyName)
 	}
 	records, err := record.Open[record.Request](*recordsPath)
 	if err != nil {
@@ -269,6 +279,7 @@ func run() error {
 		"honoured_window", window,
 		"hit_rate_span", span,
 		"hash", options.HashPoint,
+		"inflight_bound", options.InflightBound,
 		"replicas", len(replicas),
 		"records", *recordsPath,
 	)

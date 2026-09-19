@@ -23,10 +23,13 @@ const SessionAffinityName = "session_affinity"
 // here — stronger than it would be in production, which is what makes separating
 // from it worth something.
 //
-// It is deliberately blind to load. That blindness is not a shortcoming to be
-// patched: it is the mechanism §0 predicts prefix affinity will beat, because a
+// It is deliberately blind to load, which makes it the first baseline: the
+// blindness is the mechanism §0 predicts prefix affinity will beat, because a
 // ring that lands hot sessions together has no escape hatch and keeps feeding
-// them to the same replica. Fixing it here would delete the comparison.
+// them to the same replica. Fixing it here would delete that comparison and
+// change what every cell already recorded under this name measured. The escape
+// hatch is a policy of its own instead — BoundedSessionAffinity, the second and
+// harder baseline (ADR-0016) — and the two are compared side by side.
 //
 // Note for anyone writing this up: this is not "what OpenAI shipped". OpenAI
 // routes on a hash of the initial tokens *plus machine load*, with

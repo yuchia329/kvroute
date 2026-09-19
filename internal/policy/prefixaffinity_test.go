@@ -323,12 +323,14 @@ func TestByNameNeedsACalibratedIndexForPrefixAffinity(t *testing.T) {
 // order the runs happened in: the baselines first, then prefix affinity, then
 // exact residency beside the policy it is the exact counterpart of. The one
 // policy §5 does not number, the stateless prefix hash, is placed where it makes
-// the three cache-aware rows read as a ladder — see policy.Order.
+// the three cache-aware rows read as a ladder — see policy.Order. The other,
+// bounded session affinity, sits beside the baseline it is the bounded form of.
 func TestThePoliciesAreComparedInTheOrderIdeaMdNumbersThem(t *testing.T) {
 	want := []string{
 		policy.RoundRobinName,
 		policy.LeastOutstandingName,
 		policy.SessionAffinityName,
+		policy.BoundedSessionAffinityName,
 		policy.PrefixHashName,
 		policy.PrefixAffinityName,
 		policy.ExactResidencyName,

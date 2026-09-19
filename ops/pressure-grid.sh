@@ -61,6 +61,12 @@ if [[ -z "$policy" ]]; then
   echo "" >&2
   echo "    $0 prefix_hash PRESSURE_HASH=16/4" >&2
   echo "" >&2
+  echo "  bounded_session_affinity is the seventh (#36, ADR-0016): session affinity's" >&2
+  echo "  ring with a load bound, the second and harder baseline. Its router is started" >&2
+  echo "  with INFLIGHT_BOUND at the bound PRESSURE_BOUND labels the cells with, 0.25:" >&2
+  echo "" >&2
+  echo "    $0 bounded_session_affinity" >&2
+  echo "" >&2
   echo "  Anything after the policy is passed to make, which is how the headline" >&2
   echo "  pair gets its extra repetitions and how the spill thresholds are set:" >&2
   echo "" >&2

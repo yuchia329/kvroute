@@ -1,0 +1,21 @@
+[09:47:50] === bounded session affinity (#36): derisk ===
+[09:52:59] fleet is up on GPUs 0 1 2 4 5
+[09:53:00] usage probe passed: the engines report cached prompt tokens
+[09:53:00] restarting the fleet before the next policy (ADR-0004)
+[09:58:28] fleet is back up
+[09:58:31] bounded_session_affinity: router up
+[09:58:31] bounded_session_affinity at bound 0.25: WS 1 skew 0 (3 reps, 300s cells)
+[10:13:59] router drained
+  bounded_session_affinity-c32-r1  bound 0.25  goodput 11.68/s  p90 TTFT 997 ms  kept 2605 (79.6%)  deflected 669 (20.4%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.25  goodput 11.53/s  p90 TTFT 1027 ms  kept 2614 (80.1%)  deflected 651 (19.9%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.25  goodput 11.13/s  p90 TTFT 1044 ms  kept 2427 (76.2%)  deflected 759 (23.8%)  unidentified 0  undecided 0  flagged False 
+[10:13:59] restarting the fleet before the next policy (ADR-0004)
+[10:19:29] fleet is back up
+[10:19:32] bounded_session_affinity: router up
+[10:19:32] bounded_session_affinity at bound 0.25: WS 1 skew 1.4 (3 reps, 300s cells)
+[10:34:58] router drained
+  bounded_session_affinity-c32-r1  bound 0.25  goodput 27.65/s  p90 TTFT 409 ms  kept 4239 (60.9%)  deflected 2727 (39.1%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r2  bound 0.25  goodput 28.07/s  p90 TTFT 408 ms  kept 4113 (57.9%)  deflected 2989 (42.1%)  unidentified 0  undecided 0  flagged False 
+  bounded_session_affinity-c32-r3  bound 0.25  goodput 27.42/s  p90 TTFT 406 ms  kept 4339 (62.6%)  deflected 2593 (37.4%)  unidentified 0  undecided 0  flagged False 
+[10:34:58] === de-risk points complete in 47m: runs/pressuremap-bounded-derisk-*.md ===
+[10:35:04] fleet down; GPUs released

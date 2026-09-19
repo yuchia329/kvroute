@@ -42,6 +42,24 @@ const (
 	// looks exactly like one hot session, and the decision mix is a reported
 	// result.
 	ReasonSessionUnidentified Reason = "SESSION_UNIDENTIFIED"
+	// ReasonBoundedSessionAffinity is the replica the request's session hashes to,
+	// kept because the inflight bound did not move it: that replica had room, or
+	// — a case no accepted bound can produce — no replica did.
+	//
+	// Not SESSION_AFFINITY, though it is the same replica the load-blind policy
+	// would have chosen: that reason says nothing looked at load, and here
+	// something did and let the placement stand.
+	ReasonBoundedSessionAffinity Reason = "BOUNDED_SESSION_AFFINITY"
+	// ReasonBoundDeflected is a request the inflight bound moved off the replica
+	// its session hashes to, onto the next replica clockwise with room.
+	//
+	// Its own reason for the reason HASH_DEFLECTED is. The bound is the whole
+	// difference between this policy and the load-blind one, and a cell whose
+	// bound deflected nothing and one whose bound deflected everything would
+	// otherwise be told apart only by their goodput — the number the comparison
+	// is trying to explain. It is also the cost side: every one of these is a
+	// turn sent away from the replica holding its conversation.
+	ReasonBoundDeflected Reason = "BOUND_DEFLECTED"
 	// ReasonPrefixAffinity is the replica believed to hold the longest leading
 	// run of this prompt's blocks.
 	ReasonPrefixAffinity Reason = "PREFIX_AFFINITY"
@@ -128,10 +146,16 @@ func (r Reason) Spilled() bool { return r == ReasonSpillHitRate || r == ReasonSp
 // to sort after them: the table's trailing group is for names no policy has, so
 // that a mistyped -policy shows up instead of disappearing, and a real policy
 // landing there would be indistinguishable from that typo.
+//
+// Bounded session affinity is the other entry §5 does not number (ADR-0016). It
+// sits directly after the baseline it hardens, so the two read as the pair they
+// are — the ring blind to load, then the same ring with a bound — and every
+// cache-aware policy below them is read against both.
 var Order = []string{
 	RoundRobinName,
 	LeastOutstandingName,
 	SessionAffinityName,
+	BoundedSessionAffinityName,
 	PrefixHashName,
 	PrefixAffinityName,
 	ExactResidencyName,
@@ -297,6 +321,11 @@ type Options struct {
 	// others. See HashPoint: neither figure is a measurement, and neither is
 	// defaulted.
 	HashPoint HashPoint
+	// InflightBound is how far above the fleet's mean inflight bounded session
+	// affinity lets a replica run before it walks a session past it. Required by
+	// that policy and ignored by the others. See InflightBound: it is a judgement
+	// rather than a measurement, and it is not defaulted.
+	InflightBound InflightBound
 	// Spill is the pressure at which prefix affinity is declined. Its zero value
 	// is no spill rule, which is the policy measured before one existed, so this
 	// is optional where PrefixIndex is required: an unset threshold is a
@@ -321,6 +350,14 @@ func ByName(name string, opts Options) (Policy, error) {
 		return NewLeastOutstanding(), nil
 	case SessionAffinityName:
 		return NewSessionAffinity(), nil
+	case BoundedSessionAffinityName:
+		if err := opts.InflightBound.Validate(); err != nil {
+			return nil, err
+		}
+		if !opts.InflightBound.Stated() {
+			return nil, fmt.Errorf("policy: %s needs an inflight bound above zero: how far above the fleet's mean a replica may run is a judgement and not a measurement, so it is stated for every run rather than defaulted", BoundedSessionAffinityName)
+		}
+		return NewBoundedSessionAffinity(opts.InflightBound), nil
 	case PrefixHashName:
 		if err := opts.HashPoint.Validate(); err != nil {
 			return nil, err

@@ -1,0 +1,4 @@
+time=2026-09-19T03:46:52.659-07:00 level=INFO msg="checking replica health" interval=1s eject_after=2 readmit_after=2
+time=2026-09-19T03:46:52.659-07:00 level=INFO msg="router listening" addr=127.0.0.1:8080 policy=bounded_session_affinity spill=off honoured_window="64 requests/30s, quorum 8" hit_rate_span="10s/100 queries" hash=off inflight_bound="0.25 above mean inflight" replicas=5 records=runs/pressure-bounded/router-bounded_session_affinity.jsonl
+time=2026-09-19T06:52:31.040-07:00 level=INFO msg=draining grace=30s
+time=2026-09-19T06:52:31.099-07:00 level=INFO msg="router overhead" requests=229458 p50_us=223.772 p99_us=973.514 max_us=4849.264

@@ -109,24 +109,29 @@ type MultiTurn struct {
 // Multi-turn generator defaults. The turn geometry multiplies out to a 2,048
 // token session, which is the size idea.md §6 states the WS axis in and the
 // divisor characterize.DefaultSessionTokens carries.
+//
+// The two halves of the geometry are exported because they are the one point of
+// the turns and prompt-length axes that every published cell already ran at, so
+// the axes have to be able to name it — see Geometry.
 const (
-	defaultTurnsPerSession = 4
-	defaultPromptTokens    = 448
-	defaultOutputTokens    = 64
-	defaultSystemTokens    = 128
-	defaultBranchFamilies  = 8
-	defaultBranchTurns     = 1
-	defaultBytesPerToken   = 4
+	DefaultTurnsPerSession = 4
+	DefaultPromptTokens    = 448
+
+	defaultOutputTokens   = 64
+	defaultSystemTokens   = 128
+	defaultBranchFamilies = 8
+	defaultBranchTurns    = 1
+	defaultBytesPerToken  = 4
 )
 
 // NewMultiTurn builds the generator, filling in defaults and refusing a
 // configuration that cannot mean anything.
 func NewMultiTurn(cfg MultiTurnWorkload) (*MultiTurn, error) {
 	if cfg.TurnsPerSession <= 0 {
-		cfg.TurnsPerSession = defaultTurnsPerSession
+		cfg.TurnsPerSession = DefaultTurnsPerSession
 	}
 	if cfg.PromptTokens <= 0 {
-		cfg.PromptTokens = defaultPromptTokens
+		cfg.PromptTokens = DefaultPromptTokens
 	}
 	if cfg.OutputTokens <= 0 {
 		cfg.OutputTokens = defaultOutputTokens
@@ -348,6 +353,18 @@ func (m *MultiTurn) ConfiguredWorkingSet() float64 { return m.cfg.WorkingSet }
 // label at alpha 0 and 0.40 at alpha 1.4 — so a working set binned without it
 // pools cells whose realised memory pressure differs several-fold.
 func (m *MultiTurn) Skew() float64 { return m.cfg.Skew }
+
+// TurnsPerSession and PromptTokens are the turn geometry this trace runs: how
+// many turns a conversation lasts, and how much new user text each turn
+// contributes on top of the history it resends.
+//
+// Resolved rather than configured — the generator fills a missing one in from
+// its defaults before any cell runs — so a cell states the geometry it applied
+// rather than the one it was told. That is what puts it on #38's and #39's
+// axes, and it is why zero on either column is an absence: no cell has ever run
+// at zero turns or a zero-token turn, because NewMultiTurn refuses both.
+func (m *MultiTurn) TurnsPerSession() int { return m.cfg.TurnsPerSession }
+func (m *MultiTurn) PromptTokens() int    { return m.cfg.PromptTokens }
 
 // BytesPerToken is the declared conversion between the token budgets the WS
 // axis is stated in and the bytes on the wire.

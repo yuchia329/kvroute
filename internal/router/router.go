@@ -117,10 +117,18 @@ type Stats struct {
 	// Published for the reason Spill is, and it is the whole configuration of
 	// that policy: its cells are a table indexed by these two numbers, and they
 	// reach the router as flags on a separate process.
-	HashPoint      *policy.HashPoint `json:"hash,omitempty"`
-	Replicas       []ReplicaStats    `json:"replicas"`
-	Requests       int64             `json:"requests"`
-	RouterOverhead stats.Summary     `json:"router_overhead"`
+	HashPoint *policy.HashPoint `json:"hash,omitempty"`
+	// InflightBound is the bound bounded session affinity is running: how far
+	// above the fleet's mean inflight a replica may be and keep a session.
+	// Absent under every other policy, which has none.
+	//
+	// Published for the reason Spill is. It is the whole configuration of that
+	// policy and the one thing that separates its cells from session affinity's,
+	// and it reaches the router as a flag on a separate process.
+	InflightBound  *policy.InflightBound `json:"inflight_bound,omitempty"`
+	Replicas       []ReplicaStats        `json:"replicas"`
+	Requests       int64                 `json:"requests"`
+	RouterOverhead stats.Summary         `json:"router_overhead"`
 	// PrefixIndex is the belief the running policy routes on: how many blocks it
 	// currently holds, and the cap and TTL it holds them under. Absent under the
 	// three policies that consult no index, which is not the same as an index
@@ -302,6 +310,11 @@ func (rt *Router) Stats() Stats {
 		h := tuned.HashTunables()
 		hashPoint = &h
 	}
+	var inflightBound *policy.InflightBound
+	if tuned, ok := rt.policy.(policy.BoundTuned); ok {
+		b := tuned.BoundTunables()
+		inflightBound = &b
+	}
 	var index *prefix.Stats
 	if reporter, routes := rt.policy.(IndexReporter); routes {
 		held := reporter.IndexStats()
@@ -315,6 +328,7 @@ func (rt *Router) Stats() Stats {
 		Policy:         rt.policy.Name(),
 		Spill:          spill,
 		HashPoint:      hashPoint,
+		InflightBound:  inflightBound,
 		Replicas:       replicas,
 		Requests:       rt.requests.Load(),
 		RouterOverhead: rt.overhead.Summary(),

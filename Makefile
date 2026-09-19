@@ -387,6 +387,22 @@ HASH_ARGS = $(if $(HASH_BLOCKS),-hash-leading-blocks $(HASH_BLOCKS),) $(if $(HAS
 # window is no policy at all and is left to the router to refuse.
 HASH_LABEL = $(if $(HASH_BLOCKS),-hash $(HASH_BLOCKS)/$(if $(HASH_WEIGHT),$(HASH_WEIGHT),0),)
 
+# Bounded session affinity's one tunable (#46): how far above the fleet's mean
+# inflight a replica may run before the ring walks a session past it, as a
+# fraction of that mean. Spelled twice for the reason the spill point is — the
+# router applies it, the sweep labels its cells with it, and the harness refuses
+# to start when the two disagree.
+#
+# Not defaulted here or in the router, which refuses the policy without it: the
+# bound is a judgement and not a measurement. The grid runs it at 0.25,
+# bench.CacheRouteInflightBound, and that is PRESSURE_BOUND's business below.
+#
+#	make run-router POLICY=bounded_session_affinity INFLIGHT_BOUND=0.25
+#	make bench      POLICY=bounded_session_affinity INFLIGHT_BOUND=0.25
+INFLIGHT_BOUND ?=
+BOUND_ARGS = $(if $(INFLIGHT_BOUND),-inflight-bound $(INFLIGHT_BOUND),)
+BOUND_LABEL = $(if $(INFLIGHT_BOUND),-inflight-bound $(INFLIGHT_BOUND),)
+
 # The spill thresholds are measured on two workload points, one each, rather
 # than crossed on one. The generator will not let both pressures be high at
 # once: concentrating the draws onto hot conversations means touching fewer
@@ -586,13 +602,21 @@ PRESSURE_SPILL_LABEL = $(if $(filter prefix_affinity exact_residency,$(POLICY)),
 PRESSURE_HASH ?= 16/4
 PRESSURE_HASH_LABEL = $(if $(filter prefix_hash,$(POLICY)),-hash $(PRESSURE_HASH),)
 
+# And for the one policy with an inflight bound. PRESSURE_BOUND is the bound the
+# grid arm runs at, CacheRoute's setting for the same policy (#36), and no other
+# is swept: the objection that 0.25 was a bad choice is left open on purpose.
+# The router has to be started at the same bound — INFLIGHT_BOUND on run-router —
+# and bench refuses the first cell when it was not.
+PRESSURE_BOUND ?= 0.25
+PRESSURE_BOUND_LABEL = $(if $(filter bounded_session_affinity,$(POLICY)),-inflight-bound $(PRESSURE_BOUND),)
+
 .PHONY: pressure-grid
 pressure-grid: build ## Run one point of the pressure grid: PRESSURE_WS x PRESSURE_SKEW at one concurrency
 	@test -n "$(PRESSURE_WS)" || { echo "pressure-grid: set PRESSURE_WS to a point of bench.PressureWorkingSets (0.25, 1, 3 or 8)" >&2; exit 1; }
 	@test -n "$(PRESSURE_SKEW)" || { echo "pressure-grid: set PRESSURE_SKEW to a point of bench.PressureSkews (0, 1 or 1.4)" >&2; exit 1; }
 	@test -n "$(KV_CAPACITY)" || { echo "pressure-grid: KV_CAPACITY is required, or the cells state no working set and the map has no axis" >&2; exit 1; }
 	$(BIN)/bench$(EXE) -router $(ROUTER) -dir $(PRESSURE_DIR)/ws$(PRESSURE_WS)-skew$(PRESSURE_SKEW) \
-		-policy $(POLICY) $(PRESSURE_SPILL_LABEL) $(PRESSURE_HASH_LABEL) $(FLEET_KV_EVENTS_LABEL) \
+		-policy $(POLICY) $(PRESSURE_SPILL_LABEL) $(PRESSURE_HASH_LABEL) $(PRESSURE_BOUND_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		-concurrency $(PRESSURE_CONCURRENCY) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
@@ -698,7 +722,7 @@ disagg: build ## Set a request's KV transfer against its prefill, from DISAGG_DI
 
 .PHONY: bench
 bench: build ## Sweep concurrency against the running fleet, resuming from RUN_DIR
-	$(BIN)/bench$(EXE) -router $(ROUTER) -dir $(RUN_DIR) -policy $(POLICY) $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
+	$(BIN)/bench$(EXE) -router $(ROUTER) -dir $(RUN_DIR) -policy $(POLICY) $(SPILL_LABEL) $(BOUND_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
 		-replicas "$$(ops/fleet.sh replicas)" \
@@ -709,7 +733,7 @@ bench: build ## Sweep concurrency against the running fleet, resuming from RUN_D
 
 .PHONY: goodput
 goodput: build ## Offer a ladder of arrival rates open-loop and record goodput at each, resuming from GOODPUT_DIR
-	$(BIN)/bench$(EXE) -router $(ROUTER) -dir $(GOODPUT_DIR) -policy $(POLICY) -driver open_loop $(SPILL_LABEL) $(FLEET_KV_EVENTS_LABEL) \
+	$(BIN)/bench$(EXE) -router $(ROUTER) -dir $(GOODPUT_DIR) -policy $(POLICY) -driver open_loop $(SPILL_LABEL) $(BOUND_LABEL) $(FLEET_KV_EVENTS_LABEL) \
 		$(if $(GOODPUT_RATES),-arrival-rates $(GOODPUT_RATES),) \
 		-model "$$(ops/fleet.sh env MODEL)" \
 		-gpu-indexes "$$(ops/fleet.sh env REPLICA_GPUS)" \
@@ -869,6 +893,10 @@ load-comparison: build ## Report what the spill rule's load condition compared a
 # measurement before repointing.
 FIGURES_DIR ?= docs/figures
 FIGURES_PRESSURE ?= $(wildcard docs/measurements/2026-09-11-pressure-grid/grid/ws*-skew*)
+# #36's cells, handed to pressuremap beside FIGURES_PRESSURE for the one figure
+# drawn against the second baseline (ADR-0016). Kept out of FIGURES_PRESSURE so
+# that every figure published before it regenerates byte for byte.
+FIGURES_PRESSURE_BOUNDED ?= $(wildcard docs/measurements/2026-09-19-bounded-session-affinity/grid/ws*-skew*)
 FIGURES_COMPARE ?= docs/measurements/2026-09-08-three-policy-multiturn/concurrency docs/measurements/2026-09-08-three-policy-multiturn/goodput
 FIGURES_ROUTER_ROWS ?= $(wildcard docs/measurements/2026-09-08-three-policy-multiturn/router-*.jsonl.gz)
 FIGURES_CHAOS_ROUTER_ROWS ?= docs/measurements/2026-09-11-chaos-recovery/evidence/router-session_affinity.jsonl docs/measurements/2026-09-11-chaos-recovery/evidence/router-prefix_affinity-spilloff.jsonl
@@ -884,6 +912,7 @@ figures: ## Regenerate every published figure from the committed measurements, i
 	$(GO) build -o $(BIN)/ ./cmd/pressuremap ./cmd/compare ./cmd/overhead ./cmd/recovery ./cmd/regimemap
 	rm -f $(FIGURES_DIR)/data/*.json $(FIGURES_DIR)/*.svg
 	$(BIN)/pressuremap -data $(FIGURES_DIR)/data/pressuremap.json $(FIGURES_PRESSURE) >/dev/null
+	$(BIN)/pressuremap -baseline bounded_session_affinity -data $(FIGURES_DIR)/data/pressuremap-bounded.json $(FIGURES_PRESSURE) $(FIGURES_PRESSURE_BOUNDED) >/dev/null
 	$(BIN)/regimemap -data $(FIGURES_DIR)/data/regimemap.json $(FIGURES_PRESSURE) >/dev/null
 	$(BIN)/regimemap -load-axis -data $(FIGURES_DIR)/data/regimemap-load.json $(FIGURES_COMPARE) >/dev/null
 	$(BIN)/compare -data $(FIGURES_DIR)/data/comparison.json $(FIGURES_COMPARE) >/dev/null
@@ -903,7 +932,7 @@ run-router: build ## Run the router against REPLICAS, keeping its own rows in RE
 	$(BIN)/router$(EXE) -listen $(LISTEN) -replicas $(REPLICAS) -policy $(POLICY) -records $(RECORDS) \
 		$(if $(wildcard $(PREFIX_CALIBRATION)),-prefix-calibration $(PREFIX_CALIBRATION),) \
 		$(if $(filter exact_residency,$(POLICY)),$(KV_EVENTS_ARGS),) \
-		$(SPILL_ARGS) $(HASH_ARGS) $(SCRAPE_ARGS)
+		$(SPILL_ARGS) $(HASH_ARGS) $(BOUND_ARGS) $(SCRAPE_ARGS)
 
 # exact_residency follows every engine's KV cache events, so it needs a fleet
 # brought up with KV_EVENTS=1 (ops/versions.env) and the endpoints that fleet

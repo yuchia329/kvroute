@@ -28,8 +28,17 @@ type DecisionMix struct {
 	LeastOutstanding    int `json:"least_outstanding" parquet:"least_outstanding"`
 	SessionAffinity     int `json:"session_affinity" parquet:"session_affinity"`
 	SessionUnidentified int `json:"session_unidentified" parquet:"session_unidentified"`
-	PrefixAffinity      int `json:"prefix_affinity" parquet:"prefix_affinity"`
-	Cold                int `json:"cold" parquet:"cold"`
+	// BoundedSessionAffinity and BoundDeflected are bounded session affinity's
+	// two decisions: a turn kept on the replica its session hashes to, and one
+	// the inflight bound walked past it. Two columns for the reason the hash's
+	// two are: the bound is the whole difference between this policy and the
+	// load-blind one, and a single column would leave a cell unable to say
+	// whether its bound did anything. The second is also the policy's cost,
+	// counted: each is a turn sent away from the replica holding its history.
+	BoundedSessionAffinity int `json:"bounded_session_affinity" parquet:"bounded_session_affinity"`
+	BoundDeflected         int `json:"bound_deflected" parquet:"bound_deflected"`
+	PrefixAffinity         int `json:"prefix_affinity" parquet:"prefix_affinity"`
+	Cold                   int `json:"cold" parquet:"cold"`
 	// PrefixHash and HashDeflected are the stateless prefix hash's two
 	// decisions: the replica its hash ranked first, and the one load moved it to
 	// instead. Two columns for the reason the two spill conditions are two: the
@@ -73,6 +82,10 @@ func (m *DecisionMix) count(reason string) {
 		m.SessionAffinity++
 	case policy.ReasonSessionUnidentified:
 		m.SessionUnidentified++
+	case policy.ReasonBoundedSessionAffinity:
+		m.BoundedSessionAffinity++
+	case policy.ReasonBoundDeflected:
+		m.BoundDeflected++
 	case policy.ReasonPrefixAffinity:
 		m.PrefixAffinity++
 	case policy.ReasonCold:
@@ -109,7 +122,8 @@ func (m DecisionMix) Spilled() int { return m.SpillHitRate + m.SpillLoad }
 func (m DecisionMix) Total() int {
 	return m.RoundRobin + m.LeastOutstanding + m.SessionAffinity + m.SessionUnidentified +
 		m.PrefixAffinity + m.Cold + m.SpillHitRate + m.SpillLoad + m.PromptUntokenized +
-		m.PrefixHash + m.HashDeflected + m.PromptUnhashed + m.Undecided
+		m.PrefixHash + m.HashDeflected + m.PromptUnhashed +
+		m.BoundedSessionAffinity + m.BoundDeflected + m.Undecided
 }
 
 // AffinityRate is the share of decisions that took a prefix match. Zero when
@@ -133,7 +147,7 @@ func (m DecisionMix) SpillRate() float64 {
 // as its own decisions rather than as a row of zeros belonging to other
 // policies.
 func (m DecisionMix) String() string {
-	parts := make([]string, 0, 12)
+	parts := make([]string, 0, 14)
 	for _, named := range []struct {
 		reason policy.Reason
 		count  int
@@ -142,6 +156,8 @@ func (m DecisionMix) String() string {
 		{policy.ReasonLeastOutstanding, m.LeastOutstanding},
 		{policy.ReasonSessionAffinity, m.SessionAffinity},
 		{policy.ReasonSessionUnidentified, m.SessionUnidentified},
+		{policy.ReasonBoundedSessionAffinity, m.BoundedSessionAffinity},
+		{policy.ReasonBoundDeflected, m.BoundDeflected},
 		{policy.ReasonPrefixAffinity, m.PrefixAffinity},
 		{policy.ReasonCold, m.Cold},
 		{policy.ReasonSpillHitRate, m.SpillHitRate},

@@ -255,10 +255,44 @@ replicas. Named for the session rather than for the prefix, because it is the *o
 affinity and the two are the comparison: this one knows nothing about what a replica holds and
 only that a conversation went there before. Consistent hashing rather than hash-modulo-count, so
 that a replica leaving moves only the sessions that lived on it instead of nearly all of them.
-It is deliberately blind to load — that blindness is the mechanism prefix affinity has to beat,
-not a defect to be patched.
+It is deliberately blind to load, and that makes it the **first** baseline: the blindness is the
+mechanism prefix affinity was predicted to beat, and this policy is kept exactly as blind as it was
+measured so that every cell already published stays what it says it is. It is not the hardest
+baseline a plain load balancer offers. That is **bounded session affinity**, the second one, and a
+margin stated against session affinity alone is a margin against the weaker of the two (ADR-0016).
 _Avoid_: sticky sessions, session pinning, affinity (unqualified — that is the prefix-match
 decision above)
+
+**Bounded session affinity**:
+Session affinity with a load bound: the same ring, walked clockwise past any replica whose inflight
+is over the **inflight bound**, taking the first replica within it. The bound is a fraction above
+the fleet's mean inflight, counting the request being placed — at 0.25 no replica may hold more
+than ⌈1.25 × mean⌉ — and it is a judgement rather than a measurement, so it is stated for every run
+and never defaulted. This repo's grid runs it at 0.25, CacheRoute's setting for the same policy,
+with one looser point, 0.5, at two grid points as a check on that choice (ADR-0016's amendment). It
+is the **second** baseline and the harder one: Envoy and HAProxy turn this bound on with one
+setting, so a KV index that beat only the load-blind ring would have beaten a baseline nobody is
+obliged to run. It differs from session affinity in the bound alone — same ring, same supplied
+session identity, same rotation of unidentified requests — and it remembers nothing: a session the
+bound moved is walked from its own position again next turn, and returns to the replica the ring
+places it on as soon as that replica has room. Its two decisions are recorded apart, `BOUNDED_SESSION_AFFINITY` for a turn the bound let
+stand and `BOUND_DEFLECTED` for one it moved, because a deflected turn is a turn sent away from the
+replica holding its history, and that count is the policy's cost.
+_Avoid_: CHWBL (consistent hashing with bounded loads — the prior-art name, not this repo's),
+bounded stickiness, bounded-load hashing, session affinity (unqualified, for this policy — the
+pressure map must never have two rows both called that)
+
+**Inflight bound**:
+How far above the fleet's mean inflight bounded session affinity lets a replica run and still keep
+a session the ring placed on it, as a fraction of that mean: the ε of consistent hashing with
+bounded loads. A replica has room while its inflight is below ⌈(1 + bound) × (fleet inflight + 1) ÷
+replicas⌉, the request being placed counted in. A judgement and not a measurement, so it is stated
+for every run, refused when unstated, published by the router, checked against the router before a
+sweep's first cell, and recorded on the cell in a column of its own. The grid runs at 0.25; 0.5
+was run at two points only, into a directory of its own, and is never pooled with it.
+_Avoid_: balance factor, hash_balance_factor (Envoy's and HAProxy's name, and theirs is 100 × (1 +
+this)), load bound (unqualified — the spill rule's load-imbalance factor is also a bound on load),
+capacity (that is what the bound works out to at one moment, not the setting)
 
 **Stateless prefix hash**:
 Routing on a hash of the prompt's leading blocks, placed on the same ring session affinity uses,
@@ -281,11 +315,14 @@ ever been published.
 _Avoid_: initial tokens, prefix length, hash depth
 
 **Deflection**:
-The stateless prefix hash's decision to pass over the replica its hash ranked first because a
-sibling was enough less loaded to outweigh it. Distinct from a spill, which declines a prefix
-match the router believes in and pays a prefill to escape pressure; a deflection gives up no
-belief, because that policy holds none. How often it fires is how the weighting between the two
-terms is read.
+A ring-placing policy's decision to pass over the replica the ring ranked first because load argued
+against it. Two policies deflect, under two rules and two reasons: the stateless prefix hash when a
+sibling is enough less loaded to outweigh the hash (`HASH_DEFLECTED`), and bounded session affinity
+when the first replica is over the inflight bound (`BOUND_DEFLECTED`). Distinct from a spill, which
+declines a prefix match the router believes in and pays a prefill to escape pressure; a deflection
+gives up no belief, because neither policy holds any — though under bounded session affinity it
+still sends a turn away from the replica that served the conversation, which is that policy's
+cost. How often it fires is how the hash's weighting, or the bound, is read.
 _Avoid_: spill, overflow, rebalance
 
 **Unhashed**:
@@ -589,6 +626,25 @@ it, which is a difference between a policy and itself. *Contested* is a point wh
 than prefix affinity wins beyond the spread.
 _Avoid_: heatmap, pressure map (that is one baseline's delta against one challenger; this names a
 winner among every policy present)
+
+**Turn geometry**:
+The two halves of what a cell's conversations are shaped like: its **turns per session**, how many
+turns a conversation runs for, and its **prompt tokens per turn**, how much new user text each of
+those turns contributes on top of the history it resends. One term for the two because they are one
+physical quantity split in half — a session's KV footprint is turns × (prompt + output) — so a turn
+count stated without a prompt size names a pressure it may not have applied. Every published cell
+ran at one geometry, four turns of 448 tokens, and both halves are now axes of their own. Prompt
+tokens per turn is not the engine's `prompt_tokens`, which counts the whole rendered prompt
+including the resent history.
+_Avoid_: prompt length (unqualified — that is the whole prompt the engine sees), conversation
+length, turn count (unqualified)
+
+**Session pool**:
+How many distinct conversations a cell's workload draws from. The realised count rather than the
+configured one: a cell given a working set ratio has its pool derived from the measured fleet
+capacity, and a sweep along the turns axis rescales it so offered session tokens hold at their
+level. Recorded per cell so that rescaling is checkable from the rows rather than asserted.
+_Avoid_: session count, users, concurrency (that is the load axis)
 
 **Working set ratio**:
 Total session tokens offered divided by aggregate fleet KV capacity. The axis of the pressure grid

@@ -248,6 +248,16 @@ const (
 	// gridSkewSpan bounds the skew axis inside a working set's block, so the two
 	// axes cannot encode into one another. Skew runs to 1.4 and this allows 10.
 	gridSkewSpan = 10 * gridAxisScale
+	// gridWorkingSetSpan bounds the working set axis, and so bounds the whole
+	// block range this grid's points can occupy.
+	//
+	// Unbounded until the turn geometry became an axis of its own. The two
+	// offsets add, so a geometry point has to step over every block a pressure
+	// point could reach or the two partitions interleave — see
+	// geometryBlockSpan. The axis this project sweeps tops out at 8 and this
+	// allows 100, which is far above a ratio anyone would run a cell long enough
+	// to realise.
+	gridWorkingSetSpan = 100 * gridAxisScale
 )
 
 // GridWorkloadOffset is the additional slice of the workload's user space this
@@ -277,6 +287,14 @@ func GridWorkloadOffset(at GridPoint) (int, error) {
 	if skew >= gridSkewSpan {
 		return 0, fmt.Errorf("bench: skew %v is above the %d this grid's user space is partitioned for",
 			at.Skew, gridSkewSpan/gridAxisScale)
+	}
+	if ws >= gridWorkingSetSpan {
+		// The bound exists so the turn geometry's own partition can step over
+		// this one whole. A point beyond it would land inside a geometry point's
+		// slice, which is the silent collision this function is written to
+		// refuse rather than round.
+		return 0, fmt.Errorf("bench: a working set ratio of %v is above the %d this grid's user space is partitioned for",
+			at.WorkingSet, gridWorkingSetSpan/gridAxisScale)
 	}
 	// Every stated point lands far above the blocks the repetition and load axes
 	// occupy — the smallest is WS 0.01, at 1,000 blocks of its own — so the two

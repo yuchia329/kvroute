@@ -193,6 +193,14 @@ func hashSweepAgainst(t *testing.T, dir, policyName string, running, labelled po
 // routerHashing serves a router at a named policy and hash point.
 func routerHashing(t *testing.T, policyName string, point policy.HashPoint, specs ...string) string {
 	t.Helper()
+	return routerTunedTo(t, policyName, policy.Options{HashPoint: point}, specs...)
+}
+
+// routerTunedTo serves a router at a named policy and whichever per-policy
+// tunables that policy reads. The prefix index is supplied for every policy, so
+// a caller states only the knob its test is about.
+func routerTunedTo(t *testing.T, policyName string, options policy.Options, specs ...string) string {
+	t.Helper()
 	replicas, err := fleet.ParseSpecs(specs)
 	if err != nil {
 		t.Fatalf("parse replica specs: %v", err)
@@ -205,7 +213,8 @@ func routerHashing(t *testing.T, policyName string, point policy.HashPoint, spec
 	if err != nil {
 		t.Fatalf("prefix.New: %v", err)
 	}
-	chosen, err := policy.ByName(policyName, policy.Options{PrefixIndex: index, HashPoint: point})
+	options.PrefixIndex = index
+	chosen, err := policy.ByName(policyName, options)
 	if err != nil {
 		t.Fatalf("policy.ByName: %v", err)
 	}

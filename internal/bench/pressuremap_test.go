@@ -576,6 +576,8 @@ func TestPoolingDecisionsKeepsEveryReason(t *testing.T) {
 	full := bench.DecisionMix{
 		RoundRobin: 1, LeastOutstanding: 2, SessionAffinity: 3, SessionUnidentified: 4,
 		PrefixAffinity: 5, Cold: 6, SpillHitRate: 7, SpillLoad: 8, Undecided: 9,
+		PrefixHash: 10, HashDeflected: 11, PromptUnhashed: 12, PromptUntokenized: 13,
+		BoundedSessionAffinity: 14, BoundDeflected: 15,
 	}
 	cs := bothPolicies(highPressure, []float64{8, 8, 8}, []float64{9, 9, 9})
 	for i := range cs {

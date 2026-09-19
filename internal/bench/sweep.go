@@ -338,6 +338,78 @@ type Cell struct {
 	// curve the pressure grid is drawn to show.
 	Skew float64 `json:"skew" parquet:"skew"`
 
+	// TurnsPerSession and PromptTokensPerTurn are the two halves of the
+	// workload's turn geometry this cell was configured with: how many turns a
+	// conversation runs for, and how much new user text each of those turns
+	// contributes on top of the history it resends.
+	//
+	// They are axes now rather than constants. #38 sweeps prompt length and #39
+	// sweeps turns per session, and neither can be read off the columns that
+	// already exist: a working set ratio is offered tokens over capacity, and
+	// the same ratio is reached by a short pool of long conversations or a long
+	// pool of short ones. So a cell that did not carry its own geometry could
+	// not be placed on either new axis.
+	//
+	// Flattened beside the working set rather than left inside the workload
+	// name, for the reason WorkingSet gives: a report that had to parse a name
+	// to find its own axis would break the first time the name gained a field.
+	//
+	// Zero on each is an absence rather than the bottom of the axis. The fixed
+	// workload has no conversations and so no turn count, and every cell
+	// recorded before these columns existed carries zero whatever geometry it
+	// ran — which is why a report bins an unstated geometry off the axis rather
+	// than at its foot. A zero here is never a real setting: the multi-turn
+	// generator refuses a turn count or a prompt size of zero, and fills a
+	// missing one in from its defaults before any cell runs.
+	TurnsPerSession     int `json:"turns_per_session" parquet:"turns_per_session"`
+	PromptTokensPerTurn int `json:"prompt_tokens_per_turn" parquet:"prompt_tokens_per_turn"`
+	// SessionPool is how many conversations the pool actually held while this
+	// cell ran.
+	//
+	// The realised count, not the configured one: a cell given a working set
+	// ratio has its pool derived from the measured fleet capacity, and #39
+	// rescales that pool as it moves along the turns axis so offered session
+	// tokens hold at their level. That rescaling is the substance of the arm,
+	// and a rescaling asserted in a README rather than recorded per cell is a
+	// claim nobody can check against the rows.
+	//
+	// Zero means no pool was recorded: the fixed workload has none, and cells
+	// recorded before this column carry zero however many sessions they drew
+	// from. The generator refuses a pool of zero sessions, so this is an
+	// absence and never a measurement.
+	SessionPool int `json:"session_pool" parquet:"session_pool"`
+	// InflightBound is the load bound bounded session affinity ran at: how far
+	// above the fleet's mean inflight a replica may be and still keep the
+	// session the ring placed on it.
+	//
+	// Its own column beside the spill point rather than folded into it, because
+	// it is a different rule on a different policy: the spill thresholds are
+	// prefix affinity's, and a table indexed by them would put a bounded-session
+	// cell in the spill-off row alongside cells that had no bound at all.
+	//
+	// Zero under every other policy, which has no bound — and never under
+	// bounded session affinity itself, which refuses to run without one stated
+	// (#46). So zero is "this policy has no bound" rather than "the bound was
+	// nil", and the two cannot be confused the way an unstated hash window and a
+	// window of zero blocks could.
+	InflightBound float64 `json:"inflight_bound" parquet:"inflight_bound"`
+	// EffectiveLoadImbalanceFactor is the load-imbalance factor a governed cell
+	// actually applied, averaged over its decisions, which is not the one it was
+	// configured with.
+	//
+	// The whole point of a governor (#48) is that the threshold moves during the
+	// cell, so LoadImbalanceFactor above records what the run was told and this
+	// records what the run did. Without both, a governed cell and a fixed one at
+	// the same configured factor would be indistinguishable on the record, and
+	// the head-to-head against the per-load oracle would rest on nothing the
+	// rows can show.
+	//
+	// Zero means no governor ran, which is every cell in the repo today: an
+	// ungoverned policy applies its configured factor throughout, and that
+	// figure is already in the column above. A governed cell cannot record zero,
+	// because a factor below 1 is refused before the run starts.
+	EffectiveLoadImbalanceFactor float64 `json:"effective_load_imbalance_factor" parquet:"effective_load_imbalance_factor"`
+
 	// PrefixIndexNodes and PrefixIndexCap are how much belief the router's index
 	// was holding when this cell ended, and what it was allowed to hold. Both
 	// zero under the three policies that consult no index.
@@ -588,7 +660,11 @@ type SweepConfig struct {
 	// the reason Spill is: the router is a separate process started with its own
 	// flags, and checkRouter verifies this against what it reports. Its zero
 	// value is a router that hashes nothing, which is every policy but that one.
-	HashPoint     policy.HashPoint
+	HashPoint policy.HashPoint
+	// InflightBound is the bound bounded session affinity is running, told to
+	// the sweep for the reason Spill is and checked the same way. Its zero value
+	// is a router with no bound, which is every policy but that one.
+	InflightBound policy.InflightBound
 	Contamination ContaminationConfig
 	// FleetKVEvents is whether the fleet is publishing its KV cache events, and
 	// what every cell is labelled with. Told rather than probed, like the model
@@ -609,6 +685,16 @@ type SweepConfig struct {
 	// another's prompts — and the whole purpose of the term is that no operator
 	// has to remember it.
 	gridOffset int
+	// geometryOffset is the extra slice of the workload's user space this
+	// sweep's turn geometry sends from, derived from the workload alongside the
+	// pressure point and for the same reason.
+	//
+	// A second term rather than a wider one, because the two partitions are
+	// independent: #38 sweeps prompt length at one pressure point and #39 sweeps
+	// turns at two, so a cell needs its slice separated on both at once. Zero at
+	// the geometry every published cell ran at, which is what keeps the frozen
+	// comparison and the whole pressure grid sending the bytes they already sent.
+	geometryOffset int
 }
 
 // RunSweep runs every cell of the sweep and returns them in order.
@@ -646,6 +732,12 @@ func RunSweep(ctx context.Context, cfg SweepConfig) ([]Cell, error) {
 			WorkingSet: ConfiguredWorkingSet(cfg.Workload),
 			Skew:       OfferedSkew(cfg.Workload),
 		}); err != nil {
+			return nil, err
+		}
+		// The geometry the workload actually runs, defaults filled in, because
+		// that is what decides which bytes it sends. A sweep that stated neither
+		// flag runs the default geometry and is not moved at all.
+		if cfg.geometryOffset, err = GeometryWorkloadOffset(OfferedGeometry(cfg.Workload)); err != nil {
 			return nil, err
 		}
 	}
@@ -955,6 +1047,18 @@ func checkCachedWorkload(cfg SweepConfig) error {
 				cfg.Dir, cached.ID,
 				policy.HashPoint{LeadingBlocks: cached.HashLeadingBlocks, HashWeight: cached.HashWeight}, cfg.HashPoint)
 		}
+		// And the inflight bound, the same trap one policy over. A bounded cell
+		// never records zero — the policy refuses to run unbounded — so a zero
+		// here is a cell of another policy, which differs in its id already.
+		if cached.InflightBound != 0 && policy.InflightBound(cached.InflightBound) != cfg.InflightBound {
+			return fmt.Errorf("bench: %s already holds cells run at a different inflight bound, and the bound is not in the workload's name, so these cells would be resumed as though they were this sweep's own (cell %s).\n"+
+				"  cell ran:          %v\n"+
+				"  this sweep offers: %v\n"+
+				"Sweep each bound into its own -dir. The bound is the whole of what separates %s from %s, so two bounds are two measurements and not two repetitions of one",
+				cfg.Dir, cached.ID,
+				policy.InflightBound(cached.InflightBound), cfg.InflightBound,
+				policy.BoundedSessionAffinityName, policy.SessionAffinityName)
+		}
 		// And the cell's length and warm-up, which no byte of the workload shows
 		// either. A cell's measured window is its length less its warm-up, so a
 		// cell of another length or warm-up is another measurement under the same
@@ -1034,6 +1138,9 @@ func checkRouter(ctx context.Context, cfg SweepConfig) error {
 	if err := checkHashPoint(cfg, stats); err != nil {
 		return err
 	}
+	if err := checkInflightBound(cfg, stats); err != nil {
+		return err
+	}
 	// The one direction the router can confirm: a router following the engines'
 	// KV cache events is proof the fleet publishes them, and cells labelled as run
 	// without them would record an engine configuration that was not running.
@@ -1053,7 +1160,7 @@ func checkRouter(ctx context.Context, cfg SweepConfig) error {
 		}
 	}
 	cfg.Log.Info("router is up and running the policy these cells will name",
-		"router", cfg.Target, "policy", stats.Policy, "spill", cfg.Spill, "hash", cfg.HashPoint, "replicas", len(stats.Replicas))
+		"router", cfg.Target, "policy", stats.Policy, "spill", cfg.Spill, "hash", cfg.HashPoint, "inflight_bound", cfg.InflightBound, "replicas", len(stats.Replicas))
 	if len(cfg.ArrivalRates) > 0 && OffItsSettledRung(cfg.Spill) {
 		// A warning rather than a refusal: the run is not wrong, it is being
 		// made at a rung nothing settled this point at, and that is a judgement
@@ -1113,6 +1220,30 @@ func checkHashPoint(cfg SweepConfig, stats router.Stats) error {
 	return fmt.Errorf("bench: the router at %s is hashing at %v, but this sweep would label its cells %v. "+
 		"The window and the weight reach the router as its own flags and the sweep is only told what they were, so one of the two is wrong — and a weight axis whose cells all ran at one point is that point measured five times",
 		cfg.Target, running, cfg.HashPoint)
+}
+
+// checkInflightBound refuses a sweep whose cells would be labelled with an
+// inflight bound the router is not running.
+//
+// checkGridPoint's argument again, and here the label is the comparison itself:
+// bounded session affinity differs from session affinity in this one number, so
+// a cell labelled with a bound that never ran is a row of the second baseline
+// that nobody measured.
+func checkInflightBound(cfg SweepConfig, stats router.Stats) error {
+	var running policy.InflightBound
+	if stats.InflightBound != nil {
+		running = *stats.InflightBound
+	}
+	if running == cfg.InflightBound {
+		return nil
+	}
+	if stats.InflightBound == nil {
+		return fmt.Errorf("bench: the router at %s reports no inflight bound, because %s has none, but this sweep would label its cells %v",
+			cfg.Target, stats.Policy, cfg.InflightBound)
+	}
+	return fmt.Errorf("bench: the router at %s is holding replicas to %v, but this sweep would label its cells %v. "+
+		"The bound reaches the router as its own flag and the sweep is only told what it was, so one of the two is wrong — and the bound is the only thing separating these cells from %s's",
+		cfg.Target, running, cfg.InflightBound, policy.SessionAffinityName)
 }
 
 // readRouterStats asks the router what it can say about a cell from its own
@@ -1256,7 +1387,7 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		// their session pools overlap. See GridWorkloadOffset. A cell that
 		// states no working set adds nothing here and sends exactly the bytes it
 		// always did.
-		Workload: Shifted(cfg.Workload, CellWorkloadOffset(load, repetition)+cfg.gridOffset),
+		Workload: Shifted(cfg.Workload, CellWorkloadOffset(load, repetition)+cfg.gridOffset+cfg.geometryOffset),
 		Rows:     rows,
 		Labels:   Labels{CellID: id, Policy: cfg.Policy, Repetition: repetition},
 		Log:      cfg.Log,
@@ -1303,6 +1434,10 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		return Cell{}, fmt.Errorf("bench: cell %s: %w", id, err)
 	}
 
+	// The geometry the workload ran, asked once: three columns are read off it
+	// and the walk to reach it is an interface assertion per call.
+	geometry := OfferedGeometry(cfg.Workload)
+
 	cell := Cell{
 		ID:          id,
 		Policy:      cfg.Policy,
@@ -1314,12 +1449,18 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 		WorkingSet:  OfferedWorkingSet(cfg.Workload),
 		Skew:        OfferedSkew(cfg.Workload),
 
+		TurnsPerSession:     geometry.TurnsPerSession,
+		PromptTokensPerTurn: geometry.PromptTokens,
+		SessionPool:         OfferedSessions(cfg.Workload),
+
 		HitRateLowWater:         cfg.Spill.HitRateLowWater,
 		LoadImbalanceFactor:     cfg.Spill.LoadImbalanceFactor,
 		MeanInflightDenominator: cfg.Spill.MeanInflightDenominator,
 
 		HashLeadingBlocks: cfg.HashPoint.LeadingBlocks,
 		HashWeight:        cfg.HashPoint.HashWeight,
+
+		InflightBound: float64(cfg.InflightBound),
 
 		ArrivalPlan:    arrivalPlanFor(load),
 		ThinkTimeNs:    thinkTimeFor(load, cfg.ThinkTime).Nanoseconds(),
