@@ -854,16 +854,25 @@ load-comparison: build ## Report what the spill rule's load condition compared a
 # the policy's own baseline to 5.33/s against 5.98/s — that curve measures the
 # rule rather than the fault (issue #31), and the measurement's README says so.
 #
-# Router overhead is drawn twice because no single run carries every policy. The
-# 2026-09-08 run is the one the comparison figures come from and covers the three
-# policies swept there; the chaos runs are where an affinity pair ran the same
-# scenario, and are the only committed rows for prefix affinity. They are separate
-# figures rather than one, because a p50 from a 32-user sweep and one from a 6
-# req/s open-loop run through a replica failure are not the same measurement.
+# Router overhead is drawn twice because the two runs are not the same
+# measurement. The 2026-09-16 sweep is the one the comparison figures come from
+# and is the only committed run carrying all four policies under one fleet, so it
+# draws the sweep figure; the chaos runs are an affinity pair through a replica
+# failure and draw their own. A p50 from a closed-loop ladder and one from a 6
+# req/s open-loop run through a fault do not belong on one axis.
+#
+# FIGURES_COMPARE is the 2026-09-16 campaign, which is closed-loop only: it was
+# run to put prefix affinity on the load ladder the 2026-09-08 figure was missing.
+# The comparison and load-axis regime figures are therefore closed-loop, and
+# offered load in them is an outcome rather than an input. The 2026-09-08 cells
+# are NOT merged in to restore the open-loop axis: they hold a 65 s measured
+# window against this campaign's 100 s, which compare does not check and which
+# would move the numbers silently. Open-loop goodput stays a separate figure off
+# docs/measurements/2026-09-08-three-policy-multiturn/goodput.
 FIGURES_DIR ?= docs/figures
 FIGURES_PRESSURE ?= $(wildcard docs/measurements/2026-09-11-pressure-grid/grid/ws*-skew*)
-FIGURES_COMPARE ?= docs/measurements/2026-09-08-three-policy-multiturn/concurrency docs/measurements/2026-09-08-three-policy-multiturn/goodput
-FIGURES_ROUTER_ROWS ?= $(wildcard docs/measurements/2026-09-08-three-policy-multiturn/router-*.jsonl.gz)
+FIGURES_COMPARE ?= docs/measurements/2026-09-16-load-sweep-4policy
+FIGURES_ROUTER_ROWS ?= $(wildcard docs/measurements/2026-09-16-load-sweep-4policy/router-*.jsonl.gz)
 FIGURES_CHAOS_ROUTER_ROWS ?= docs/measurements/2026-09-11-chaos-recovery/evidence/router-session_affinity.jsonl docs/measurements/2026-09-11-chaos-recovery/evidence/router-prefix_affinity-spilloff.jsonl
 FIGURES_RECOVERY ?= docs/measurements/2026-09-11-chaos-recovery/kill-session_affinity docs/measurements/2026-09-11-chaos-recovery/kill-prefix_affinity-spilloff
 FIGURES_PYTHON ?= 3.12

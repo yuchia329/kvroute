@@ -1,39 +1,47 @@
 {
   "sources": [
-    "docs/measurements/2026-09-08-three-policy-multiturn/router-closedloop-least_outstanding.jsonl.gz",
-    "docs/measurements/2026-09-08-three-policy-multiturn/router-closedloop-round_robin.jsonl.gz",
-    "docs/measurements/2026-09-08-three-policy-multiturn/router-closedloop-session_affinity.jsonl.gz",
-    "docs/measurements/2026-09-08-three-policy-multiturn/router-openloop-least_outstanding.jsonl.gz",
-    "docs/measurements/2026-09-08-three-policy-multiturn/router-openloop-round_robin.jsonl.gz",
-    "docs/measurements/2026-09-08-three-policy-multiturn/router-openloop-session_affinity.jsonl.gz"
+    "docs/measurements/2026-09-16-load-sweep-4policy/router-least_outstanding.jsonl.gz",
+    "docs/measurements/2026-09-16-load-sweep-4policy/router-prefix_affinity.jsonl.gz",
+    "docs/measurements/2026-09-16-load-sweep-4policy/router-round_robin.jsonl.gz",
+    "docs/measurements/2026-09-16-load-sweep-4policy/router-session_affinity.jsonl.gz"
   ],
   "policies": [
     {
       "policy": "round_robin",
-      "dispatched": 62178,
-      "p50_us": 220.856,
-      "p99_us": 507.174,
-      "max_us": 15249.682,
+      "dispatched": 16420,
+      "p50_us": 221.871,
+      "p99_us": 1360.079,
+      "max_us": 10515.396,
       "tokenized": 0,
       "tokenize_p50_us": null,
       "tokenize_p99_us": null
     },
     {
       "policy": "least_outstanding",
-      "dispatched": 66172,
-      "p50_us": 217.235,
-      "p99_us": 430.82,
-      "max_us": 17074.965,
+      "dispatched": 23301,
+      "p50_us": 219.215,
+      "p99_us": 1079.079,
+      "max_us": 7017.516,
       "tokenized": 0,
       "tokenize_p50_us": null,
       "tokenize_p99_us": null
     },
     {
       "policy": "session_affinity",
-      "dispatched": 70455,
-      "p50_us": 223.111,
-      "p99_us": 787.129,
-      "max_us": 21976.365,
+      "dispatched": 28892,
+      "p50_us": 224.621,
+      "p99_us": 1212.324,
+      "max_us": 11127.717,
+      "tokenized": 0,
+      "tokenize_p50_us": null,
+      "tokenize_p99_us": null
+    },
+    {
+      "policy": "prefix_affinity",
+      "dispatched": 35253,
+      "p50_us": 448.431,
+      "p99_us": 3223.224,
+      "max_us": 16733.167,
       "tokenized": 0,
       "tokenize_p50_us": null,
       "tokenize_p99_us": null
