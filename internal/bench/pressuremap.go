@@ -233,15 +233,19 @@ func addDecisions(a, b DecisionMix) DecisionMix {
 		LeastOutstanding:    a.LeastOutstanding + b.LeastOutstanding,
 		SessionAffinity:     a.SessionAffinity + b.SessionAffinity,
 		SessionUnidentified: a.SessionUnidentified + b.SessionUnidentified,
-		PrefixAffinity:      a.PrefixAffinity + b.PrefixAffinity,
-		Cold:                a.Cold + b.Cold,
-		SpillHitRate:        a.SpillHitRate + b.SpillHitRate,
-		SpillLoad:           a.SpillLoad + b.SpillLoad,
-		PromptUntokenized:   a.PromptUntokenized + b.PromptUntokenized,
-		PrefixHash:          a.PrefixHash + b.PrefixHash,
-		HashDeflected:       a.HashDeflected + b.HashDeflected,
-		PromptUnhashed:      a.PromptUnhashed + b.PromptUnhashed,
-		Undecided:           a.Undecided + b.Undecided,
+
+		BoundedSessionAffinity: a.BoundedSessionAffinity + b.BoundedSessionAffinity,
+		BoundDeflected:         a.BoundDeflected + b.BoundDeflected,
+
+		PrefixAffinity:    a.PrefixAffinity + b.PrefixAffinity,
+		Cold:              a.Cold + b.Cold,
+		SpillHitRate:      a.SpillHitRate + b.SpillHitRate,
+		SpillLoad:         a.SpillLoad + b.SpillLoad,
+		PromptUntokenized: a.PromptUntokenized + b.PromptUntokenized,
+		PrefixHash:        a.PrefixHash + b.PrefixHash,
+		HashDeflected:     a.HashDeflected + b.HashDeflected,
+		PromptUnhashed:    a.PromptUnhashed + b.PromptUnhashed,
+		Undecided:         a.Undecided + b.Undecided,
 	}
 }
 

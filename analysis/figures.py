@@ -43,6 +43,9 @@ POLICY_COLOURS = {
     "round_robin": "#7f7f7f",
     "least_outstanding": "#2ca02c",
     "session_affinity": "#1f77b4",
+    # The second baseline (ADR-0016): the same ring, so the same hue family, and
+    # its own entry so it never shares the fallback with another unlisted policy.
+    "bounded_session_affinity": "#17becf",
     "prefix_affinity": "#d62728",
     "exact_residency": "#9467bd",
 }
@@ -59,6 +62,7 @@ REGIME_POLICY_COLOURS = {
     "round_robin": "#8fa6bf",
     "least_outstanding": "#3f9142",
     "session_affinity": "#f0a83c",
+    "bounded_session_affinity": "#b5651d",
     "prefix_affinity": "#1f4e8c",
 }
 

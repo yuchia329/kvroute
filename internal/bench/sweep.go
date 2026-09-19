@@ -660,7 +660,11 @@ type SweepConfig struct {
 	// the reason Spill is: the router is a separate process started with its own
 	// flags, and checkRouter verifies this against what it reports. Its zero
 	// value is a router that hashes nothing, which is every policy but that one.
-	HashPoint     policy.HashPoint
+	HashPoint policy.HashPoint
+	// InflightBound is the bound bounded session affinity is running, told to
+	// the sweep for the reason Spill is and checked the same way. Its zero value
+	// is a router with no bound, which is every policy but that one.
+	InflightBound policy.InflightBound
 	Contamination ContaminationConfig
 	// FleetKVEvents is whether the fleet is publishing its KV cache events, and
 	// what every cell is labelled with. Told rather than probed, like the model
@@ -1043,6 +1047,18 @@ func checkCachedWorkload(cfg SweepConfig) error {
 				cfg.Dir, cached.ID,
 				policy.HashPoint{LeadingBlocks: cached.HashLeadingBlocks, HashWeight: cached.HashWeight}, cfg.HashPoint)
 		}
+		// And the inflight bound, the same trap one policy over. A bounded cell
+		// never records zero — the policy refuses to run unbounded — so a zero
+		// here is a cell of another policy, which differs in its id already.
+		if cached.InflightBound != 0 && policy.InflightBound(cached.InflightBound) != cfg.InflightBound {
+			return fmt.Errorf("bench: %s already holds cells run at a different inflight bound, and the bound is not in the workload's name, so these cells would be resumed as though they were this sweep's own (cell %s).\n"+
+				"  cell ran:          %v\n"+
+				"  this sweep offers: %v\n"+
+				"Sweep each bound into its own -dir. The bound is the whole of what separates %s from %s, so two bounds are two measurements and not two repetitions of one",
+				cfg.Dir, cached.ID,
+				policy.InflightBound(cached.InflightBound), cfg.InflightBound,
+				policy.BoundedSessionAffinityName, policy.SessionAffinityName)
+		}
 		// And the cell's length and warm-up, which no byte of the workload shows
 		// either. A cell's measured window is its length less its warm-up, so a
 		// cell of another length or warm-up is another measurement under the same
@@ -1122,6 +1138,9 @@ func checkRouter(ctx context.Context, cfg SweepConfig) error {
 	if err := checkHashPoint(cfg, stats); err != nil {
 		return err
 	}
+	if err := checkInflightBound(cfg, stats); err != nil {
+		return err
+	}
 	// The one direction the router can confirm: a router following the engines'
 	// KV cache events is proof the fleet publishes them, and cells labelled as run
 	// without them would record an engine configuration that was not running.
@@ -1141,7 +1160,7 @@ func checkRouter(ctx context.Context, cfg SweepConfig) error {
 		}
 	}
 	cfg.Log.Info("router is up and running the policy these cells will name",
-		"router", cfg.Target, "policy", stats.Policy, "spill", cfg.Spill, "hash", cfg.HashPoint, "replicas", len(stats.Replicas))
+		"router", cfg.Target, "policy", stats.Policy, "spill", cfg.Spill, "hash", cfg.HashPoint, "inflight_bound", cfg.InflightBound, "replicas", len(stats.Replicas))
 	if len(cfg.ArrivalRates) > 0 && OffItsSettledRung(cfg.Spill) {
 		// A warning rather than a refusal: the run is not wrong, it is being
 		// made at a rung nothing settled this point at, and that is a judgement
@@ -1201,6 +1220,30 @@ func checkHashPoint(cfg SweepConfig, stats router.Stats) error {
 	return fmt.Errorf("bench: the router at %s is hashing at %v, but this sweep would label its cells %v. "+
 		"The window and the weight reach the router as its own flags and the sweep is only told what they were, so one of the two is wrong — and a weight axis whose cells all ran at one point is that point measured five times",
 		cfg.Target, running, cfg.HashPoint)
+}
+
+// checkInflightBound refuses a sweep whose cells would be labelled with an
+// inflight bound the router is not running.
+//
+// checkGridPoint's argument again, and here the label is the comparison itself:
+// bounded session affinity differs from session affinity in this one number, so
+// a cell labelled with a bound that never ran is a row of the second baseline
+// that nobody measured.
+func checkInflightBound(cfg SweepConfig, stats router.Stats) error {
+	var running policy.InflightBound
+	if stats.InflightBound != nil {
+		running = *stats.InflightBound
+	}
+	if running == cfg.InflightBound {
+		return nil
+	}
+	if stats.InflightBound == nil {
+		return fmt.Errorf("bench: the router at %s reports no inflight bound, because %s has none, but this sweep would label its cells %v",
+			cfg.Target, stats.Policy, cfg.InflightBound)
+	}
+	return fmt.Errorf("bench: the router at %s is holding replicas to %v, but this sweep would label its cells %v. "+
+		"The bound reaches the router as its own flag and the sweep is only told what it was, so one of the two is wrong — and the bound is the only thing separating these cells from %s's",
+		cfg.Target, running, cfg.InflightBound, policy.SessionAffinityName)
 }
 
 // readRouterStats asks the router what it can say about a cell from its own
@@ -1416,6 +1459,8 @@ func runCell(ctx context.Context, cfg SweepConfig, cellDir, id string, load Load
 
 		HashLeadingBlocks: cfg.HashPoint.LeadingBlocks,
 		HashWeight:        cfg.HashPoint.HashWeight,
+
+		InflightBound: float64(cfg.InflightBound),
 
 		ArrivalPlan:    arrivalPlanFor(load),
 		ThinkTimeNs:    thinkTimeFor(load, cfg.ThinkTime).Nanoseconds(),
