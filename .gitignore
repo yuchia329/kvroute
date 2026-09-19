@@ -34,7 +34,7 @@ docs/measurements/**/*.jsonl
 # are kept. The router's own rows are a different measurement, not a duplicate of
 # these, and are kept gzipped at the top of a measurement directory.
 docs/measurements/**/cells/*.jsonl.gz
-
+docs/measurements/2026-09-16-load-sweep-4policy
 # Local editor and OS clutter, and the binary `go build ./cmd/preflight` leaves at the root.
 # Anchored, so it cannot swallow cmd/preflight/.
 .DS_Store
