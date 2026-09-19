@@ -16,6 +16,25 @@ __pycache__/
 # kind and are kept, so every published figure stays recomputable from the rows
 # it came from rather than being an assertion.
 !docs/measurements/**
+
+# ...but a sweep's raw rows are committed gzipped, so the plain form is re-ignored
+# here. A full four-policy pass is 183 MB of .jsonl against 22 MB with every row
+# kept, and the rows stay the system of record either way (ADR-0002) because
+# .jsonl.gz is not what this pattern matches. Without the line, `git add` on a
+# measurement directory stages the uncompressed copy and nothing objects. Rows
+# already tracked in their plain form are unaffected — .gitignore does not reach a
+# tracked file — and a small new one that is genuinely worth keeping uncompressed
+# takes `git add -f`.
+docs/measurements/**/*.jsonl
+
+# A cell's own rows are not kept, in either form. Compaction folds every cell's
+# rows into the sweep's requests.parquet, so the per-cell copies are 84 files and
+# 8.8 MB restating what one 6.2 MB file already holds — and nothing reads them: a
+# comparison is rebuilt from the cell records beside them (cells/*.json), which
+# are kept. The router's own rows are a different measurement, not a duplicate of
+# these, and are kept gzipped at the top of a measurement directory.
+docs/measurements/**/cells/*.jsonl.gz
+docs/measurements/2026-09-16-load-sweep-4policy
 # Local editor and OS clutter, and the binary `go build ./cmd/preflight` leaves at the root.
 # Anchored, so it cannot swallow cmd/preflight/.
 .DS_Store
