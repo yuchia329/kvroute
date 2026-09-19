@@ -140,6 +140,13 @@ WS 1. The belief also decays with age: 99.8% honoured at 1–2 s, falling to **8
 - **Exact residency loses to the belief it was meant to replace**, 11 of 12 points, 4.6–13.5% of goodput — see the fourth finding above.
 - **The warm-up drift check was wrong in three ways**; rebuilding it moved 118 of 216 recorded open-loop cells' verdicts ([#33](https://github.com/yuchia329/kvroute/issues/33)).
 - **The spill rule is tuned for one load and misfires at another**: 19% of later turns at 6 req/s open-loop spilled, against 0.674% at the 32-user rung it was settled at ([#31](https://github.com/yuchia329/kvroute/issues/31)).
+- **Most of the skew-1.4 margin belongs to a load bound, not to the index.** The pressure grid's
+  +162% to +373% at skew 1.4 was over session affinity, which has no load bound. With consistent
+  hashing with bounded loads on the grid (ε = 0.25, one setting in Envoy and HAProxy), the bound
+  alone closes 81–93% of that gap; prefix affinity's margin over it is +5.7% to +13.7%. At the
+  headline point (WS 1 / skew 0) the bound closes 40% and the margin is +31.5% rather than +66.2%
+  ([#36](https://github.com/yuchia329/kvroute/issues/36),
+  [ADR-0016](docs/adr/0016-the-load-bounded-ring-is-the-second-baseline-and-every-delta-names-the-baseline-it-is-against.md)).
 - **The spill rule's residency branch is harmful at every threshold measured** — 35 of 35 points,
   5% to 91% — so it ships off (`HitRateLowWater: 0`).
 

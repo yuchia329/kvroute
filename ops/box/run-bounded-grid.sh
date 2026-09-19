@@ -5,6 +5,7 @@
 #   ./run-bounded-grid.sh smoke     # one 60 s cell: the bound deflects, the label reaches the record
 #   ./run-bounded-grid.sh derisk    # WS 1 / skew 0 and WS 1 / skew 1.4, 3 reps each, ~40 min
 #   ./run-bounded-grid.sh grid      # all twelve points, 36 cells, ~3.2 h
+#   ./run-bounded-grid.sh followup  # the same-night control, then bound 0.5, at the two WS 1 points, ~2.2 h
 #
 # Every margin this repo has published for prefix affinity is over session
 # affinity, which is blind to load on purpose, and the report's own second
@@ -31,6 +32,22 @@
 # than in runs/pressure so that a published measurement's directory is never
 # written to by a later run; pressuremap and regimemap are handed both.
 #
+# followup was added after the grid ran (ADR-0016's amendment). smoke, derisk and
+# grid ran on 2026-09-19 from this file as committed at dc981b1, md5
+# e330a30aca7c, and send what they sent then: the label and the report were made
+# general for followup's other policies and nothing else moved. followup answers
+# two questions the grid left open, at the two de-risk points and under the
+# de-risk arm's conditions -- each point on a freshly cycled fleet -- so its cells
+# read against runs/pressure-bounded-derisk's:
+#
+#   control   session_affinity and prefix_affinity again, by these binaries, on
+#             this night. #18's baselines are nine days older than the bounded
+#             cells. Into runs/pressure-bounded-control; never pooled into #18's.
+#   bound 0.5 the one looser bound. 0.25 deflected 17-19% of turns at skew 0 above
+#             WS 1 for no gain, which is what a bound that is too tight looks like.
+#             Into runs/pressure-bounded-eps0.5: a cell id does not carry the
+#             bound, so two bounds never share a directory, and bench refuses it.
+#
 # Resumable: cells on disk are loaded rather than re-run. It leaves the fleet
 # down however it ends, because the box is shared.
 source ./lib-sweep.sh
@@ -40,9 +57,11 @@ LOG=bounded-grid.log
 RUN=runs/pressure-bounded
 DERISK=runs/pressure-bounded-derisk
 SMOKE=runs/bounded-smoke
+CONTROL=runs/pressure-bounded-control
+LOOSER=runs/pressure-bounded-eps0.5
 PUBLISHED=runs/pressure
 EVID=$RUN/evidence
-mkdir -p "$EVID" "$DERISK" "$SMOKE"
+mkdir -p "$EVID" "$DERISK" "$SMOKE" "$CONTROL" "$LOOSER"
 
 # --- The grid: #18's, to the value ---------------------------------------------
 WORKING_SETS=(0.25 1 3 8)
@@ -62,6 +81,16 @@ POLICY=bounded_session_affinity
 # below ceil(1.25 x (fleet inflight + 1) / replicas). No other bound is swept:
 # the objection that 0.25 was a bad choice is left open on purpose (#35).
 BOUND=0.25
+# The one looser bound followup runs, at two points only. Not a sweep.
+LOOSER_BOUND=0.5
+# What the harness is told the router is running, spelled to both and checked by
+# bench before the first cell. followup changes it per arm.
+LABEL="-inflight-bound $BOUND"
+
+# Prefix affinity as #18's grid ran it: bench.Chosen's spill point and the
+# derived calibration, from run-pressure-grid.sh to the value.
+PREFIX_LABEL="-spill 0/2"
+PREFIX_ROUTER="-prefix-calibration $DERIVED -load-imbalance-factor 2"
 
 SMOKE_CELL=60s
 SMOKE_WARM=20s
@@ -81,11 +110,11 @@ run_point() {
   local base="$1" ws="$2" skew="$3" reps="$4"
   local cell="$CELL" warm="$WARM"
   if [[ "$base" == "$SMOKE" ]]; then cell="$SMOKE_CELL"; warm="$SMOKE_WARM"; fi
-  say "$POLICY at bound $BOUND: WS $ws skew $skew ($reps reps, $cell cells)"
+  say "$POLICY [$LABEL]: WS $ws skew $skew ($reps reps, $cell cells)"
   ./bin/bench-linux-amd64 \
     -router http://127.0.0.1:8080 \
     -dir "$base/ws$ws-skew$skew" \
-    -policy "$POLICY" -inflight-bound "$BOUND" -fleet-kv-events=false \
+    -policy "$POLICY" $LABEL -fleet-kv-events=false \
     -concurrency "$CONC" \
     -cell-duration $cell -warmup $warm -settle $SETTLE \
     -repetitions "$reps" \
@@ -105,15 +134,15 @@ bound_report() {
   python3 - "$@" <<'PY' | tee -a "$LOG"
 import glob, json, sys
 for point in sys.argv[1:]:
-    for path in sorted(glob.glob(point + "/cells/bounded_session_affinity-*.json")):
+    for path in sorted(glob.glob(point + "/cells/*.json")):
         c = json.load(open(path))
         s, d = c["summary"], c["summary"]["decisions"]
         total = sum(v for v in d.values() if isinstance(v, int))
         share = (lambda n: 0.0 if total == 0 else 100.0 * n / total)
         print("  %s  bound %s  goodput %.2f/s  p90 TTFT %.0f ms  kept %d (%.1f%%)  deflected %d (%.1f%%)  unidentified %d  undecided %d  flagged %s %s" % (
             c["id"], c["inflight_bound"], s["goodput_rps"], s["ttft_p90_ns"] / 1e6,
-            d["bounded_session_affinity"], share(d["bounded_session_affinity"]),
-            d["bound_deflected"], share(d["bound_deflected"]),
+            d.get("bounded_session_affinity", 0), share(d.get("bounded_session_affinity", 0)),
+            d.get("bound_deflected", 0), share(d.get("bound_deflected", 0)),
             d["session_unidentified"], d["undecided"],
             s["flagged"], s.get("flag_reasons", "")))
 PY
@@ -121,7 +150,7 @@ PY
 
 # --- Entry ---------------------------------------------------------------------
 MODE="${1:-derisk}"
-case "$MODE" in smoke|derisk|grid) ;; *) fatal "unknown mode $MODE: one of smoke, derisk, grid" ;; esac
+case "$MODE" in smoke|derisk|grid|followup) ;; *) fatal "unknown mode $MODE: one of smoke, derisk, grid, followup" ;; esac
 say "=== bounded session affinity (#36): $MODE ==="
 
 # ---- gates --------------------------------------------------------------------
@@ -157,6 +186,10 @@ flock -n 9 || fatal "another run holds /tmp/kvroute-sweep.lock; not starting"
 # first cell fails twelve minutes into a fleet bring-up instead of here.
 ./bin/router-linux-amd64 -h 2>&1 | grep -q "inflight-bound" || fatal "this router has no -inflight-bound flag: run make box-sync from a checkout at or after #46"
 ./bin/bench-linux-amd64 -h 2>&1 | grep -q "inflight-bound" || fatal "this bench has no -inflight-bound flag: run make box-sync from a checkout at or after #46"
+
+if [[ "$MODE" == "followup" ]]; then
+  [ -f "$DERIVED" ] || fatal "no derived calibration at $DERIVED, and the control's prefix_affinity cells need the one #18's grid ran with"
+fi
 
 # Every gate has passed, so from here the fleet is this script's to take down.
 trap cleanup EXIT
@@ -234,5 +267,42 @@ PY
     ./bin/regimemap-linux-amd64 -out runs/regimemap-bounded.md "$PUBLISHED"/ws*-skew* "$RUN"/ws*-skew* >> "$LOG" 2>&1 \
       || say "regimemap exited non-zero (see $LOG)"
     say "=== grid complete: runs/pressuremap-bounded-vs-prefix.md, runs/pressuremap-session-vs-bounded.md, runs/regimemap-bounded.md ==="
+    ;;
+
+  followup)
+    # Each point on a freshly cycled fleet, as the de-risk arm ran: these cells
+    # are read against that arm's, so they get its conditions. The cycle is also
+    # what ADR-0004 asks for between policies, which send identical bytes.
+    follow_point() {
+      local base="$1" skew="$2"; shift 2
+      fleet_cycle
+      start_router "$POLICY" "$base/router-$POLICY-ws1-skew$skew.jsonl" "$@"
+      run_point "$base" 1 "$skew" "$REPS"
+      stop_router; RPID=""
+      bound_report "$base/ws1-skew$skew"
+    }
+    for skew in 0 1.4; do
+      POLICY=session_affinity; LABEL=""
+      follow_point "$CONTROL" "$skew"
+      POLICY=prefix_affinity; LABEL="$PREFIX_LABEL"
+      follow_point "$CONTROL" "$skew" $PREFIX_ROUTER
+    done
+    say "=== control complete in $(( ($(date +%s) - started) / 60 ))m ==="
+    POLICY=bounded_session_affinity; LABEL="-inflight-bound $LOOSER_BOUND"
+    for skew in 0 1.4; do
+      follow_point "$LOOSER" "$skew" -inflight-bound "$LOOSER_BOUND"
+    done
+    # Maps over tonight's cells only: the control's baselines with each bound in
+    # turn. The two bounds are never handed to one map, which would pool them as
+    # repetitions of one policy.
+    for skew in 0 1.4; do
+      for arm in "derisk-eps0.25 $DERISK" "eps0.5 $LOOSER"; do
+        set -- $arm
+        ./bin/pressuremap-linux-amd64 -out "runs/pressuremap-bounded-followup-ws1-skew$skew-$1-vs-prefix.md" \
+          -baseline bounded_session_affinity -challenger prefix_affinity "$CONTROL/ws1-skew$skew" "$2/ws1-skew$skew" >> "$LOG" 2>&1 \
+          || say "pressuremap ($1, skew $skew) exited non-zero (see $LOG): read its validity section first"
+      done
+    done
+    say "=== followup complete in $(( ($(date +%s) - started) / 60 ))m: $CONTROL, $LOOSER ==="
     ;;
 esac

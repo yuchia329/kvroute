@@ -268,7 +268,8 @@ Session affinity with a load bound: the same ring, walked clockwise past any rep
 is over the **inflight bound**, taking the first replica within it. The bound is a fraction above
 the fleet's mean inflight, counting the request being placed — at 0.25 no replica may hold more
 than ⌈1.25 × mean⌉ — and it is a judgement rather than a measurement, so it is stated for every run
-and never defaulted. This repo runs it at 0.25 only, CacheRoute's setting for the same policy. It
+and never defaulted. This repo's grid runs it at 0.25, CacheRoute's setting for the same policy,
+with one looser point, 0.5, at two grid points as a check on that choice (ADR-0016's amendment). It
 is the **second** baseline and the harder one: Envoy and HAProxy turn this bound on with one
 setting, so a KV index that beat only the load-blind ring would have beaten a baseline nobody is
 obliged to run. It differs from session affinity in the bound alone — same ring, same supplied
@@ -287,8 +288,8 @@ a session the ring placed on it, as a fraction of that mean: the ε of consisten
 bounded loads. A replica has room while its inflight is below ⌈(1 + bound) × (fleet inflight + 1) ÷
 replicas⌉, the request being placed counted in. A judgement and not a measurement, so it is stated
 for every run, refused when unstated, published by the router, checked against the router before a
-sweep's first cell, and recorded on the cell in a column of its own. This repo runs 0.25 and
-nothing else.
+sweep's first cell, and recorded on the cell in a column of its own. The grid runs at 0.25; 0.5
+was run at two points only, into a directory of its own, and is never pooled with it.
 _Avoid_: balance factor, hash_balance_factor (Envoy's and HAProxy's name, and theirs is 100 × (1 +
 this)), load bound (unqualified — the spill rule's load-imbalance factor is also a bound on load),
 capacity (that is what the bound works out to at one moment, not the setting)

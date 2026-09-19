@@ -136,3 +136,26 @@ only (ADR-0010).
 the published one and the bound is CacheRoute's, but the ring, the virtual node count, the hash
 and what counts as inflight are this repo's. It is reported as consistent hashing with bounded
 loads at ε = 0.25 over this repo's ring, under this repo's name for it.
+
+## Amendment, 2026-09-19: one more bound at two points, and a same-night control
+
+Decided by the owner after the grid ran, and recorded here rather than edited into the text above,
+which is what was fixed before the cells existed.
+
+**ε = 0.5 is run at WS 1 / skew 0 and WS 1 / skew 1.4, and nowhere else.** The grid showed the
+bound deflecting 17–19% of turns at skew 0 above WS 1 for no gain over the load-blind ring, which
+is what a bound that is too tight looks like. One looser point at the two de-risk points says
+whether 0.25 was costing the baseline goodput. It is not a sweep and it does not move the grid:
+the published second baseline stays ε = 0.25, CacheRoute's, and the 0.5 cells go to a directory
+of their own and are never pooled with the 0.25 cells — a cell id does not carry the bound, and
+`bench` refuses to resume one bound's directory under another.
+
+**Session affinity and prefix affinity are re-run at the same two points on the same night, as a
+control.** #18's baselines are nine days older than the bounded cells and were recorded by older
+binaries. The control cells are never pooled into #18's and replace nothing; they say whether the
+baselines moved, and therefore whether "the bound closes 40% of the gap" rests on a gap that is
+still there.
+
+**The more-than-half trigger is unchanged.** It was fixed before the cells ran and is judged on
+the ε = 0.25 grid cells against #18's published baselines, as written. The control and the ε = 0.5
+point are reported beside that verdict and do not re-open it.
