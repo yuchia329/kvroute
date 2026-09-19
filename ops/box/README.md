@@ -70,6 +70,7 @@ committed.
 | `run-pressure-spilloff.sh` | Prefix affinity with the spill rule off, across the same grid and the same bytes, into its own directory. |
 | `run-exact-grid.sh` | #24's grid: exact residency against the approximate index, on a fleet publishing KV cache events, with session affinity as the baseline. |
 | `run-hash-grid.sh` | #26's two arms: the stateless hash's weight axis, then the grid at the weight that axis settled on. |
+| `run-bounded-grid.sh` | #36's three modes: a smoke cell, the two de-risk points (WS 1 / skew 0 and 1.4) each on a cold fleet, then bounded session affinity across the twelve-point grid at a bound of 0.25, into `runs/pressure-bounded` beside #18's `runs/pressure`. Carries `run-recency-rerun.sh`'s gates. Committed before its run. |
 | `run-recency-rerun.sh` | #29's two halves: the recency axis re-run at whole visit periods, and the WS 3 rung the working-set axis is missing. Run 2026-09-12; see below. |
 
 `run-recency-rerun.sh` was committed **before** its run rather than after it, which is the
